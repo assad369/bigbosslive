@@ -26,6 +26,11 @@ export function createApp(ctx: Ctx): Express {
       genReqId: (req) => (req as express.Request).requestId ?? '',
       autoLogging: { ignore: (req) => req.url === '/healthz' || req.url === '/readyz' || req.url === '/metrics' },
       customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'),
+      // Lean access logs: no headers (they carry tokens and are huge), just the essentials.
+      serializers: {
+        req: (req: { id: string; method: string; url: string; remoteAddress?: string }) => ({ id: req.id, method: req.method, url: req.url, ip: req.remoteAddress }),
+        res: (res: { statusCode: number }) => ({ status: res.statusCode }),
+      },
     }),
   );
   app.use(metrics());

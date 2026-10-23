@@ -4,7 +4,7 @@ import { SOCKET, type ChatMessage } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { ConversationDoc, MessageDoc } from '../../db/schema.js';
 import { badRequest, forbidden, isDuplicateKeyError, notFound } from '../../lib/errors.js';
-import { decodeCursor, encodeCursor } from '../../lib/http.js';
+import { afterCursor, encodeCursor } from '../../lib/http.js';
 
 export const sendMessageInput = z
   .object({
@@ -105,10 +105,9 @@ export class ChatService {
   }
 
   async conversations(uid: string, cursor: string | undefined, limit: number) {
-    const after = decodeCursor(cursor);
     const rows = await this.ctx.col.conversations
-      .find({ participants: uid, lastMessage: { $ne: null }, ...(after ? { updatedAt: { $lt: after.date } } : {}) })
-      .sort({ updatedAt: -1 })
+      .find({ participants: uid, lastMessage: { $ne: null }, ...afterCursor(cursor, 'updatedAt') })
+      .sort({ updatedAt: -1, _id: -1 })
       .limit(limit + 1)
       .toArray();
     const page = rows.slice(0, limit);
@@ -135,10 +134,9 @@ export class ChatService {
 
   async messages(uid: string, conversationId: ObjectId, cursor: string | undefined, limit: number) {
     await this.assertParticipant(uid, conversationId);
-    const after = decodeCursor(cursor);
     const rows = await this.ctx.col.messages
-      .find({ conversationId, deletedFor: { $ne: uid }, ...(after ? { createdAt: { $lt: after.date } } : {}) })
-      .sort({ createdAt: -1 })
+      .find({ conversationId, deletedFor: { $ne: uid }, ...afterCursor(cursor) })
+      .sort({ createdAt: -1, _id: -1 })
       .limit(limit + 1)
       .toArray();
     const page = rows.slice(0, limit);

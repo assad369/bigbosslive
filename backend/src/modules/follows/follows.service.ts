@@ -1,6 +1,6 @@
 import type { Ctx } from '../../context.js';
 import { badRequest, forbidden, isDuplicateKeyError } from '../../lib/errors.js';
-import { decodeCursor, encodeCursor } from '../../lib/http.js';
+import { afterCursor, encodeCursor } from '../../lib/http.js';
 import type { UserBrief } from '../users/users.presenter.js';
 
 /**
@@ -51,15 +51,14 @@ export class FollowsService {
   }
 
   async list(uid: string, direction: 'followers' | 'following', cursor: string | undefined, limit: number) {
-    const after = decodeCursor(cursor);
     const field = direction === 'followers' ? 'followeeId' : 'followerId';
     const other = direction === 'followers' ? 'followerId' : 'followeeId';
     const rows = await this.ctx.col.follows
       .find({
         [field]: uid,
-        ...(after ? { createdAt: { $lt: after.date } } : {}),
+        ...afterCursor(cursor),
       })
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1, _id: -1 })
       .limit(limit + 1)
       .toArray();
     const page = rows.slice(0, limit);

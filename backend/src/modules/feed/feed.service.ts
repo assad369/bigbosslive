@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import type { FeedPostDoc } from '../../db/schema.js';
 import { forbidden, isDuplicateKeyError, notFound } from '../../lib/errors.js';
-import { decodeCursor, encodeCursor } from '../../lib/http.js';
+import { afterCursor, encodeCursor } from '../../lib/http.js';
 import type { UserBrief } from '../users/users.presenter.js';
 
 export const createPostInput = z
@@ -96,10 +96,9 @@ export class FeedService {
       return { items: await this.hydrate(page, viewerUid), nextCursor: rows.length > opts.limit ? Buffer.from(String(offset + opts.limit)).toString('base64url') : null };
     }
 
-    const after = decodeCursor(opts.cursor);
-    if (after) q.createdAt = { $lt: after.date };
+    Object.assign(q, afterCursor(opts.cursor));
     if (hidden.length && !q.authorId) q.authorId = { $nin: hidden };
-    const rows = await this.ctx.col.feedPosts.find(q).sort({ createdAt: -1 }).limit(opts.limit + 1).toArray();
+    const rows = await this.ctx.col.feedPosts.find(q).sort({ createdAt: -1, _id: -1 }).limit(opts.limit + 1).toArray();
     const page = rows.slice(0, opts.limit).filter((p) => !hidden.includes(p.authorId));
     const last = rows.slice(0, opts.limit).at(-1);
     return { items: await this.hydrate(page, viewerUid), nextCursor: rows.length > opts.limit && last ? encodeCursor(last.createdAt, String(last._id)) : null };
@@ -172,10 +171,9 @@ export class FeedService {
   }
 
   async comments(postId: ObjectId, cursor: string | undefined, limit: number) {
-    const after = decodeCursor(cursor);
     const rows = await this.ctx.col.feedComments
-      .find({ postId, status: 'active', ...(after ? { createdAt: { $lt: after.date } } : {}) })
-      .sort({ createdAt: -1 })
+      .find({ postId, status: 'active', ...afterCursor(cursor) })
+      .sort({ createdAt: -1, _id: -1 })
       .limit(limit + 1)
       .toArray();
     const page = rows.slice(0, limit);

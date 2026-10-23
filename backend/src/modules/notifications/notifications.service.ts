@@ -5,7 +5,7 @@ import { SOCKET } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { AnnouncementDoc, NotificationDoc, UserDoc } from '../../db/schema.js';
 import { notFound } from '../../lib/errors.js';
-import { decodeCursor, encodeCursor } from '../../lib/http.js';
+import { afterCursor, encodeCursor } from '../../lib/http.js';
 
 export const announcementInput = z.object({
   title: z.string().trim().min(1).max(80),
@@ -52,10 +52,9 @@ export class NotificationsService {
   }
 
   async list(uid: string, cursor: string | undefined, limit: number) {
-    const after = decodeCursor(cursor);
     const rows = await this.ctx.col.notifications
-      .find({ userId: uid, ...(after ? { createdAt: { $lt: after.date } } : {}) })
-      .sort({ createdAt: -1 })
+      .find({ userId: uid, ...afterCursor(cursor) })
+      .sort({ createdAt: -1, _id: -1 })
       .limit(limit + 1)
       .toArray();
     const page = rows.slice(0, limit);

@@ -48,7 +48,7 @@ export const pageQuery = z.object({
 export type PageQuery = z.infer<typeof pageQuery>;
 
 export const cursorQuery = z.object({
-  cursor: z.string().max(64).optional(),
+  cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 export type CursorQuery = z.infer<typeof cursorQuery>;
@@ -56,6 +56,18 @@ export type CursorQuery = z.infer<typeof cursorQuery>;
 /** Opaque cursor = base64url("<isoDate>|<id>") for stable `createdAt desc, _id desc` paging. */
 export function encodeCursor(date: Date, id: string): string {
   return Buffer.from(`${date.toISOString()}|${id}`).toString('base64url');
+}
+
+/**
+ * Mongo filter for "rows strictly after the cursor" under a `{ [field]: -1, _id: -1 }` sort.
+ * The `_id` tiebreak keeps paging exact when many rows share a timestamp.
+ */
+export function afterCursor(cursor: string | undefined, field = 'createdAt'): Record<string, unknown> {
+  const after = decodeCursor(cursor);
+  if (!after) return {};
+  if (!ObjectId.isValid(after.id)) throw badRequest('Invalid cursor');
+  const id = new ObjectId(after.id);
+  return { $or: [{ [field]: { $lt: after.date } }, { [field]: after.date, _id: { $lt: id } }] };
 }
 
 export function decodeCursor(cursor: string | undefined): { date: Date; id: string } | null {

@@ -3,7 +3,7 @@ import { SOCKET, type Currency, type LedgerReason } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { LedgerDoc, RechargeDoc, UserDoc } from '../../db/schema.js';
 import { badRequest, forbidden, insufficientBalance, isDuplicateKeyError, notFound } from '../../lib/errors.js';
-import { decodeCursor, encodeCursor } from '../../lib/http.js';
+import { afterCursor, encodeCursor } from '../../lib/http.js';
 
 const FIELD: Record<Currency, 'wallet.diamonds' | 'wallet.beans' | 'wallet.agentStock'> = {
   diamonds: 'wallet.diamonds',
@@ -88,11 +88,9 @@ export class WalletService {
   }
 
   async ledger(uid: string, opts: { currency?: Currency; cursor?: string; limit: number }) {
-    const after = decodeCursor(opts.cursor);
-    const q: Filter<LedgerDoc> = { userId: uid };
+    const q: Filter<LedgerDoc> = { userId: uid, ...afterCursor(opts.cursor) };
     if (opts.currency) q.currency = opts.currency;
-    if (after) q.createdAt = { $lt: after.date };
-    const rows = await this.ctx.col.ledger.find(q).sort({ createdAt: -1 }).limit(opts.limit + 1).toArray();
+    const rows = await this.ctx.col.ledger.find(q).sort({ createdAt: -1, _id: -1 }).limit(opts.limit + 1).toArray();
     const page = rows.slice(0, opts.limit);
     const last = page.at(-1);
     return {
