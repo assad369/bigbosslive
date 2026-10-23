@@ -44,3 +44,6 @@ app/ios/Flutter/flutter_export_environment.sh
 app/lib/firebase_options.dart
 app/android/app/google-services.json
 app/ios/Runner/GoogleService-Info.plist
+
+# Local database dumps
+*.rdb
