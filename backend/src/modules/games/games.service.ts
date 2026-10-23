@@ -62,6 +62,8 @@ export class GamesService {
       options: r.options,
       totals: r.totals,
       outcome: r.status === 'betting' ? null : r.outcome,
+      reveal: r.status === 'betting' ? null : r.reveal,
+      bettingStartedAt: r.createdAt.toISOString(),
       bettingEndsAt: r.bettingEndsAt.toISOString(),
       settlesAt: r.settlesAt.toISOString(),
     };

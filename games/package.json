@@ -1,0 +1,20 @@
+{
+  "name": "games",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BigBoss Live WebView mini-games: Golden Wheel, Fortune Ferris, Teen Patti.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5174",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview --port 5174",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@bigboss/shared": "1.0.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "vite": "^7.3.0"
+  }
+}

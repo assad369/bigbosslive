@@ -1,0 +1,121 @@
+.tp-table {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 18px 10px 56px;
+  background: radial-gradient(85% 70% at 50% 45%, #3c6b4a 0%, #24452f 60%, #18301f 100%);
+}
+.tp-table::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border-radius: 999px / 46%;
+  border: 3px solid rgba(233, 207, 122, 0.55);
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.tp-seat {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 10px 4px;
+  border-radius: 16px;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease,
+    box-shadow 0.3s ease;
+}
+.tp-seat.winner {
+  transform: scale(1.06);
+  background: rgba(233, 207, 122, 0.14);
+  box-shadow:
+    0 0 0 2px var(--gold-light),
+    0 0 30px rgba(233, 207, 122, 0.5);
+}
+.tp-seat.loser {
+  opacity: 0.55;
+}
+.tp-seat-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--gold-light);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.tp-hand {
+  min-height: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ivory);
+}
+.tp-cards {
+  display: flex;
+}
+.tp-card {
+  position: relative;
+  width: clamp(30px, 8.5vw, 46px);
+  aspect-ratio: 5 / 7;
+  margin-left: -10px;
+  perspective: 600px;
+  transform-style: preserve-3d;
+  transition: transform 0.45s ease;
+}
+.tp-card:first-child {
+  margin-left: 0;
+}
+.tp-card:nth-child(1) {
+  transform: rotate(-8deg);
+}
+.tp-card:nth-child(3) {
+  transform: rotate(8deg);
+}
+.tp-face,
+.tp-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  backface-visibility: hidden;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+.tp-back {
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.18) 0 4px, transparent 4px 8px),
+    linear-gradient(135deg, var(--gold-light), var(--gold-deep));
+  border: 2px solid #fff3cf;
+}
+.tp-face {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  background: #fffdf7;
+  color: #1d1610;
+  font-weight: 800;
+  font-size: clamp(11px, 3.2vw, 16px);
+  line-height: 1;
+  transform: rotateY(180deg);
+}
+.tp-face.red {
+  color: #b4443a;
+}
+.tp-card.flipped .tp-back {
+  transform: rotateY(180deg);
+}
+.tp-card.flipped .tp-face {
+  transform: rotateY(0deg);
+}
+.tp-back,
+.tp-face {
+  transition: transform 0.45s ease;
+}
+
+/* Seat letters as icons on tiles and in the history strip */
+.bb-teen_patti .bb-tile-icon,
+.bb-teen_patti .bb-history-dot {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 700;
+  color: var(--gold-light);
+}

@@ -142,6 +142,9 @@ export interface GameRound {
   options: string[];
   totals: Record<string, number>;
   outcome: string | null;
+  /** Game-specific reveal (e.g. dealt cards); null while betting is open. */
+  reveal: Record<string, unknown> | null;
+  bettingStartedAt: IsoDate;
   bettingEndsAt: IsoDate;
   settlesAt: IsoDate;
 }
