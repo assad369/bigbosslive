@@ -1,0 +1,1567 @@
+openapi: 3.1.0
+info:
+  title: BigBoss Live API
+  version: 1.0.0
+  description: |
+    REST API for the BigBoss Live app, admin dashboard and games.
+
+    **Auth:** send a Firebase ID token as `Authorization: Bearer <token>`. Call
+    `POST /v1/auth/session` once after sign-in to create the profile.
+
+    **Money-moving POSTs** require an `Idempotency-Key` header (8–128 chars). Retrying with the
+    same key returns the original result and never charges twice.
+
+    **Errors** look like `{ "error": { "code", "message", "details?", "requestId" } }`.
+    Common codes: `unauthorized` (401), `profile_required` (401), `account_banned` (403),
+    `device_banned` (403), `forbidden` (403), `not_found` (404), `validation_failed` (422),
+    `contact_info_blocked` (422), `insufficient_balance` (402), `rate_limited` (429).
+
+    **Realtime:** Socket.IO at `/socket.io` with `auth: { token }`. Namespace `/`: `chat:message`,
+    `chat:read`, `chat:typing`, `notification:new`, `wallet:updated`, `rooms:upserted`,
+    `rooms:ended` (after emitting `rooms:subscribe`). Namespace `/games`: emit
+    `game:subscribe <key>` (ack returns the state), then receive `game:round`, `game:totals`, `game:settled`.
+    In-room events arrive on the LiveKit data channel as `{ topic, payload, ts }` with `bb.*` topics.
+servers:
+  - url: http://localhost:3000
+security:
+  - firebase: []
+tags:
+  - name: Account
+  - name: Live
+  - name: Economy
+  - name: Social
+  - name: Games
+  - name: Admin
+  - name: System
+
+components:
+  securitySchemes:
+    firebase:
+      type: http
+      scheme: bearer
+      bearerFormat: Firebase ID token
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    DeviceId:
+      name: X-Device-Id
+      in: header
+      required: false
+      schema: { type: string }
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-f0-9]{24}$' }
+    Uid:
+      name: uid
+      in: path
+      required: true
+      schema: { type: string }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    GameKey:
+      name: key
+      in: path
+      required: true
+      schema: { type: string, enum: [golden_wheel, teen_patti, fortune_ferris] }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoContent:
+      description: No content
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+            requestId: { type: string }
+    UserBrief:
+      type: object
+      properties:
+        id: { type: string }
+        shortId: { type: string }
+        displayName: { type: string }
+        avatarUrl: { type: [string, 'null'] }
+        level: { type: integer }
+        vipTier: { type: integer }
+        country: { type: [string, 'null'] }
+        frameUrl: { type: [string, 'null'] }
+    LevelProgress:
+      type: object
+      properties:
+        level: { type: integer }
+        points: { type: integer }
+        currentLevelPoints: { type: integer }
+        nextLevelPoints: { type: [integer, 'null'] }
+        isMaxLevel: { type: boolean }
+    Wallet:
+      type: object
+      properties:
+        diamonds: { type: integer }
+        beans: { type: integer }
+        agentStock: { type: integer }
+    MeUser:
+      allOf:
+        - $ref: '#/components/schemas/UserBrief'
+        - type: object
+          properties:
+            bio: { type: string }
+            followers: { type: integer }
+            following: { type: integer }
+            isLive: { type: boolean }
+            liveRoomId: { type: [string, 'null'] }
+            status: { type: string, enum: [active, banned, deleted] }
+            isAgent: { type: boolean }
+            adminRole: { type: [string, 'null'] }
+            wallet: { $ref: '#/components/schemas/Wallet' }
+            levelProgress: { $ref: '#/components/schemas/LevelProgress' }
+            vipExpiresAt: { type: [string, 'null'], format: date-time }
+    ProfileInput:
+      type: object
+      properties:
+        displayName: { type: string, minLength: 2, maxLength: 30 }
+        avatarUrl: { type: [string, 'null'], format: uri }
+        bio: { type: string, maxLength: 160 }
+        gender: { type: [string, 'null'], enum: [male, female, other, null] }
+        birthday: { type: [string, 'null'], format: date }
+        country: { type: [string, 'null'], minLength: 2, maxLength: 2 }
+    LiveRoom:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [video, audio] }
+        status: { type: string, enum: [live, ended] }
+        title: { type: string }
+        coverUrl: { type: [string, 'null'] }
+        host: { $ref: '#/components/schemas/UserBrief' }
+        viewerCount: { type: integer }
+        peakViewers: { type: integer }
+        giftBeans: { type: integer }
+        pkBattleId: { type: [string, 'null'] }
+        startedAt: { type: string, format: date-time }
+    LiveSession:
+      type: object
+      properties:
+        room:
+          allOf:
+            - $ref: '#/components/schemas/LiveRoom'
+            - type: object
+              properties:
+                livekitRoom: { type: string }
+                moderatorIds: { type: array, items: { type: string } }
+                seats:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      index: { type: integer }
+                      user:
+                        { oneOf: [{ $ref: '#/components/schemas/UserBrief' }, { type: 'null' }] }
+                      muted: { type: boolean }
+                      locked: { type: boolean }
+        credentials:
+          type: object
+          properties:
+            token: { type: string, description: LiveKit access token }
+            url: { type: string }
+            identity: { type: string }
+            role: { type: string, enum: [host, moderator, guest, audience] }
+    Gift:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        price: { type: integer }
+        iconUrl: { type: string }
+        animationUrl: { type: [string, 'null'] }
+        animationFormat: { type: string, enum: [none, svga, lottie, mp4] }
+        category: { type: string }
+        vipTierRequired: { type: integer }
+    LedgerEntry:
+      type: object
+      properties:
+        id: { type: string }
+        currency: { type: string, enum: [diamonds, beans, agent_stock] }
+        delta: { type: integer }
+        balanceAfter: { type: integer }
+        reason: { type: string }
+        refId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    PkBattle:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [pending, active, ended, rejected, cancelled, expired] }
+        hosts:
+          type: array
+          items:
+            type: object
+            properties:
+              uid: { type: string }
+              roomId: { type: string }
+              score: { type: integer }
+              displayName: { type: string }
+              avatarUrl: { type: [string, 'null'] }
+        durationSec: { type: integer }
+        startedAt: { type: [string, 'null'], format: date-time }
+        endsAt: { type: [string, 'null'], format: date-time }
+        winnerUid: { type: [string, 'null'] }
+        isDraw: { type: boolean }
+    GameRound:
+      type: object
+      properties:
+        id: { type: string }
+        game: { type: string }
+        roundNo: { type: integer }
+        status: { type: string, enum: [betting, locked, settled] }
+        serverSeedHash: { type: string }
+        serverSeed: { type: [string, 'null'], description: Revealed after settlement }
+        options: { type: array, items: { type: string } }
+        totals: { type: object, additionalProperties: { type: integer } }
+        outcome: { type: [string, 'null'] }
+        reveal: { type: [object, 'null'] }
+        bettingStartedAt: { type: string, format: date-time }
+        bettingEndsAt: { type: string, format: date-time }
+        settlesAt: { type: string, format: date-time }
+    CursorPage:
+      type: object
+      properties:
+        items: { type: array, items: {} }
+        nextCursor: { type: [string, 'null'] }
+
+paths:
+  /healthz:
+    get:
+      tags: [System]
+      security: []
+      summary: Liveness probe
+      responses: { '200': { description: OK } }
+  /readyz:
+    get:
+      tags: [System]
+      security: []
+      summary: Readiness probe (MongoDB + Redis)
+      responses: { '200': { description: Ready }, '503': { description: Not ready } }
+
+  /v1/config/app:
+    get:
+      tags: [System]
+      security: []
+      summary: Public app config (maintenance, min build, feature flags, PK durations)
+      responses: { '200': { description: OK } }
+  /v1/levels:
+    get:
+      tags: [System]
+      security: []
+      summary: Level ladder
+      responses: { '200': { description: OK } }
+
+  /v1/auth/session:
+    post:
+      tags: [Account]
+      summary: Create (first sign-in) or refresh the caller's profile
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProfileInput' } } }
+      responses:
+        '200':
+          {
+            description: Existing profile,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        type: object,
+                        properties:
+                          {
+                            user: { $ref: '#/components/schemas/MeUser' },
+                            created: { type: boolean },
+                          },
+                      },
+                  },
+              },
+          }
+        '201': { description: Created }
+        '409': { $ref: '#/components/responses/Error' }
+  /v1/me:
+    get:
+      tags: [Account]
+      summary: The caller's profile, wallet and level progress
+      parameters: [{ $ref: '#/components/parameters/DeviceId' }]
+      responses:
+        {
+          '200': { description: OK },
+          '401': { $ref: '#/components/responses/Error' },
+          '403': { $ref: '#/components/responses/Error' },
+        }
+    patch:
+      tags: [Account]
+      summary: Update profile (moderated)
+      requestBody:
+        { content: { application/json: { schema: { $ref: '#/components/schemas/ProfileInput' } } } }
+      responses: { '200': { description: OK }, '422': { $ref: '#/components/responses/Error' } }
+    delete:
+      tags: [Account]
+      summary: Delete the account (anonymises profile, deletes Firebase user)
+      responses: { '204': { $ref: '#/components/responses/NoContent' } }
+  /v1/me/push-tokens:
+    post:
+      tags: [Account]
+      summary: Register an FCM token
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      required: [token, platform],
+                      properties:
+                        {
+                          token: { type: string },
+                          platform: { type: string, enum: [android, ios, web] },
+                        },
+                    },
+                },
+            },
+        }
+      responses: { '204': { $ref: '#/components/responses/NoContent' } }
+    delete:
+      tags: [Account]
+      summary: Remove an FCM token (sign-out)
+      responses: { '204': { $ref: '#/components/responses/NoContent' } }
+  /v1/me/blocked:
+    get: { tags: [Account], summary: Blocked users, responses: { '200': { description: OK } } }
+  /v1/users/search:
+    get:
+      tags: [Account]
+      summary: Search by short id or display-name prefix
+      parameters: [{ name: q, in: query, required: true, schema: { type: string } }]
+      responses: { '200': { description: OK } }
+  /v1/users/{uid}:
+    get:
+      {
+        tags: [Account],
+        summary: Public profile,
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '200': { description: OK }, '404': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/users/{uid}/follow:
+    post:
+      {
+        tags: [Account],
+        summary: Follow,
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '200': { description: '{ followed }' } },
+      }
+    delete:
+      {
+        tags: [Account],
+        summary: Unfollow,
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '200': { description: '{ unfollowed }' } },
+      }
+  /v1/users/{uid}/followers:
+    get:
+      {
+        tags: [Account],
+        summary: Followers (cursor),
+        parameters:
+          [
+            { $ref: '#/components/parameters/Uid' },
+            { $ref: '#/components/parameters/Cursor' },
+            { $ref: '#/components/parameters/Limit' },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/users/{uid}/following:
+    get:
+      {
+        tags: [Account],
+        summary: Following (cursor),
+        parameters:
+          [
+            { $ref: '#/components/parameters/Uid' },
+            { $ref: '#/components/parameters/Cursor' },
+            { $ref: '#/components/parameters/Limit' },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/users/{uid}/block:
+    post:
+      {
+        tags: [Account],
+        summary: Block (also removes follows),
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+    delete:
+      {
+        tags: [Account],
+        summary: Unblock,
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/users/{uid}/contributors:
+    get:
+      {
+        tags: [Account],
+        summary: Top gifters to a user,
+        parameters:
+          [
+            { $ref: '#/components/parameters/Uid' },
+            { name: period, in: query, schema: { type: string, enum: [day, week, month, all] } },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/users/{uid}/live-history:
+    get:
+      {
+        tags: [Live],
+        summary: Own streaming history,
+        parameters:
+          [{ $ref: '#/components/parameters/Uid' }, { $ref: '#/components/parameters/Page' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/reports:
+    post:
+      tags: [Account]
+      summary: Report a user, room, post, comment or message
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      required: [targetType, targetId, reason],
+                      properties:
+                        {
+                          targetType: { type: string, enum: [user, room, post, comment, message] },
+                          targetId: { type: string },
+                          reason:
+                            {
+                              type: string,
+                              enum:
+                                [spam, harassment, nudity, violence, hate, scam, underage, other],
+                            },
+                          details: { type: string },
+                        },
+                    },
+                },
+            },
+        }
+      responses:
+        { '201': { description: Created }, '409': { $ref: '#/components/responses/Error' } }
+  /v1/uploads/presign:
+    post:
+      tags: [Account]
+      summary: Presigned PUT URL for avatar, cover, post, chat or report media
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      properties:
+                        {
+                          kind: { type: string, enum: [avatar, cover, post, chat, report] },
+                          contentType: { type: string },
+                        },
+                    },
+                },
+            },
+        }
+      responses: { '200': { description: '{ uploadUrl, publicUrl, key, expiresIn, headers }' } }
+  /v1/banners:
+    get:
+      {
+        tags: [System],
+        summary: Active banners,
+        parameters:
+          [
+            {
+              name: placement,
+              in: query,
+              schema: { type: string, enum: [home, live, wallet, games] },
+            },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/leaderboards/{kind}:
+    get:
+      {
+        tags: [Economy],
+        summary: Rich / charm rankings,
+        parameters:
+          [
+            { name: kind, in: path, required: true, schema: { type: string, enum: [rich, charm] } },
+            { name: period, in: query, schema: { type: string, enum: [day, week, month] } },
+          ],
+        responses: { '200': { description: OK } },
+      }
+
+  /v1/live:
+    get:
+      tags: [Live]
+      summary: Live directory
+      parameters:
+        - {
+            name: tab,
+            in: query,
+            schema: { type: string, enum: [popular, new, following, nearby] },
+          }
+        - { name: type, in: query, schema: { type: string, enum: [video, audio] } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Live]
+      summary: Go live (resumes the host's existing room)
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      required: [title],
+                      properties:
+                        {
+                          title: { type: string, maxLength: 60 },
+                          type: { type: string, enum: [video, audio] },
+                          coverUrl: { type: [string, 'null'] },
+                          tags: { type: array, items: { type: string } },
+                        },
+                    },
+                },
+            },
+        }
+      responses:
+        {
+          '201':
+            {
+              description: Started,
+              content:
+                { application/json: { schema: { $ref: '#/components/schemas/LiveSession' } } },
+            },
+          '200': { description: Resumed },
+        }
+  /v1/live/{id}:
+    get:
+      {
+        tags: [Live],
+        summary: Room detail,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+    patch:
+      {
+        tags: [Live],
+        summary: Update title / background / cover (host),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/live/{id}/join:
+    post:
+      {
+        tags: [Live],
+        summary: Join and get a LiveKit token,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses:
+          {
+            '200':
+              {
+                description: OK,
+                content:
+                  { application/json: { schema: { $ref: '#/components/schemas/LiveSession' } } },
+              },
+            '403': { $ref: '#/components/responses/Error' },
+            '410': { $ref: '#/components/responses/Error' },
+          },
+      }
+  /v1/live/{id}/heartbeat:
+    post:
+      {
+        tags: [Live],
+        summary: Host keep-alive (every ~25 s),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses:
+          {
+            '204': { $ref: '#/components/responses/NoContent' },
+            '410': { $ref: '#/components/responses/Error' },
+          },
+      }
+  /v1/live/{id}/chat:
+    post:
+      {
+        tags: [Live],
+        summary: Moderated in-room chat (rate limited),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        requestBody:
+          {
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { type: object, properties: { text: { type: string, maxLength: 300 } } },
+                  },
+              },
+          },
+        responses:
+          { '201': { description: Sent }, '422': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/live/{id}/end:
+    post:
+      {
+        tags: [Live],
+        summary: End live (host),
+        returns a summary,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/live/{id}/viewers:
+    get:
+      {
+        tags: [Live],
+        summary: Current viewers,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/live/{id}/kick:
+    post:
+      {
+        tags: [Live],
+        summary: Remove (and optionally ban) a viewer — host/moderator,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/live/{id}/moderators:
+    post:
+      {
+        tags: [Live],
+        summary: Grant/revoke room moderator (host),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/live/{id}/seats/request:
+    post:
+      {
+        tags: [Live],
+        summary: Request a seat,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '202': { description: Requested } },
+      }
+  /v1/live/{id}/seats/requests:
+    get:
+      {
+        tags: [Live],
+        summary: Pending seat requests (host/moderator),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/live/{id}/seats/requests/{userId}:
+    post:
+      {
+        tags: [Live],
+        summary: Accept/reject a seat request,
+        parameters:
+          [
+            { $ref: '#/components/parameters/Id' },
+            { name: userId, in: path, required: true, schema: { type: string } },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/live/{id}/seats/invite:
+    post:
+      {
+        tags: [Live],
+        summary: Invite a viewer to a seat,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '202': { description: Invited } },
+      }
+  /v1/live/{id}/seats/invite/respond:
+    post:
+      {
+        tags: [Live],
+        summary: Accept/decline a seat invitation,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/live/{id}/seats/leave:
+    post:
+      {
+        tags: [Live],
+        summary: Leave your seat,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/live/{id}/seats/{index}:
+    post:
+      {
+        tags: [Live],
+        summary: 'Seat action: remove | mute | unmute | lock | unlock',
+        parameters:
+          [
+            { $ref: '#/components/parameters/Id' },
+            { name: index, in: path, required: true, schema: { type: integer } },
+          ],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/live/{id}/pk:
+    get:
+      {
+        tags: [Live],
+        summary: Active/pending PK for a room,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/live/bans:
+    get:
+      {
+        tags: [Live],
+        summary: Users banned from your rooms,
+        responses: { '200': { description: OK } },
+      }
+  /v1/webhooks/livekit:
+    post:
+      {
+        tags: [Live],
+        security: [],
+        summary: LiveKit webhook (signed,
+        raw body),
+        responses: { '200': { description: OK }, '401': { $ref: '#/components/responses/Error' } },
+      }
+
+  /v1/pk/invite:
+    post:
+      {
+        tags: [Live],
+        summary: Invite a live host to PK,
+        requestBody:
+          {
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        type: object,
+                        properties:
+                          { opponentId: { type: string }, durationSec: { type: integer } },
+                      },
+                  },
+              },
+          },
+        responses:
+          {
+            '201':
+              {
+                description: Invited,
+                content:
+                  {
+                    application/json:
+                      {
+                        schema:
+                          {
+                            type: object,
+                            properties: { battle: { $ref: '#/components/schemas/PkBattle' } },
+                          },
+                      },
+                  },
+              },
+            '409': { $ref: '#/components/responses/Error' },
+          },
+      }
+  /v1/pk/random:
+    post:
+      {
+        tags: [Live],
+        summary: Invite a random available host,
+        responses: { '201': { description: Invited } },
+      }
+  /v1/pk/{id}/respond:
+    post:
+      {
+        tags: [Live],
+        summary: Accept/decline (invitee),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/pk/{id}/cancel:
+    post:
+      {
+        tags: [Live],
+        summary: Cancel a pending invitation (inviter),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/pk/{id}/end:
+    post:
+      {
+        tags: [Live],
+        summary: End early (forfeit),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/pk/{id}:
+    get:
+      {
+        tags: [Live],
+        summary: Battle with top contributors,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+
+  /v1/gifts:
+    get:
+      {
+        tags: [Economy],
+        summary: Gift catalog,
+        responses:
+          {
+            '200':
+              {
+                description: OK,
+                content:
+                  {
+                    application/json:
+                      {
+                        schema:
+                          {
+                            type: object,
+                            properties:
+                              {
+                                items:
+                                  { type: array, items: { $ref: '#/components/schemas/Gift' } },
+                              },
+                          },
+                      },
+                  },
+              },
+          },
+      }
+  /v1/gifts/send:
+    post:
+      tags: [Economy]
+      summary: Send a gift (atomic, idempotent)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      required: [giftId, quantity, receiverIds],
+                      properties:
+                        {
+                          giftId: { type: string },
+                          quantity: { type: integer, minimum: 1 },
+                          receiverIds: { type: array, items: { type: string }, maxItems: 10 },
+                          roomId: { type: [string, 'null'] },
+                        },
+                    },
+                },
+            },
+        }
+      responses:
+        {
+          '200': { description: '{ transactionId, totalCost, diamonds, replayed }' },
+          '402': { $ref: '#/components/responses/Error' },
+        }
+  /v1/wallet:
+    get:
+      {
+        tags: [Economy],
+        summary: Balances,
+        responses:
+          {
+            '200':
+              {
+                description: OK,
+                content: { application/json: { schema: { $ref: '#/components/schemas/Wallet' } } },
+              },
+          },
+      }
+  /v1/wallet/ledger:
+    get:
+      {
+        tags: [Economy],
+        summary: Ledger (cursor),
+        parameters:
+          [
+            { $ref: '#/components/parameters/Cursor' },
+            { $ref: '#/components/parameters/Limit' },
+            {
+              name: currency,
+              in: query,
+              schema: { type: string, enum: [diamonds, beans, agent_stock] },
+            },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/wallet/packages:
+    get:
+      {
+        tags: [Economy],
+        summary: Store recharge packages,
+        responses: { '200': { description: OK } },
+      }
+  /v1/wallet/iap/verify:
+    post:
+      tags: [Economy]
+      summary: Verify a Google Play / App Store purchase and credit diamonds (once per store transaction)
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      oneOf:
+                        [
+                          {
+                            type: object,
+                            properties:
+                              {
+                                store: { const: google },
+                                productId: { type: string },
+                                purchaseToken: { type: string },
+                              },
+                          },
+                          {
+                            type: object,
+                            properties:
+                              { store: { const: apple }, transactionId: { type: string } },
+                          },
+                        ],
+                    },
+                },
+            },
+        }
+      responses:
+        {
+          '200': { description: '{ credited, diamonds, replayed }' },
+          '402': { $ref: '#/components/responses/Error' },
+          '409': { $ref: '#/components/responses/Error' },
+        }
+  /v1/agent/recharge:
+    post:
+      {
+        tags: [Economy],
+        summary: Agent transfers stock to a user (by short id or uid),
+        parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }],
+        responses:
+          {
+            '200': { description: OK },
+            '402': { $ref: '#/components/responses/Error' },
+            '403': { $ref: '#/components/responses/Error' },
+          },
+      }
+  /v1/agent/lookup/{shortId}:
+    get:
+      {
+        tags: [Economy],
+        summary: Agent looks up a user,
+        parameters: [{ name: shortId, in: path, required: true, schema: { type: string } }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/agent/history:
+    get:
+      {
+        tags: [Economy],
+        summary: Agent's recharge history,
+        responses: { '200': { description: OK } },
+      }
+  /v1/store/vip:
+    get: { tags: [Economy], summary: VIP packages, responses: { '200': { description: OK } } }
+  /v1/store/vip/{id}/purchase:
+    post:
+      {
+        tags: [Economy],
+        summary: Buy/renew VIP,
+        parameters:
+          [
+            { $ref: '#/components/parameters/Id' },
+            { $ref: '#/components/parameters/IdempotencyKey' },
+          ],
+        responses: { '200': { description: OK }, '402': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/store/items:
+    get:
+      {
+        tags: [Economy],
+        summary: Cosmetics catalog,
+        parameters:
+          [
+            {
+              name: type,
+              in: query,
+              schema:
+                { type: string, enum: [frame, entry_animation, room_background, chat_bubble] },
+            },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/store/items/{id}/purchase:
+    post:
+      {
+        tags: [Economy],
+        summary: Buy a cosmetic,
+        parameters:
+          [
+            { $ref: '#/components/parameters/Id' },
+            { $ref: '#/components/parameters/IdempotencyKey' },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/store/mine:
+    get: { tags: [Economy], summary: Owned cosmetics, responses: { '200': { description: OK } } }
+  /v1/store/equip:
+    post:
+      {
+        tags: [Economy],
+        summary: Equip/unequip a frame or entry animation,
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/withdrawals:
+    get:
+      {
+        tags: [Economy],
+        summary: My withdrawal requests,
+        responses: { '200': { description: OK } },
+      }
+    post:
+      tags: [Economy]
+      summary: Request a bean withdrawal (beans are held immediately)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      required: [beans, method, account],
+                      properties:
+                        {
+                          beans: { type: integer },
+                          method: { type: string, enum: [bank, mobile_wallet, paypal, other] },
+                          account: { type: object, additionalProperties: { type: string } },
+                        },
+                    },
+                },
+            },
+        }
+      responses:
+        { '201': { description: Created }, '409': { $ref: '#/components/responses/Error' } }
+  /v1/agencies:
+    get:
+      { tags: [Economy], summary: Search host agencies, responses: { '200': { description: OK } } }
+  /v1/agencies/membership:
+    get:
+      { tags: [Economy], summary: My agency membership, responses: { '200': { description: OK } } }
+  /v1/agencies/{id}/join:
+    post:
+      {
+        tags: [Economy],
+        summary: Apply to an agency,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '202': { description: Applied } },
+      }
+  /v1/agencies/leave:
+    post:
+      {
+        tags: [Economy],
+        summary: Leave my agency,
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/agencies/mine:
+    get:
+      {
+        tags: [Economy],
+        summary: Owner dashboard,
+        responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/agencies/mine/requests:
+    get:
+      {
+        tags: [Economy],
+        summary: Pending applications (owner),
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/mine/requests/{id}:
+    post:
+      {
+        tags: [Economy],
+        summary: Approve/reject an application,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+
+  /v1/games:
+    get: { tags: [Games], summary: Enabled games, responses: { '200': { description: OK } } }
+  /v1/games/{key}/state:
+    get:
+      {
+        tags: [Games],
+        summary: Current round,
+        my bets,
+        balance,
+        history,
+        server time,
+        parameters: [{ $ref: '#/components/parameters/GameKey' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/games/{key}/bets:
+    post:
+      tags: [Games]
+      summary: Place a bet in the open round
+      parameters:
+        [
+          { $ref: '#/components/parameters/GameKey' },
+          { $ref: '#/components/parameters/IdempotencyKey' },
+        ]
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      properties:
+                        {
+                          roundId: { type: string },
+                          option: { type: string },
+                          amount: { type: integer },
+                        },
+                    },
+                },
+            },
+        }
+      responses:
+        {
+          '200': { description: '{ betId, diamonds, replayed }' },
+          '402': { $ref: '#/components/responses/Error' },
+          '409': { $ref: '#/components/responses/Error' },
+        }
+  /v1/games/{key}/my-bets:
+    get:
+      {
+        tags: [Games],
+        summary: My recent bets,
+        parameters: [{ $ref: '#/components/parameters/GameKey' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/games/rounds/{id}/verify:
+    get:
+      {
+        tags: [Games],
+        summary: Provably-fair verification data for a settled round,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+
+  /v1/chat/conversations:
+    get:
+      { tags: [Social], summary: Conversations (cursor), responses: { '200': { description: OK } } }
+    post:
+      {
+        tags: [Social],
+        summary: Get or create a conversation with a user,
+        responses: { '200': { description: '{ id }' } },
+      }
+  /v1/chat/conversations/{id}/messages:
+    get:
+      {
+        tags: [Social],
+        summary: Messages (cursor,
+        newest first),
+        parameters:
+          [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Cursor' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/chat/conversations/{id}/read:
+    post:
+      {
+        tags: [Social],
+        summary: Mark read (emits chat:read to the peer),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/chat/messages:
+    post:
+      tags: [Social]
+      summary: Send a direct message (moderated; clientId de-duplicates retries)
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      properties:
+                        {
+                          toUserId: { type: string },
+                          type: { type: string, enum: [text, image] },
+                          text: { type: [string, 'null'] },
+                          mediaUrl: { type: [string, 'null'] },
+                          clientId: { type: [string, 'null'] },
+                        },
+                    },
+                },
+            },
+        }
+      responses: { '201': { description: Sent }, '403': { $ref: '#/components/responses/Error' } }
+  /v1/chat/messages/{id}:
+    delete:
+      {
+        tags: [Social],
+        summary: Delete a message for me,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/chat/unread:
+    get:
+      { tags: [Social], summary: Total unread messages, responses: { '200': { description: OK } } }
+  /v1/feed:
+    get:
+      {
+        tags: [Social],
+        summary: Feed,
+        parameters:
+          [
+            {
+              name: tab,
+              in: query,
+              schema: { type: string, enum: [latest, trending, following, user] },
+            },
+            { name: authorId, in: query, schema: { type: string } },
+            { $ref: '#/components/parameters/Cursor' },
+          ],
+        responses: { '200': { description: OK } },
+      }
+    post:
+      {
+        tags: [Social],
+        summary: Create a post (moderated),
+        responses: { '201': { description: Created } },
+      }
+  /v1/feed/{id}:
+    get:
+      {
+        tags: [Social],
+        summary: Post,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+    delete:
+      {
+        tags: [Social],
+        summary: Delete own post,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/feed/{id}/like:
+    post:
+      {
+        tags: [Social],
+        summary: Like (idempotent),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: '{ likeCount }' } },
+      }
+    delete:
+      {
+        tags: [Social],
+        summary: Unlike,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: '{ likeCount }' } },
+      }
+  /v1/feed/{id}/comments:
+    get:
+      {
+        tags: [Social],
+        summary: Comments (cursor),
+        parameters:
+          [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Cursor' }],
+        responses: { '200': { description: OK } },
+      }
+    post:
+      {
+        tags: [Social],
+        summary: Comment (moderated),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '201': { description: Created } },
+      }
+  /v1/feed/comments/{id}:
+    delete:
+      {
+        tags: [Social],
+        summary: Delete a comment (author or post owner),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/notifications:
+    get:
+      {
+        tags: [Social],
+        summary: Inbox (cursor),
+        parameters: [{ $ref: '#/components/parameters/Cursor' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/notifications/unread-count:
+    get:
+      {
+        tags: [Social],
+        summary: '{ notifications, chat } unread counts',
+        responses: { '200': { description: OK } },
+      }
+  /v1/notifications/read:
+    post:
+      {
+        tags: [Social],
+        summary: Mark notifications read,
+        requestBody:
+          {
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        type: object,
+                        properties:
+                          {
+                            ids:
+                              { oneOf: [{ const: all }, { type: array, items: { type: string } }] },
+                          },
+                      },
+                  },
+              },
+          },
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+
+  /v1/admin/me:
+    get:
+      {
+        tags: [Admin],
+        summary: Admin identity,
+        role and permissions,
+        responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/admin/stats/overview:
+    get:
+      {
+        tags: [Admin],
+        summary: Dashboard KPIs (dashboard.view),
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/stats/series:
+    get:
+      {
+        tags: [Admin],
+        summary: Daily series,
+        parameters: [{ name: days, in: query, schema: { type: integer } }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/users:
+    get:
+      {
+        tags: [Admin],
+        summary: Search/list users (users.read),
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/users/{uid}:
+    get:
+      {
+        tags: [Admin],
+        summary: User detail with devices and level,
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '200': { description: OK } },
+      }
+    patch:
+      {
+        tags: [Admin],
+        summary: Edit profile (users.edit),
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/users/{uid}/ban:
+    post:
+      {
+        tags: [Admin],
+        summary: Ban (users.moderate),
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/users/{uid}/unban:
+    post:
+      {
+        tags: [Admin],
+        summary: Unban,
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/users/{uid}/recharge:
+    post:
+      {
+        tags: [Admin],
+        summary: Admin recharge — counts toward level (wallet.adjust),
+        parameters:
+          [
+            { $ref: '#/components/parameters/Uid' },
+            { $ref: '#/components/parameters/IdempotencyKey' },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/users/{uid}/wallet/adjust:
+    post:
+      {
+        tags: [Admin],
+        summary: Balance correction — never moves level (wallet.adjust),
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/users/{uid}/agent:
+    post:
+      {
+        tags: [Admin],
+        summary: Grant/revoke agent (agents.manage),
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/users/{uid}/vip:
+    post:
+      {
+        tags: [Admin],
+        summary: Set VIP tier,
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/users/{uid}/short-id:
+    post:
+      {
+        tags: [Admin],
+        summary: Set or swap short id,
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/admins:
+    get:
+      {
+        tags: [Admin],
+        summary: Admin team (admins.manage — superadmin),
+        responses: { '200': { description: OK } },
+      }
+    post:
+      {
+        tags: [Admin],
+        summary: Set or revoke an admin role,
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/live:
+    get:
+      {
+        tags: [Admin],
+        summary: Live rooms / history (live.read),
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/live/{id}/end:
+    post:
+      {
+        tags: [Admin],
+        summary: Force-end a room (live.moderate),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/gifts:
+    get:
+      {
+        tags: [Admin],
+        summary: All gifts (catalog.manage),
+        responses: { '200': { description: OK } },
+      }
+    post: { tags: [Admin], summary: Create gift, responses: { '201': { description: Created } } }
+  /v1/admin/withdrawals:
+    get:
+      {
+        tags: [Admin],
+        summary: Withdrawals queue (withdrawals.read),
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/withdrawals/{id}/review:
+    post:
+      {
+        tags: [Admin],
+        summary: 'approve | reject (refunds) | mark_paid',
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/{key}/config:
+    put:
+      {
+        tags: [Admin],
+        summary: Replace game config (RTP-checked),
+        parameters: [{ $ref: '#/components/parameters/GameKey' }],
+        responses: { '200': { description: OK }, '400': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/admin/config/{key}:
+    put:
+      {
+        tags: [Admin],
+        summary: 'Update runtime config: economy | features | app | live | moderation | pk',
+        parameters: [{ name: key, in: path, required: true, schema: { type: string } }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/audit:
+    get:
+      { tags: [Admin], summary: Audit log (audit.read), responses: { '200': { description: OK } } }

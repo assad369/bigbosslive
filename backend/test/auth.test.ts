@@ -98,6 +98,12 @@ describe('session bootstrap & auth', () => {
     expect(res.body.error.details[0].path).toBe('displayName');
   });
 
+  it('serves the OpenAPI document in non-production', async () => {
+    const res = await h.api.get('/docs/openapi.yaml');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('openapi: 3.1.0');
+  });
+
   it('returns JSON 404 for unknown routes and malformed JSON as 400', async () => {
     expect((await h.api.get('/v1/nope')).body.error.code).toBe('route_not_found');
     const bad = await h.api
