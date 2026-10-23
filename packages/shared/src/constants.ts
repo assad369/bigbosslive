@@ -35,7 +35,14 @@ export const LEDGER_REASONS = [
 ] as const;
 export type LedgerReason = (typeof LEDGER_REASONS)[number];
 
-export const PK_STATUSES = ['pending', 'active', 'ended', 'rejected', 'cancelled', 'expired'] as const;
+export const PK_STATUSES = [
+  'pending',
+  'active',
+  'ended',
+  'rejected',
+  'cancelled',
+  'expired',
+] as const;
 export type PkStatus = (typeof PK_STATUSES)[number];
 
 export const GAME_KEYS = ['golden_wheel', 'teen_patti', 'fortune_ferris'] as const;
@@ -50,7 +57,12 @@ export type ReportStatus = (typeof REPORT_STATUSES)[number];
 export const WITHDRAWAL_STATUSES = ['pending', 'approved', 'rejected', 'paid'] as const;
 export type WithdrawalStatus = (typeof WITHDRAWAL_STATUSES)[number];
 
-export const COSMETIC_TYPES = ['frame', 'entry_animation', 'room_background', 'chat_bubble'] as const;
+export const COSMETIC_TYPES = [
+  'frame',
+  'entry_animation',
+  'room_background',
+  'chat_bubble',
+] as const;
 export type CosmeticType = (typeof COSMETIC_TYPES)[number];
 
 export const ANIMATION_FORMATS = ['none', 'svga', 'lottie', 'mp4'] as const;

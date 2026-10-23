@@ -21,10 +21,18 @@ describe('session bootstrap & auth', () => {
   });
 
   it('creates the profile on first session, idempotently', async () => {
-    const first = await h.api.post('/v1/auth/session').set(h.as('alice')).send({ displayName: 'Alice', country: 'bd' });
+    const first = await h.api
+      .post('/v1/auth/session')
+      .set(h.as('alice'))
+      .send({ displayName: 'Alice', country: 'bd' });
     expect(first.status).toBe(201);
     expect(first.body.created).toBe(true);
-    expect(first.body.user).toMatchObject({ id: 'alice', displayName: 'Alice', country: 'BD', wallet: { diamonds: 0, beans: 0 } });
+    expect(first.body.user).toMatchObject({
+      id: 'alice',
+      displayName: 'Alice',
+      country: 'BD',
+      wallet: { diamonds: 0, beans: 0 },
+    });
     expect(first.body.user.shortId).toMatch(/^\d{8}$/);
 
     const again = await h.api.post('/v1/auth/session').set(h.as('alice')).send({});
@@ -34,13 +42,18 @@ describe('session bootstrap & auth', () => {
   });
 
   it('gives concurrent first sessions one profile', async () => {
-    const results = await Promise.all([1, 2, 3].map(() => h.api.post('/v1/auth/session').set(h.as('racer')).send({})));
+    const results = await Promise.all(
+      [1, 2, 3].map(() => h.api.post('/v1/auth/session').set(h.as('racer')).send({})),
+    );
     expect(results.every((r) => r.status === 200 || r.status === 201)).toBe(true);
     expect(await h.ctx.col.users.countDocuments({ _id: 'racer' })).toBe(1);
   });
 
   it('masks profanity and rejects contact info in profile text', async () => {
-    const bad = await h.api.patch('/v1/me').set(h.as('alice')).send({ bio: 'call me at +880 1711 223344' });
+    const bad = await h.api
+      .patch('/v1/me')
+      .set(h.as('alice'))
+      .send({ bio: 'call me at +880 1711 223344' });
     expect(bad.status).toBe(422);
     expect(bad.body.error.code).toBe('contact_info_blocked');
     const masked = await h.api.patch('/v1/me').set(h.as('alice')).send({ bio: 'what the fuck' });
@@ -50,7 +63,11 @@ describe('session bootstrap & auth', () => {
 
   it('blocks banned accounts until the ban expires', async () => {
     await h.user('bob');
-    await h.ctx.services.users.ban('bob', { reason: 'spam', until: new Date(h.clock.now().getTime() + 3600_000), by: 'admin' });
+    await h.ctx.services.users.ban('bob', {
+      reason: 'spam',
+      until: new Date(h.clock.now().getTime() + 3600_000),
+      by: 'admin',
+    });
     const banned = await h.api.get('/v1/me').set(h.as('bob'));
     expect(banned.status).toBe(403);
     expect(banned.body.error.code).toBe('account_banned');
@@ -64,7 +81,11 @@ describe('session bootstrap & auth', () => {
 
   it('enforces device bans', async () => {
     await h.user('carol');
-    await h.ctx.services.moderation.banDevice('device-abc123', { reason: 'fraud', by: 'admin', cascade: false });
+    await h.ctx.services.moderation.banDevice('device-abc123', {
+      reason: 'fraud',
+      by: 'admin',
+      cascade: false,
+    });
     const res = await h.api.get('/v1/me').set(h.as('carol')).set('X-Device-Id', 'DEVICE-ABC123');
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('device_banned');
@@ -79,7 +100,11 @@ describe('session bootstrap & auth', () => {
 
   it('returns JSON 404 for unknown routes and malformed JSON as 400', async () => {
     expect((await h.api.get('/v1/nope')).body.error.code).toBe('route_not_found');
-    const bad = await h.api.patch('/v1/me').set(h.as('alice')).set('Content-Type', 'application/json').send('{bad');
+    const bad = await h.api
+      .patch('/v1/me')
+      .set(h.as('alice'))
+      .set('Content-Type', 'application/json')
+      .send('{bad');
     expect(bad.status).toBe(400);
     expect(bad.body.error.code).toBe('invalid_json');
   });
@@ -108,20 +133,39 @@ describe('admin RBAC', () => {
     expect(supMe.body.permissions).toContain('users.read');
     expect(supMe.body.permissions).not.toContain('wallet.adjust');
 
-    const denied = await h.api.post('/v1/admin/users/target/wallet/adjust').set(h.as('sup', 'support')).send({ currency: 'diamonds', delta: 100, note: 'test' });
+    const denied = await h.api
+      .post('/v1/admin/users/target/wallet/adjust')
+      .set(h.as('sup', 'support'))
+      .send({ currency: 'diamonds', delta: 100, note: 'test' });
     expect(denied.status).toBe(403);
 
-    const ok = await h.api.post('/v1/admin/users/target/wallet/adjust').set(h.as('fin', 'finance')).send({ currency: 'diamonds', delta: 100, note: 'goodwill' });
+    const ok = await h.api
+      .post('/v1/admin/users/target/wallet/adjust')
+      .set(h.as('fin', 'finance'))
+      .send({ currency: 'diamonds', delta: 100, note: 'goodwill' });
     expect(ok.status).toBe(200);
     expect(ok.body.balance).toBe(100);
 
-    const audit = await h.ctx.col.auditLogs.findOne({ action: 'wallet.adjust', targetId: 'target' });
+    const audit = await h.ctx.col.auditLogs.findOne({
+      action: 'wallet.adjust',
+      targetId: 'target',
+    });
     expect(audit).toMatchObject({ adminId: 'fin', adminRole: 'finance' });
   });
 
   it('only superadmins manage admin roles', async () => {
-    expect((await h.api.post('/v1/admin/admins').set(h.as('fin', 'finance')).send({ uid: 'target', role: 'support' })).status).toBe(403);
-    const res = await h.api.post('/v1/admin/admins').set(h.as('root', 'superadmin')).send({ uid: 'target', role: 'moderator' });
+    expect(
+      (
+        await h.api
+          .post('/v1/admin/admins')
+          .set(h.as('fin', 'finance'))
+          .send({ uid: 'target', role: 'support' })
+      ).status,
+    ).toBe(403);
+    const res = await h.api
+      .post('/v1/admin/admins')
+      .set(h.as('root', 'superadmin'))
+      .send({ uid: 'target', role: 'moderator' });
     expect(res.status).toBe(204);
     expect(h.auth.roles.get('target')).toBe('moderator');
   });

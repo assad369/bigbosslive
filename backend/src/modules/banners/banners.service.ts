@@ -24,12 +24,20 @@ export class BannersService {
       .find({
         placement,
         active: true,
-        $and: [{ $or: [{ startsAt: null }, { startsAt: { $lte: now } }] }, { $or: [{ endsAt: null }, { endsAt: { $gt: now } }] }],
+        $and: [
+          { $or: [{ startsAt: null }, { startsAt: { $lte: now } }] },
+          { $or: [{ endsAt: null }, { endsAt: { $gt: now } }] },
+        ],
       })
       .sort({ sortOrder: 1 })
       .limit(20)
       .toArray();
-    return docs.map((b) => ({ id: String(b._id), title: b.title, imageUrl: b.imageUrl, linkUrl: b.linkUrl }));
+    return docs.map((b) => ({
+      id: String(b._id),
+      title: b.title,
+      imageUrl: b.imageUrl,
+      linkUrl: b.linkUrl,
+    }));
   }
 
   async all() {
@@ -42,7 +50,11 @@ export class BannersService {
       await this.ctx.col.banners.insertOne(doc);
       return doc;
     }
-    const res = await this.ctx.col.banners.findOneAndUpdate({ _id: id }, { $set: input }, { returnDocument: 'after' });
+    const res = await this.ctx.col.banners.findOneAndUpdate(
+      { _id: id },
+      { $set: input },
+      { returnDocument: 'after' },
+    );
     if (!res) throw notFound('Banner');
     return res;
   }

@@ -3,12 +3,23 @@ import { z } from 'zod';
 import type { WithdrawalStatus } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { WithdrawalDoc } from '../../db/schema.js';
-import { badRequest, conflict, forbidden, isDuplicateKeyError, notFound } from '../../lib/errors.js';
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  isDuplicateKeyError,
+  notFound,
+} from '../../lib/errors.js';
 
 export const withdrawalInput = z.object({
   beans: z.number().int().positive(),
   method: z.enum(['bank', 'mobile_wallet', 'paypal', 'other']),
-  account: z.record(z.string().min(1).max(40), z.string().trim().min(1).max(200)).refine((a) => Object.keys(a).length > 0 && Object.keys(a).length <= 10, 'Account details required'),
+  account: z
+    .record(z.string().min(1).max(40), z.string().trim().min(1).max(200))
+    .refine(
+      (a) => Object.keys(a).length > 0 && Object.keys(a).length <= 10,
+      'Account details required',
+    ),
 });
 
 /**
@@ -19,10 +30,18 @@ export const withdrawalInput = z.object({
 export class WithdrawalsService {
   constructor(private readonly ctx: Ctx) {}
 
-  async request(uid: string, rawKey: string, input: z.infer<typeof withdrawalInput>): Promise<WithdrawalDoc> {
-    const [features, economy] = await Promise.all([this.ctx.services.config.get('features'), this.ctx.services.config.get('economy')]);
+  async request(
+    uid: string,
+    rawKey: string,
+    input: z.infer<typeof withdrawalInput>,
+  ): Promise<WithdrawalDoc> {
+    const [features, economy] = await Promise.all([
+      this.ctx.services.config.get('features'),
+      this.ctx.services.config.get('economy'),
+    ]);
     if (!features.withdrawalsEnabled) throw forbidden('Withdrawals are temporarily disabled');
-    if (input.beans < economy.minWithdrawBeans) throw badRequest(`Minimum withdrawal is ${economy.minWithdrawBeans} beans`);
+    if (input.beans < economy.minWithdrawBeans)
+      throw badRequest(`Minimum withdrawal is ${economy.minWithdrawBeans} beans`);
 
     const idempotencyKey = `${uid}:${rawKey}`;
     const existing = await this.ctx.col.withdrawals.findOne({ idempotencyKey });
@@ -65,7 +84,11 @@ export class WithdrawalsService {
   }
 
   async mine(uid: string, limit = 50) {
-    return this.ctx.col.withdrawals.find({ userId: uid }, { projection: { account: 0 } }).sort({ createdAt: -1 }).limit(limit).toArray();
+    return this.ctx.col.withdrawals
+      .find({ userId: uid }, { projection: { account: 0 } })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .toArray();
   }
 
   async list(filter: { status?: WithdrawalStatus; uid?: string }, page: number, pageSize: number) {
@@ -73,10 +96,18 @@ export class WithdrawalsService {
     if (filter.status) q.status = filter.status;
     if (filter.uid) q.userId = filter.uid;
     const [items, total, pendingSum] = await Promise.all([
-      this.ctx.col.withdrawals.find(q).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray(),
+      this.ctx.col.withdrawals
+        .find(q)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .toArray(),
       this.ctx.col.withdrawals.countDocuments(q),
       this.ctx.col.withdrawals
-        .aggregate<{ beans: number; usd: number }>([{ $match: { status: 'pending' } }, { $group: { _id: null, beans: { $sum: '$beans' }, usd: { $sum: '$amountUsd' } } }])
+        .aggregate<{ beans: number; usd: number }>([
+          { $match: { status: 'pending' } },
+          { $group: { _id: null, beans: { $sum: '$beans' }, usd: { $sum: '$amountUsd' } } },
+        ])
         .toArray(),
     ]);
     const briefs = await this.ctx.services.users.briefs(items.map((i) => i.userId));
@@ -89,7 +120,12 @@ export class WithdrawalsService {
     };
   }
 
-  async review(id: ObjectId, adminId: string, action: 'approve' | 'reject' | 'mark_paid', note: string | null): Promise<WithdrawalDoc> {
+  async review(
+    id: ObjectId,
+    adminId: string,
+    action: 'approve' | 'reject' | 'mark_paid',
+    note: string | null,
+  ): Promise<WithdrawalDoc> {
     const now = this.ctx.clock.now();
     if (action === 'reject') {
       const result = await this.ctx.db.withTransaction(async (session) => {
@@ -99,7 +135,13 @@ export class WithdrawalsService {
           { session, returnDocument: 'after' },
         );
         if (!w) throw notFound('Reviewable withdrawal');
-        await this.ctx.services.wallet.credit(session, { uid: w.userId, currency: 'beans', amount: w.beans, reason: 'withdrawal_release', refId: String(w._id) });
+        await this.ctx.services.wallet.credit(session, {
+          uid: w.userId,
+          currency: 'beans',
+          amount: w.beans,
+          reason: 'withdrawal_release',
+          refId: String(w._id),
+        });
         return w;
       });
       await this.notify(result);
@@ -125,7 +167,12 @@ export class WithdrawalsService {
       rejected: `Your withdrawal was declined${w.note ? `: ${w.note}` : ''}. Beans were returned.`,
     };
     await this.ctx.services.notifications
-      .notify(w.userId, { type: 'withdrawal', title: 'Withdrawal update', body: copy[w.status], data: { withdrawalId: String(w._id), status: w.status } })
+      .notify(w.userId, {
+        type: 'withdrawal',
+        title: 'Withdrawal update',
+        body: copy[w.status],
+        data: { withdrawalId: String(w._id), status: w.status },
+      })
       .catch(() => undefined);
   }
 }

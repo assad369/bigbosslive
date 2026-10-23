@@ -13,7 +13,12 @@ export interface PresignedUpload {
 }
 
 export interface StorageGateway {
-  presignUpload(opts: { folder: string; ownerId: string; contentType: string; ext: string }): Promise<PresignedUpload>;
+  presignUpload(opts: {
+    folder: string;
+    ownerId: string;
+    contentType: string;
+    ext: string;
+  }): Promise<PresignedUpload>;
 }
 
 /**
@@ -45,7 +50,13 @@ export function createS3Storage(env: Env): StorageGateway {
         { expiresIn },
       );
       const base = (env.S3_PUBLIC_BASE_URL ?? '').replace(/\/$/, '');
-      return { uploadUrl, publicUrl: `${base}/${key}`, key, expiresIn, headers: { 'Content-Type': contentType } };
+      return {
+        uploadUrl,
+        publicUrl: `${base}/${key}`,
+        key,
+        expiresIn,
+        headers: { 'Content-Type': contentType },
+      };
     },
   };
 }

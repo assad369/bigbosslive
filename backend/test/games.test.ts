@@ -41,15 +41,24 @@ describe('teen patti hand ranking', () => {
     const pair = ev('Ks', 'Kh', '2d');
     const high = ev('As', '7h', '2d');
     const ordered = [trail, pure, seq, color, pair, high];
-    for (let i = 0; i < ordered.length - 1; i++) expect(compare(ordered[i]!, ordered[i + 1]!)).toBeGreaterThan(0);
+    for (let i = 0; i < ordered.length - 1; i++)
+      expect(compare(ordered[i]!, ordered[i + 1]!)).toBeGreaterThan(0);
   });
   it('ranks A-2-3 just below A-K-Q', () => {
     expect(compare(ev('Ah', 'Kd', 'Qs'), ev('Ah', '2d', '3s'))).toBeGreaterThan(0);
     expect(compare(ev('Ah', '2d', '3s'), ev('Kh', 'Qd', 'Js'))).toBeGreaterThan(0);
   });
   it('resolves rounds deterministically with a full reveal', () => {
-    const r1 = GAME_DEFINITIONS.teen_patti.resolve('abc', 9, GAME_DEFINITIONS.teen_patti.defaultConfig);
-    const r2 = GAME_DEFINITIONS.teen_patti.resolve('abc', 9, GAME_DEFINITIONS.teen_patti.defaultConfig);
+    const r1 = GAME_DEFINITIONS.teen_patti.resolve(
+      'abc',
+      9,
+      GAME_DEFINITIONS.teen_patti.defaultConfig,
+    );
+    const r2 = GAME_DEFINITIONS.teen_patti.resolve(
+      'abc',
+      9,
+      GAME_DEFINITIONS.teen_patti.defaultConfig,
+    );
     expect(r1).toEqual(r2);
     expect(['A', 'B', 'C']).toContain(r1.outcome);
     const cards = Object.values(r1.reveal).flatMap((s) => (s as { cards: string[] }).cards);
@@ -82,18 +91,34 @@ describe('round engine and settlement', () => {
       ['p3', 'coin', 1000],
     ];
     for (const [uid, option, amount] of bets) {
-      const r = await h.api.post('/v1/games/golden_wheel/bets').set(h.as(uid)).set('Idempotency-Key', key()).send({ roundId: round.id, option, amount });
+      const r = await h.api
+        .post('/v1/games/golden_wheel/bets')
+        .set(h.as(uid))
+        .set('Idempotency-Key', key())
+        .send({ roundId: round.id, option, amount });
       expect(r.status).toBe(200);
     }
     // Replay with the same key does not double-stake.
     const k = key();
-    await h.api.post('/v1/games/golden_wheel/bets').set(h.as('p3')).set('Idempotency-Key', k).send({ roundId: round.id, option: 'coin', amount: 1000 });
-    const replay = await h.api.post('/v1/games/golden_wheel/bets').set(h.as('p3')).set('Idempotency-Key', k).send({ roundId: round.id, option: 'coin', amount: 1000 });
+    await h.api
+      .post('/v1/games/golden_wheel/bets')
+      .set(h.as('p3'))
+      .set('Idempotency-Key', k)
+      .send({ roundId: round.id, option: 'coin', amount: 1000 });
+    const replay = await h.api
+      .post('/v1/games/golden_wheel/bets')
+      .set(h.as('p3'))
+      .set('Idempotency-Key', k)
+      .send({ roundId: round.id, option: 'coin', amount: 1000 });
     expect(replay.body.replayed).toBe(true);
 
     h.clock.advance(26);
     await h.ctx.services.games.tick();
-    const late = await h.api.post('/v1/games/golden_wheel/bets').set(h.as('p1')).set('Idempotency-Key', key()).send({ roundId: round.id, option: 'cherry', amount: 100 });
+    const late = await h.api
+      .post('/v1/games/golden_wheel/bets')
+      .set(h.as('p1'))
+      .set('Idempotency-Key', key())
+      .send({ roundId: round.id, option: 'cherry', amount: 100 });
     expect(late.status).toBe(409);
 
     h.clock.advance(9);
@@ -118,7 +143,13 @@ describe('round engine and settlement', () => {
     const verify = await h.api.get(`/v1/games/rounds/${round.id}/verify`).set(h.as('p1'));
     expect(verify.body.hashMatches).toBe(true);
     expect(hashSeed(verify.body.serverSeed)).toBe(round.serverSeedHash);
-    expect(GAME_DEFINITIONS.golden_wheel.resolve(verify.body.serverSeed, verify.body.roundNo, GAME_DEFINITIONS.golden_wheel.defaultConfig).outcome).toBe(verify.body.outcome);
+    expect(
+      GAME_DEFINITIONS.golden_wheel.resolve(
+        verify.body.serverSeed,
+        verify.body.roundNo,
+        GAME_DEFINITIONS.golden_wheel.defaultConfig,
+      ).outcome,
+    ).toBe(verify.body.outcome);
 
     // The next tick opens the next round.
     await h.ctx.services.games.tick();
@@ -127,20 +158,35 @@ describe('round engine and settlement', () => {
 
   it('enforces bet limits and the per-round stake cap', async () => {
     const round = await h.ctx.services.games.currentRound('golden_wheel');
-    const tooSmall = await h.api.post('/v1/games/golden_wheel/bets').set(h.as('p1')).set('Idempotency-Key', key()).send({ roundId: String(round!._id), option: 'cherry', amount: 1 });
+    const tooSmall = await h.api
+      .post('/v1/games/golden_wheel/bets')
+      .set(h.as('p1'))
+      .set('Idempotency-Key', key())
+      .send({ roundId: String(round!._id), option: 'cherry', amount: 1 });
     expect(tooSmall.status).toBe(400);
-    const unknown = await h.api.post('/v1/games/golden_wheel/bets').set(h.as('p1')).set('Idempotency-Key', key()).send({ roundId: String(round!._id), option: 'banana', amount: 100 });
+    const unknown = await h.api
+      .post('/v1/games/golden_wheel/bets')
+      .set(h.as('p1'))
+      .set('Idempotency-Key', key())
+      .send({ roundId: String(round!._id), option: 'banana', amount: 100 });
     expect(unknown.status).toBe(400);
   });
 
   it('refuses configs that would pay out more than they take', async () => {
-    const cfg = { ...GAME_DEFINITIONS.golden_wheel.defaultConfig, payouts: { ...GAME_DEFINITIONS.golden_wheel.defaultConfig.payouts, cherry: 50 } };
+    const cfg = {
+      ...GAME_DEFINITIONS.golden_wheel.defaultConfig,
+      payouts: { ...GAME_DEFINITIONS.golden_wheel.defaultConfig.payouts, cherry: 50 },
+    };
     await expect(h.ctx.services.games.updateConfig('golden_wheel', cfg)).rejects.toThrow(/RTP/);
   });
 
   it('voids a stuck round with refunds', async () => {
     const round = await h.ctx.services.games.currentRound('golden_wheel');
-    await h.api.post('/v1/games/golden_wheel/bets').set(h.as('p2')).set('Idempotency-Key', key()).send({ roundId: String(round!._id), option: 'melon', amount: 500 });
+    await h.api
+      .post('/v1/games/golden_wheel/bets')
+      .set(h.as('p2'))
+      .set('Idempotency-Key', key())
+      .send({ roundId: String(round!._id), option: 'melon', amount: 500 });
     const before = (await h.ctx.col.users.findOne({ _id: 'p2' }))!.wallet.diamonds;
     expect(await h.ctx.services.games.voidRound(round!._id)).toEqual({ refunded: 1 });
     expect((await h.ctx.col.users.findOne({ _id: 'p2' }))!.wallet.diamonds).toBe(before + 500);

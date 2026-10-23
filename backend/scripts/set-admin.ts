@@ -10,7 +10,11 @@ import { createFirebaseAuth } from '../src/infra/firebase.js';
 import { withDb } from './_db.js';
 
 const [who, roleArg] = process.argv.slice(2);
-if (!who || !roleArg || (roleArg !== 'none' && !(ADMIN_ROLES as readonly string[]).includes(roleArg))) {
+if (
+  !who ||
+  !roleArg ||
+  (roleArg !== 'none' && !(ADMIN_ROLES as readonly string[]).includes(roleArg))
+) {
   console.error(`usage: set-admin <uid|email> <${ADMIN_ROLES.join('|')}|none>`);
   process.exit(1);
 }

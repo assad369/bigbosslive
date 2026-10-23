@@ -2,7 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { Ctx } from '../context.js';
 import { requireAuth, requireToken } from '../middleware/auth.js';
-import { currentUser, cursorQuery, pageQuery, parseBody, parseParams, parseQuery, uidParam } from '../lib/http.js';
+import {
+  currentUser,
+  cursorQuery,
+  pageQuery,
+  parseBody,
+  parseParams,
+  parseQuery,
+  uidParam,
+} from '../lib/http.js';
 import { unauthorized } from '../lib/errors.js';
 import { profileInput } from '../modules/users/users.service.js';
 import { toMeUser } from '../modules/users/users.presenter.js';
@@ -60,7 +68,13 @@ export function accountRoutes(ctx: Ctx): Router {
   });
 
   r.get('/users/search', auth, async (req, res) => {
-    const { q, limit } = parseQuery(req, z.object({ q: z.string().trim().min(1).max(40), limit: z.coerce.number().int().min(1).max(50).default(20) }));
+    const { q, limit } = parseQuery(
+      req,
+      z.object({
+        q: z.string().trim().min(1).max(40),
+        limit: z.coerce.number().int().min(1).max(50).default(20),
+      }),
+    );
     res.json({ items: await users.search(q, limit) });
   });
 
@@ -105,7 +119,10 @@ export function accountRoutes(ctx: Ctx): Router {
 
   r.get('/users/:uid/contributors', auth, async (req, res) => {
     const { uid } = parseParams(req, uidParam);
-    const { period } = parseQuery(req, z.object({ period: z.enum(['day', 'week', 'month', 'all']).default('week') }));
+    const { period } = parseQuery(
+      req,
+      z.object({ period: z.enum(['day', 'week', 'month', 'all']).default('week') }),
+    );
     const days = { day: 1, week: 7, month: 30, all: null }[period];
     const since = days ? new Date(ctx.clock.now().getTime() - days * 86_400_000) : null;
     res.json({ items: await gifts.topContributors(uid, since) });
@@ -113,7 +130,8 @@ export function accountRoutes(ctx: Ctx): Router {
 
   r.get('/users/:uid/live-history', auth, async (req, res) => {
     const { uid } = parseParams(req, uidParam);
-    if (uid !== currentUser(req).uid && !currentUser(req).adminRole) throw unauthorized('You can only view your own history');
+    if (uid !== currentUser(req).uid && !currentUser(req).adminRole)
+      throw unauthorized('You can only view your own history');
     const { page, pageSize } = parseQuery(req, pageQuery);
     res.json(await ctx.services.live.history(uid, page, pageSize));
   });

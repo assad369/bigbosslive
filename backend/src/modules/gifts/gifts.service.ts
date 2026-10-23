@@ -22,7 +22,11 @@ export const sendGiftInput = z.object({
   giftId: z.string().regex(/^[a-f0-9]{24}$/i),
   quantity: z.number().int().min(1).max(9999),
   receiverIds: z.array(z.string().min(1).max(128)).min(1).max(10),
-  roomId: z.string().regex(/^[a-f0-9]{24}$/i).nullable().default(null),
+  roomId: z
+    .string()
+    .regex(/^[a-f0-9]{24}$/i)
+    .nullable()
+    .default(null),
 });
 export type SendGiftInput = z.infer<typeof sendGiftInput>;
 
@@ -56,8 +60,12 @@ export class GiftsService {
   constructor(private readonly ctx: Ctx) {}
 
   async catalog(): Promise<Gift[]> {
-    if (this.catalogCache && Date.now() - this.catalogCache.at < CATALOG_TTL_MS) return this.catalogCache.gifts;
-    const docs = await this.ctx.col.gifts.find({ active: true }).sort({ category: 1, sortOrder: 1, price: 1 }).toArray();
+    if (this.catalogCache && Date.now() - this.catalogCache.at < CATALOG_TTL_MS)
+      return this.catalogCache.gifts;
+    const docs = await this.ctx.col.gifts
+      .find({ active: true })
+      .sort({ category: 1, sortOrder: 1, price: 1 })
+      .toArray();
     const gifts = docs.map(toGift);
     this.catalogCache = { gifts, at: Date.now() };
     return gifts;
@@ -66,7 +74,9 @@ export class GiftsService {
   // ── Admin catalog management ───────────────────────────────────────────────
 
   async listAll() {
-    return (await this.ctx.col.gifts.find().sort({ category: 1, sortOrder: 1 }).toArray()).map(toGift);
+    return (await this.ctx.col.gifts.find().sort({ category: 1, sortOrder: 1 }).toArray()).map(
+      toGift,
+    );
   }
 
   async create(input: z.infer<typeof giftInput>): Promise<Gift> {
@@ -112,7 +122,8 @@ export class GiftsService {
     if (receiverIds.includes(senderId)) throw badRequest('You cannot send a gift to yourself');
 
     const economy = await this.ctx.services.config.get('economy');
-    if (input.quantity > economy.maxGiftQuantity) throw badRequest(`Quantity cannot exceed ${economy.maxGiftQuantity}`);
+    if (input.quantity > economy.maxGiftQuantity)
+      throw badRequest(`Quantity cannot exceed ${economy.maxGiftQuantity}`);
 
     const gift = await this.ctx.col.gifts.findOne({ _id: new ObjectId(input.giftId) });
     if (!gift?.active) throw notFound('Gift');
@@ -123,13 +134,19 @@ export class GiftsService {
     }
 
     const receivers = await this.ctx.col.users
-      .find({ _id: { $in: receiverIds }, status: 'active' }, { projection: { _id: 1, agencyId: 1 } })
+      .find(
+        { _id: { $in: receiverIds }, status: 'active' },
+        { projection: { _id: 1, agencyId: 1 } },
+      )
       .toArray();
     if (receivers.length !== receiverIds.length) throw notFound('Receiver');
 
     let room: LiveRoomDoc | null = null;
     if (input.roomId) {
-      room = await this.ctx.col.liveRooms.findOne({ _id: new ObjectId(input.roomId), status: 'live' });
+      room = await this.ctx.col.liveRooms.findOne({
+        _id: new ObjectId(input.roomId),
+        status: 'live',
+      });
       if (!room) throw notFound('Live room');
     }
 
@@ -212,7 +229,13 @@ export class GiftsService {
                 meta: { host: r.userId, agencyId: String(agency._id) },
               });
             }
-            await this.ctx.services.agencies.recordEarnings(session, r.agencyId, r.userId, r.beans, periodKey);
+            await this.ctx.services.agencies.recordEarnings(
+              session,
+              r.agencyId,
+              r.userId,
+              r.beans,
+              periodKey,
+            );
           }
           if (room && room.hostId === r.userId) {
             await this.ctx.col.liveRooms.updateOne(
@@ -243,18 +266,30 @@ export class GiftsService {
     const existing = await this.ctx.col.giftTransactions.findOne({ idempotencyKey });
     if (!existing) return null;
     const { diamonds } = await this.ctx.services.wallet.balances(senderId);
-    return { transactionId: String(existing._id), totalCost: existing.totalCost, diamonds, replayed: true };
+    return {
+      transactionId: String(existing._id),
+      totalCost: existing.totalCost,
+      diamonds,
+      replayed: true,
+    };
   }
 
   /** Side effects that must not roll back a committed gift: PK scoring and the room broadcast. */
-  private async afterSend(tx: GiftTransactionDoc, room: LiveRoomDoc | null, gift: GiftDoc): Promise<void> {
+  private async afterSend(
+    tx: GiftTransactionDoc,
+    room: LiveRoomDoc | null,
+    gift: GiftDoc,
+  ): Promise<void> {
     if (tx.pkBattleId) {
       for (const r of tx.receivers) {
         await this.ctx.services.pk.addScore(tx.pkBattleId, r.userId, tx.senderId, r.cost);
       }
     }
     if (room) {
-      const briefs = await this.ctx.services.users.briefs([tx.senderId, ...tx.receivers.map((r) => r.userId)]);
+      const briefs = await this.ctx.services.users.briefs([
+        tx.senderId,
+        ...tx.receivers.map((r) => r.userId),
+      ]);
       await this.ctx.livekit
         .sendData(room.livekitRoom, LIVEKIT_TOPICS.gift, {
           transactionId: String(tx._id),
@@ -268,14 +303,27 @@ export class GiftsService {
     }
   }
 
-  async history(filter: { senderId?: string; receiverId?: string; roomId?: ObjectId; from?: Date; to?: Date }, page: number, pageSize: number) {
+  async history(
+    filter: { senderId?: string; receiverId?: string; roomId?: ObjectId; from?: Date; to?: Date },
+    page: number,
+    pageSize: number,
+  ) {
     const q: Filter<GiftTransactionDoc> = {};
     if (filter.senderId) q.senderId = filter.senderId;
     if (filter.receiverId) q['receivers.userId'] = filter.receiverId;
     if (filter.roomId) q.roomId = filter.roomId;
-    if (filter.from || filter.to) q.createdAt = { ...(filter.from ? { $gte: filter.from } : {}), ...(filter.to ? { $lt: filter.to } : {}) };
+    if (filter.from || filter.to)
+      q.createdAt = {
+        ...(filter.from ? { $gte: filter.from } : {}),
+        ...(filter.to ? { $lt: filter.to } : {}),
+      };
     const [items, total] = await Promise.all([
-      this.ctx.col.giftTransactions.find(q).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray(),
+      this.ctx.col.giftTransactions
+        .find(q)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .toArray(),
       this.ctx.col.giftTransactions.countDocuments(q),
     ]);
     return { items, total, page, pageSize };
@@ -285,7 +333,12 @@ export class GiftsService {
   async topContributors(receiverId: string, since: Date | null, limit = 20) {
     const rows = await this.ctx.col.giftTransactions
       .aggregate<{ _id: string; total: number }>([
-        { $match: { 'receivers.userId': receiverId, ...(since ? { createdAt: { $gte: since } } : {}) } },
+        {
+          $match: {
+            'receivers.userId': receiverId,
+            ...(since ? { createdAt: { $gte: since } } : {}),
+          },
+        },
         { $unwind: '$receivers' },
         { $match: { 'receivers.userId': receiverId } },
         { $group: { _id: '$senderId', total: { $sum: '$receivers.cost' } } },
@@ -311,9 +364,17 @@ export class GiftsService {
             { $group: { _id: '$receivers.userId', total: { $sum: '$receivers.cost' } } },
           ];
     const rows = await this.ctx.col.giftTransactions
-      .aggregate<{ _id: string; total: number }>([...pipeline, { $sort: { total: -1 } }, { $limit: limit }])
+      .aggregate<{ _id: string; total: number }>([
+        ...pipeline,
+        { $sort: { total: -1 } },
+        { $limit: limit },
+      ])
       .toArray();
     const briefs = await this.ctx.services.users.briefs(rows.map((r) => r._id));
-    return rows.map((r, i) => ({ rank: i + 1, user: briefs.get(r._id) ?? null, diamonds: r.total }));
+    return rows.map((r, i) => ({
+      rank: i + 1,
+      user: briefs.get(r._id) ?? null,
+      diamonds: r.total,
+    }));
   }
 }

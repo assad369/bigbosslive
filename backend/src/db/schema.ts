@@ -54,7 +54,11 @@ export interface UserDoc {
   };
   level: { level: number; points: number };
   vip: { tier: number; expiresAt: Date | null };
-  equipped: { frameId: ObjectId | null; entryAnimationId: ObjectId | null; frameUrl: string | null };
+  equipped: {
+    frameId: ObjectId | null;
+    entryAnimationId: ObjectId | null;
+    frameUrl: string | null;
+  };
   agencyId: ObjectId | null;
   liveRoomId: ObjectId | null;
   createdAt: Date;

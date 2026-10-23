@@ -34,7 +34,9 @@ export class UsersService {
   async briefs(uids: string[]): Promise<Map<string, UserBrief>> {
     const unique = [...new Set(uids)];
     if (!unique.length) return new Map();
-    const docs = await this.col.find({ _id: { $in: unique } }, { projection: BRIEF_PROJECTION }).toArray();
+    const docs = await this.col
+      .find({ _id: { $in: unique } }, { projection: BRIEF_PROJECTION })
+      .toArray();
     const now = this.ctx.clock.now();
     return new Map(docs.map((d) => [d._id, toUserBrief(d as UserDoc, now)]));
   }
@@ -52,11 +54,15 @@ export class UsersService {
    * Idempotent session bootstrap: creates the profile on first sign-in, otherwise refreshes
    * identity fields from the verified token. Safe to call on every app launch.
    */
-  async ensureProfile(token: VerifiedToken, input: Partial<ProfileInput> = {}): Promise<{ user: UserDoc; created: boolean }> {
+  async ensureProfile(
+    token: VerifiedToken,
+    input: Partial<ProfileInput> = {},
+  ): Promise<{ user: UserDoc; created: boolean }> {
     const existing = await this.col.findOne({ _id: token.uid });
     const now = this.ctx.clock.now();
     if (existing) {
-      if (existing.status === 'deleted') throw conflict('This account was deleted', 'account_deleted');
+      if (existing.status === 'deleted')
+        throw conflict('This account was deleted', 'account_deleted');
       const $set: Partial<UserDoc> = { lastSeenAt: now, adminRole: token.adminRole };
       if (token.email && token.email !== existing.email) $set.email = token.email;
       if (token.phone && token.phone !== existing.phone) $set.phone = token.phone;
@@ -85,7 +91,14 @@ export class UsersService {
         adminRole: token.adminRole,
         isAgent: false,
         wallet: { diamonds: 0, beans: 0, agentStock: 0 },
-        stats: { followers: 0, following: 0, totalRecharged: 0, totalReceived: 0, totalSent: 0, liveSeconds: 0 },
+        stats: {
+          followers: 0,
+          following: 0,
+          totalRecharged: 0,
+          totalReceived: 0,
+          totalSent: 0,
+          liveSeconds: 0,
+        },
         level: { level: 0, points: 0 },
         vip: { tier: 0, expiresAt: null },
         equipped: { frameId: null, entryAnimationId: null, frameUrl: null },
@@ -118,25 +131,41 @@ export class UsersService {
       $set.displayName = name;
       $set.displayNameLower = name.toLowerCase();
     }
-    if (patch.bio !== undefined) $set.bio = await this.ctx.services.moderation.assertClean(patch.bio, 'bio');
+    if (patch.bio !== undefined)
+      $set.bio = await this.ctx.services.moderation.assertClean(patch.bio, 'bio');
     if (patch.avatarUrl !== undefined) $set.avatarUrl = patch.avatarUrl;
     if (patch.gender !== undefined) $set.gender = patch.gender;
     if (patch.birthday !== undefined) $set.birthday = patch.birthday;
     if (patch.country !== undefined) $set.country = patch.country;
-    const updated = await this.col.findOneAndUpdate({ _id: uid, status: { $ne: 'deleted' } }, { $set }, { returnDocument: 'after' });
+    const updated = await this.col.findOneAndUpdate(
+      { _id: uid, status: { $ne: 'deleted' } },
+      { $set },
+      { returnDocument: 'after' },
+    );
     if (!updated) throw notFound('User');
     return updated;
   }
 
   async publicProfile(uid: string, viewerUid: string | null) {
     const user = await this.get(uid);
-    const [isFollowing, isBlocked] = viewerUid && viewerUid !== uid
-      ? await Promise.all([
-          this.ctx.col.follows.countDocuments({ followerId: viewerUid, followeeId: uid }, { limit: 1 }),
-          this.ctx.col.blocks.countDocuments({ blockerId: viewerUid, blockedId: uid }, { limit: 1 }),
-        ])
-      : [0, 0];
-    return { ...toPublicUser(user, this.ctx.clock.now()), isFollowing: isFollowing > 0, isBlocked: isBlocked > 0 };
+    const [isFollowing, isBlocked] =
+      viewerUid && viewerUid !== uid
+        ? await Promise.all([
+            this.ctx.col.follows.countDocuments(
+              { followerId: viewerUid, followeeId: uid },
+              { limit: 1 },
+            ),
+            this.ctx.col.blocks.countDocuments(
+              { blockerId: viewerUid, blockedId: uid },
+              { limit: 1 },
+            ),
+          ])
+        : [0, 0];
+    return {
+      ...toPublicUser(user, this.ctx.clock.now()),
+      isFollowing: isFollowing > 0,
+      isBlocked: isBlocked > 0,
+    };
   }
 
   /** Search by exact short id or display-name prefix. */
@@ -145,9 +174,16 @@ export class UsersService {
     if (!term) return [];
     const escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const filter: Filter<UserDoc> = /^\d{5,12}$/.test(term)
-      ? { status: 'active', $or: [{ shortId: term }, { displayNameLower: { $regex: `^${escaped}` } }] }
+      ? {
+          status: 'active',
+          $or: [{ shortId: term }, { displayNameLower: { $regex: `^${escaped}` } }],
+        }
       : { status: 'active', displayNameLower: { $regex: `^${escaped}` } };
-    const docs = await this.col.find(filter, { projection: BRIEF_PROJECTION }).sort({ 'level.level': -1 }).limit(limit).toArray();
+    const docs = await this.col
+      .find(filter, { projection: BRIEF_PROJECTION })
+      .sort({ 'level.level': -1 })
+      .limit(limit)
+      .toArray();
     const now = this.ctx.clock.now();
     return docs.map((d) => toUserBrief(d as UserDoc, now));
   }
@@ -173,14 +209,23 @@ export class UsersService {
 
   async isBlockedEitherWay(a: string, b: string): Promise<boolean> {
     const n = await this.ctx.col.blocks.countDocuments(
-      { $or: [{ blockerId: a, blockedId: b }, { blockerId: b, blockedId: a }] },
+      {
+        $or: [
+          { blockerId: a, blockedId: b },
+          { blockerId: b, blockedId: a },
+        ],
+      },
       { limit: 1 },
     );
     return n > 0;
   }
 
   async blockedList(uid: string): Promise<UserBrief[]> {
-    const rows = await this.ctx.col.blocks.find({ blockerId: uid }).sort({ createdAt: -1 }).limit(500).toArray();
+    const rows = await this.ctx.col.blocks
+      .find({ blockerId: uid })
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .toArray();
     const briefs = await this.briefs(rows.map((r) => r.blockedId));
     return rows.map((r) => briefs.get(r.blockedId)).filter((b): b is UserBrief => Boolean(b));
   }
@@ -191,7 +236,10 @@ export class UsersService {
     if (deviceId) {
       await this.ctx.col.devices.updateOne(
         { userId: uid, deviceId },
-        { $set: { lastSeenAt: now, platform }, $setOnInsert: { userId: uid, deviceId, firstSeenAt: now } },
+        {
+          $set: { lastSeenAt: now, platform },
+          $setOnInsert: { userId: uid, deviceId, firstSeenAt: now },
+        },
         { upsert: true },
       );
     }
@@ -208,15 +256,26 @@ export class UsersService {
     const now = this.ctx.clock.now();
     const res = await this.col.updateOne(
       { _id: uid, status: { $ne: 'deleted' } },
-      { $set: { status: 'banned', ban: { reason: opts.reason, until: opts.until, by: opts.by, at: now }, updatedAt: now } },
+      {
+        $set: {
+          status: 'banned',
+          ban: { reason: opts.reason, until: opts.until, by: opts.by, at: now },
+          updatedAt: now,
+        },
+      },
     );
     if (!res.matchedCount) throw notFound('User');
-    await this.ctx.auth.revokeSessions(uid).catch((err: unknown) => this.ctx.log.warn({ err, uid }, 'revoke failed'));
+    await this.ctx.auth
+      .revokeSessions(uid)
+      .catch((err: unknown) => this.ctx.log.warn({ err, uid }, 'revoke failed'));
     await this.ctx.services.live.endActiveRoomFor(uid, 'banned', opts.by);
   }
 
   async unban(uid: string): Promise<void> {
-    const res = await this.col.updateOne({ _id: uid, status: 'banned' }, { $set: { status: 'active', ban: null, updatedAt: this.ctx.clock.now() } });
+    const res = await this.col.updateOne(
+      { _id: uid, status: 'banned' },
+      { $set: { status: 'active', ban: null, updatedAt: this.ctx.clock.now() } },
+    );
     if (!res.matchedCount) throw notFound('Banned user');
   }
 
@@ -228,9 +287,17 @@ export class UsersService {
       // Swap inside a transaction so neither user is ever left without an id.
       const target = await this.get(uid);
       await this.ctx.db.withTransaction(async (session) => {
-        await this.col.updateOne({ _id: holder._id }, { $set: { shortId: `tmp-${holder._id}` } }, { session });
+        await this.col.updateOne(
+          { _id: holder._id },
+          { $set: { shortId: `tmp-${holder._id}` } },
+          { session },
+        );
         await this.col.updateOne({ _id: uid }, { $set: { shortId } }, { session });
-        await this.col.updateOne({ _id: holder._id }, { $set: { shortId: target.shortId } }, { session });
+        await this.col.updateOne(
+          { _id: holder._id },
+          { $set: { shortId: target.shortId } },
+          { session },
+        );
       });
       return;
     }
@@ -274,6 +341,8 @@ export class UsersService {
       this.ctx.col.pushTokens.deleteMany({ userId: uid }),
       this.ctx.services.agencies.removeMember(uid).catch(() => undefined),
     ]);
-    await this.ctx.auth.deleteUser(uid).catch((err: unknown) => this.ctx.log.warn({ err, uid }, 'firebase delete failed'));
+    await this.ctx.auth
+      .deleteUser(uid)
+      .catch((err: unknown) => this.ctx.log.warn({ err, uid }, 'firebase delete failed'));
   }
 }

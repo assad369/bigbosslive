@@ -8,7 +8,12 @@ import { clientIp, currentUser } from '../../lib/http.js';
 export class AuditService {
   constructor(private readonly ctx: Ctx) {}
 
-  async record(req: Request, action: string, target: { type: string; id: string | null }, payload?: unknown): Promise<void> {
+  async record(
+    req: Request,
+    action: string,
+    target: { type: string; id: string | null },
+    payload?: unknown,
+  ): Promise<void> {
     const auth = currentUser(req);
     try {
       await this.ctx.col.auditLogs.insertOne({
@@ -26,13 +31,22 @@ export class AuditService {
     }
   }
 
-  async list(filter: { adminId?: string; action?: string; targetId?: string }, page: number, pageSize: number) {
+  async list(
+    filter: { adminId?: string; action?: string; targetId?: string },
+    page: number,
+    pageSize: number,
+  ) {
     const q: Filter<AuditLogDoc> = {};
     if (filter.adminId) q.adminId = filter.adminId;
     if (filter.action) q.action = filter.action;
     if (filter.targetId) q.targetId = filter.targetId;
     const [items, total] = await Promise.all([
-      this.ctx.col.auditLogs.find(q).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray(),
+      this.ctx.col.auditLogs
+        .find(q)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .toArray(),
       this.ctx.col.auditLogs.countDocuments(q),
     ]);
     return { items, total, page, pageSize };

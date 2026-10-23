@@ -11,7 +11,14 @@ export const DECK: Card[] = RANKS.flatMap((r) => SUITS.map((s) => `${r}${s}` as 
 
 const rankValue = (c: Card) => RANKS.indexOf(c[0] as (typeof RANKS)[number]) + 2;
 
-export const HAND_NAMES = ['high_card', 'pair', 'color', 'sequence', 'pure_sequence', 'trail'] as const;
+export const HAND_NAMES = [
+  'high_card',
+  'pair',
+  'color',
+  'sequence',
+  'pure_sequence',
+  'trail',
+] as const;
 export type HandName = (typeof HAND_NAMES)[number];
 
 export interface HandScore {

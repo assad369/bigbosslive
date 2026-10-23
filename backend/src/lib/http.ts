@@ -15,7 +15,8 @@ function parseWith<S extends z.ZodType>(schema: S, value: unknown): z.output<S> 
 }
 
 /** Validate `req.body`. Express 5 makes `req.query` read-only, so we parse rather than mutate. */
-export const parseBody = <S extends z.ZodType>(req: Request, schema: S) => parseWith(schema, req.body);
+export const parseBody = <S extends z.ZodType>(req: Request, schema: S) =>
+  parseWith(schema, req.body);
 export const parseQuery = <S extends z.ZodType>(req: Request, schema: S) =>
   parseWith(schema, req.query);
 export const parseParams = <S extends z.ZodType>(req: Request, schema: S) =>
@@ -34,9 +35,7 @@ export function toObjectId(value: string, what = 'id'): ObjectId {
   return new ObjectId(value);
 }
 
-export const objectIdString = z
-  .string()
-  .regex(/^[a-f0-9]{24}$/i, 'Must be a 24-character hex id');
+export const objectIdString = z.string().regex(/^[a-f0-9]{24}$/i, 'Must be a 24-character hex id');
 
 export const idParam = z.object({ id: objectIdString });
 export const uidParam = z.object({ uid: z.string().min(1).max(128) });
@@ -62,7 +61,10 @@ export function encodeCursor(date: Date, id: string): string {
  * Mongo filter for "rows strictly after the cursor" under a `{ [field]: -1, _id: -1 }` sort.
  * The `_id` tiebreak keeps paging exact when many rows share a timestamp.
  */
-export function afterCursor(cursor: string | undefined, field = 'createdAt'): Record<string, unknown> {
+export function afterCursor(
+  cursor: string | undefined,
+  field = 'createdAt',
+): Record<string, unknown> {
   const after = decodeCursor(cursor);
   if (!after) return {};
   if (!ObjectId.isValid(after.id)) throw badRequest('Invalid cursor');

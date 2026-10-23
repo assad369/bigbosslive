@@ -5,7 +5,13 @@ import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
 import client from 'prom-client';
 import type { Ctx } from './context.js';
-import { createRateLimiter, errorHandler, metrics, notFoundHandler, requestId } from './middleware/http.js';
+import {
+  createRateLimiter,
+  errorHandler,
+  metrics,
+  notFoundHandler,
+  requestId,
+} from './middleware/http.js';
 import { accountRoutes } from './routes/account.js';
 import { adminRoutes } from './routes/admin.js';
 import { contentRoutes } from './routes/content.js';
@@ -24,11 +30,19 @@ export function createApp(ctx: Ctx): Express {
     pinoHttp({
       logger: ctx.log,
       genReqId: (req) => (req as express.Request).requestId ?? '',
-      autoLogging: { ignore: (req) => req.url === '/healthz' || req.url === '/readyz' || req.url === '/metrics' },
-      customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'),
+      autoLogging: {
+        ignore: (req) => req.url === '/healthz' || req.url === '/readyz' || req.url === '/metrics',
+      },
+      customLogLevel: (_req, res, err) =>
+        err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
       // Lean access logs: no headers (they carry tokens and are huge), just the essentials.
       serializers: {
-        req: (req: { id: string; method: string; url: string; remoteAddress?: string }) => ({ id: req.id, method: req.method, url: req.url, ip: req.remoteAddress }),
+        req: (req: { id: string; method: string; url: string; remoteAddress?: string }) => ({
+          id: req.id,
+          method: req.method,
+          url: req.url,
+          ip: req.remoteAddress,
+        }),
         res: (res: { statusCode: number }) => ({ status: res.statusCode }),
       },
     }),
@@ -37,9 +51,21 @@ export function createApp(ctx: Ctx): Express {
   app.use(helmet());
   app.use(
     cors({
-      origin: (origin, cb) => cb(null, !origin || ctx.env.CORS_ORIGINS.includes(origin) || ctx.env.NODE_ENV !== 'production'),
+      origin: (origin, cb) =>
+        cb(
+          null,
+          !origin || ctx.env.CORS_ORIGINS.includes(origin) || ctx.env.NODE_ENV !== 'production',
+        ),
       credentials: false,
-      allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Device-Id', 'X-Platform', 'X-App-Build', 'X-Request-Id'],
+      allowedHeaders: [
+        'Authorization',
+        'Content-Type',
+        'Idempotency-Key',
+        'X-Device-Id',
+        'X-Platform',
+        'X-App-Build',
+        'X-Request-Id',
+      ],
       maxAge: 600,
     }),
   );
@@ -50,7 +76,15 @@ export function createApp(ctx: Ctx): Express {
     res.json({ status: 'ok' });
   });
   app.get('/readyz', async (_req, res) => {
-    const [mongo, redis] = await Promise.all([ctx.db.ping(), ctx.redis ? ctx.redis.ping().then(() => true).catch(() => false) : Promise.resolve(true)]);
+    const [mongo, redis] = await Promise.all([
+      ctx.db.ping(),
+      ctx.redis
+        ? ctx.redis
+            .ping()
+            .then(() => true)
+            .catch(() => false)
+        : Promise.resolve(true),
+    ]);
     res.status(mongo && redis ? 200 : 503).json({ mongo, redis });
   });
   app.get('/metrics', async (req, res) => {

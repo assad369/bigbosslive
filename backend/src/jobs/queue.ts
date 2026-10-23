@@ -45,7 +45,8 @@ export class BullJobQueue implements JobQueue {
     this.worker = new Worker(
       QUEUE,
       async (job) => {
-        const handler = handlers[job.name as JobName] as ((d: unknown) => Promise<void>) | undefined;
+        const handler = handlers[job.name as JobName] as
+          ((d: unknown) => Promise<void>) | undefined;
         if (!handler) throw new Error(`No handler for job ${job.name}`);
         await handler(job.data);
       },

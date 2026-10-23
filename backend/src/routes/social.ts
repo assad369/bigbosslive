@@ -2,7 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { Ctx } from '../context.js';
 import { requireAuth } from '../middleware/auth.js';
-import { currentUser, cursorQuery, objectIdString, parseBody, parseParams, parseQuery, toObjectId } from '../lib/http.js';
+import {
+  currentUser,
+  cursorQuery,
+  objectIdString,
+  parseBody,
+  parseParams,
+  parseQuery,
+  toObjectId,
+} from '../lib/http.js';
 import { sendMessageInput } from '../modules/chat/chat.service.js';
 import { commentInput, createPostInput } from '../modules/feed/feed.service.js';
 
@@ -39,7 +47,9 @@ export function socialRoutes(ctx: Ctx): Router {
   });
 
   r.post('/chat/messages', async (req, res) => {
-    res.status(201).json({ message: await chat.send(currentUser(req).uid, parseBody(req, sendMessageInput)) });
+    res
+      .status(201)
+      .json({ message: await chat.send(currentUser(req).uid, parseBody(req, sendMessageInput)) });
   });
 
   r.delete('/chat/messages/:id', async (req, res) => {
@@ -53,12 +63,20 @@ export function socialRoutes(ctx: Ctx): Router {
 
   // ── Feed ────────────────────────────────────────────────────────────────
   r.get('/feed', async (req, res) => {
-    const q = parseQuery(req, cursorQuery.extend({ tab: z.enum(['latest', 'trending', 'following', 'user']).default('latest'), authorId: z.string().max(128).optional() }));
+    const q = parseQuery(
+      req,
+      cursorQuery.extend({
+        tab: z.enum(['latest', 'trending', 'following', 'user']).default('latest'),
+        authorId: z.string().max(128).optional(),
+      }),
+    );
     res.json(await feed.list(currentUser(req).uid, q));
   });
 
   r.post('/feed', async (req, res) => {
-    res.status(201).json({ post: await feed.create(currentUser(req).uid, parseBody(req, createPostInput)) });
+    res
+      .status(201)
+      .json({ post: await feed.create(currentUser(req).uid, parseBody(req, createPostInput)) });
   });
 
   r.get('/feed/:id', async (req, res) => {
@@ -101,13 +119,22 @@ export function socialRoutes(ctx: Ctx): Router {
 
   r.get('/notifications/unread-count', async (req, res) => {
     const uid = currentUser(req).uid;
-    const [notificationsCount, chatCount] = await Promise.all([notifications.unreadCount(uid), chat.unreadTotal(uid)]);
+    const [notificationsCount, chatCount] = await Promise.all([
+      notifications.unreadCount(uid),
+      chat.unreadTotal(uid),
+    ]);
     res.json({ notifications: notificationsCount, chat: chatCount });
   });
 
   r.post('/notifications/read', async (req, res) => {
-    const { ids } = parseBody(req, z.object({ ids: z.union([z.literal('all'), z.array(objectIdString).max(200)]) }));
-    await notifications.markRead(currentUser(req).uid, ids === 'all' ? 'all' : ids.map((i) => toObjectId(i)));
+    const { ids } = parseBody(
+      req,
+      z.object({ ids: z.union([z.literal('all'), z.array(objectIdString).max(200)]) }),
+    );
+    await notifications.markRead(
+      currentUser(req).uid,
+      ids === 'all' ? 'all' : ids.map((i) => toObjectId(i)),
+    );
     res.status(204).end();
   });
 
@@ -115,8 +142,13 @@ export function socialRoutes(ctx: Ctx): Router {
   const duration = z.number().int().min(60).max(1800);
 
   r.post('/pk/invite', async (req, res) => {
-    const { opponentId, durationSec } = parseBody(req, z.object({ opponentId: z.string().min(1).max(128), durationSec: duration }));
-    res.status(201).json({ battle: await pk.invite(currentUser(req).uid, opponentId, durationSec) });
+    const { opponentId, durationSec } = parseBody(
+      req,
+      z.object({ opponentId: z.string().min(1).max(128), durationSec: duration }),
+    );
+    res
+      .status(201)
+      .json({ battle: await pk.invite(currentUser(req).uid, opponentId, durationSec) });
   });
 
   r.post('/pk/random', async (req, res) => {

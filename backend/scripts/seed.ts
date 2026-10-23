@@ -51,7 +51,13 @@ await withDb(async (db) => {
     const docs = Array.from({ length: 100 }, (_, i) => {
       const level = i + 1;
       const tier = [...TIERS].reverse().find((t) => level >= t.from)!;
-      return { _id: level, pointsRequired: pointsFor(level), name: `${tier.name} ${level - tier.from + 1}`, color: tier.color, iconUrl: null };
+      return {
+        _id: level,
+        pointsRequired: pointsFor(level),
+        name: `${tier.name} ${level - tier.from + 1}`,
+        color: tier.color,
+        iconUrl: null,
+      };
     });
     await db.col.levelConfigs.insertMany(docs);
     console.log('seeded 100 levels');
@@ -86,13 +92,33 @@ await withDb(async (db) => {
   // VIP tiers
   const vip = [
     { tier: 1, name: 'Gold VIP', priceDiamonds: 3000, perks: ['Gold name badge', 'Entry banner'] },
-    { tier: 2, name: 'Platinum VIP', priceDiamonds: 9000, perks: ['Platinum badge', 'Animated entry', 'Exclusive frame'] },
-    { tier: 3, name: 'Royal VIP', priceDiamonds: 30000, perks: ['Royal badge', 'Exclusive gifts', 'Priority support', 'Kick protection'] },
+    {
+      tier: 2,
+      name: 'Platinum VIP',
+      priceDiamonds: 9000,
+      perks: ['Platinum badge', 'Animated entry', 'Exclusive frame'],
+    },
+    {
+      tier: 3,
+      name: 'Royal VIP',
+      priceDiamonds: 30000,
+      perks: ['Royal badge', 'Exclusive gifts', 'Priority support', 'Kick protection'],
+    },
   ];
   for (const [i, v] of vip.entries()) {
     await db.col.vipPackages.updateOne(
       { tier: v.tier },
-      { $setOnInsert: { _id: new ObjectId(), ...v, durationDays: 30, badgeUrl: `${CDN}/vip/${v.tier}.png`, frameUrl: `${CDN}/vip/frame-${v.tier}.svga`, active: true, sortOrder: i } },
+      {
+        $setOnInsert: {
+          _id: new ObjectId(),
+          ...v,
+          durationDays: 30,
+          badgeUrl: `${CDN}/vip/${v.tier}.png`,
+          frameUrl: `${CDN}/vip/frame-${v.tier}.svga`,
+          active: true,
+          sortOrder: i,
+        },
+      },
       { upsert: true },
     );
   }
@@ -136,7 +162,17 @@ await withDb(async (db) => {
   for (const [i, [diamonds, bonus, price]] of packages.entries()) {
     await db.col.rechargePackages.updateOne(
       { sku: `diamonds_${diamonds}` },
-      { $setOnInsert: { _id: new ObjectId(), sku: `diamonds_${diamonds}`, diamonds, bonusDiamonds: bonus, priceUsd: price, active: true, sortOrder: i } },
+      {
+        $setOnInsert: {
+          _id: new ObjectId(),
+          sku: `diamonds_${diamonds}`,
+          diamonds,
+          bonusDiamonds: bonus,
+          priceUsd: price,
+          active: true,
+          sortOrder: i,
+        },
+      },
       { upsert: true },
     );
   }
@@ -146,7 +182,18 @@ await withDb(async (db) => {
     const def = GAME_DEFINITIONS[key];
     await db.col.games.updateOne(
       { _id: key },
-      { $setOnInsert: { _id: key, name: def.name, enabled: false, url: `https://games.bigbosslive.app/${key.replace('_', '-')}/`, iconUrl: null, sortOrder: i, config: def.defaultConfig, updatedAt: now } },
+      {
+        $setOnInsert: {
+          _id: key,
+          name: def.name,
+          enabled: false,
+          url: `https://games.bigbosslive.app/${key.replace('_', '-')}/`,
+          iconUrl: null,
+          sortOrder: i,
+          config: def.defaultConfig,
+          updatedAt: now,
+        },
+      },
       { upsert: true },
     );
   }

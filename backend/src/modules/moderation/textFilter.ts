@@ -7,12 +7,49 @@
  */
 
 const BASE_BLOCKLIST = [
-  'fuck', 'motherfuck', 'shit', 'bitch', 'bastard', 'asshole', 'dick', 'pussy', 'cunt', 'whore', 'slut',
-  'nigger', 'nigga', 'faggot', 'retard', 'rape', 'porn', 'nude', 'nudes', 'xxx', 'sex',
-  'chod', 'choda', 'magi', 'khanki', 'bal', 'madarchod', 'behenchod', 'randi', 'harami',
+  'fuck',
+  'motherfuck',
+  'shit',
+  'bitch',
+  'bastard',
+  'asshole',
+  'dick',
+  'pussy',
+  'cunt',
+  'whore',
+  'slut',
+  'nigger',
+  'nigga',
+  'faggot',
+  'retard',
+  'rape',
+  'porn',
+  'nude',
+  'nudes',
+  'xxx',
+  'sex',
+  'chod',
+  'choda',
+  'magi',
+  'khanki',
+  'bal',
+  'madarchod',
+  'behenchod',
+  'randi',
+  'harami',
 ];
 
-const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', $: 's', '!': 'i' };
+const LEET: Record<string, string> = {
+  '0': 'o',
+  '1': 'i',
+  '3': 'e',
+  '4': 'a',
+  '5': 's',
+  '7': 't',
+  '@': 'a',
+  $: 's',
+  '!': 'i',
+};
 
 function normaliseWord(word: string): string {
   return word
@@ -35,7 +72,9 @@ export interface FilterResult {
 }
 
 export function filterText(input: string, extraWords: readonly string[] = []): FilterResult {
-  const blocked = new Set([...BASE_BLOCKLIST, ...extraWords.map(normaliseWord)].filter((w) => w.length >= 2));
+  const blocked = new Set(
+    [...BASE_BLOCKLIST, ...extraWords.map(normaliseWord)].filter((w) => w.length >= 2),
+  );
   let masked = false;
   // Split on whitespace but keep it, so the original spacing survives.
   const text = input
@@ -45,7 +84,9 @@ export function filterText(input: string, extraWords: readonly string[] = []): F
       const norm = normaliseWord(token);
       // Short words must match exactly ("bal" ≠ "ball"); longer ones also match as a prefix
       // ("fucking"), never as an infix, which would mask innocent words ("grape").
-      const hit = norm.length > 0 && [...blocked].some((w) => norm === w || (w.length >= 4 && norm.startsWith(w)));
+      const hit =
+        norm.length > 0 &&
+        [...blocked].some((w) => norm === w || (w.length >= 4 && norm.startsWith(w)));
       if (!hit) return token;
       masked = true;
       return '*'.repeat(token.length);

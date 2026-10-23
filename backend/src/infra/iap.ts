@@ -29,7 +29,11 @@ export function createIapGateway(env: Env): IapGateway {
     ? new GoogleAuth({
         scopes: ['https://www.googleapis.com/auth/androidpublisher'],
         ...(env.FIREBASE_SERVICE_ACCOUNT_BASE64
-          ? { credentials: JSON.parse(Buffer.from(env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8')) }
+          ? {
+              credentials: JSON.parse(
+                Buffer.from(env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8'),
+              ),
+            }
           : {}),
       })
     : null;
@@ -39,14 +43,29 @@ export function createIapGateway(env: Env): IapGateway {
 
   /** App Store Server API bearer token: ES256 JWT, valid ≤ 60 minutes. */
   function appleJwt(): string {
-    if (!env.APPLE_ISSUER_ID || !env.APPLE_KEY_ID || !env.APPLE_PRIVATE_KEY_BASE64 || !env.APPLE_BUNDLE_ID) {
+    if (
+      !env.APPLE_ISSUER_ID ||
+      !env.APPLE_KEY_ID ||
+      !env.APPLE_PRIVATE_KEY_BASE64 ||
+      !env.APPLE_BUNDLE_ID
+    ) {
       throw serviceUnavailable('Apple in-app purchases are not configured');
     }
     const now = Math.floor(Date.now() / 1000);
     const header = b64url(JSON.stringify({ alg: 'ES256', kid: env.APPLE_KEY_ID, typ: 'JWT' }));
-    const payload = b64url(JSON.stringify({ iss: env.APPLE_ISSUER_ID, iat: now, exp: now + 1800, aud: 'appstoreconnect-v1', bid: env.APPLE_BUNDLE_ID }));
+    const payload = b64url(
+      JSON.stringify({
+        iss: env.APPLE_ISSUER_ID,
+        iat: now,
+        exp: now + 1800,
+        aud: 'appstoreconnect-v1',
+        bid: env.APPLE_BUNDLE_ID,
+      }),
+    );
     const key = Buffer.from(env.APPLE_PRIVATE_KEY_BASE64, 'base64').toString('utf8');
-    const signature = createSign('SHA256').update(`${header}.${payload}`).sign({ key, dsaEncoding: 'ieee-p1363' });
+    const signature = createSign('SHA256')
+      .update(`${header}.${payload}`)
+      .sign({ key, dsaEncoding: 'ieee-p1363' });
     return `${header}.${payload}.${b64url(signature)}`;
   }
 
@@ -55,7 +74,12 @@ export function createIapGateway(env: Env): IapGateway {
       if (!googleAuth) throw serviceUnavailable('Google Play purchases are not configured');
       const client = await googleAuth.getClient();
       const res = await client
-        .request<{ purchaseState?: number; consumptionState?: number; orderId?: string; acknowledgementState?: number }>({ url: googleUrl(productId, purchaseToken) })
+        .request<{
+          purchaseState?: number;
+          consumptionState?: number;
+          orderId?: string;
+          acknowledgementState?: number;
+        }>({ url: googleUrl(productId, purchaseToken) })
         .catch(() => {
           throw invalidPurchase('Google Play could not verify this purchase');
         });
@@ -67,13 +91,22 @@ export function createIapGateway(env: Env): IapGateway {
     async consumeGoogle(productId, purchaseToken) {
       if (!googleAuth) return;
       const client = await googleAuth.getClient();
-      await client.request({ url: `${googleUrl(productId, purchaseToken)}:consume`, method: 'POST' });
+      await client.request({
+        url: `${googleUrl(productId, purchaseToken)}:consume`,
+        method: 'POST',
+      });
     },
     async verifyApple(transactionId) {
-      const host = env.APPLE_ENVIRONMENT === 'sandbox' ? 'api.storekit-sandbox.itunes.apple.com' : 'api.storekit.itunes.apple.com';
-      const res = await fetch(`https://${host}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`, {
-        headers: { Authorization: `Bearer ${appleJwt()}` },
-      });
+      const host =
+        env.APPLE_ENVIRONMENT === 'sandbox'
+          ? 'api.storekit-sandbox.itunes.apple.com'
+          : 'api.storekit.itunes.apple.com';
+      const res = await fetch(
+        `https://${host}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`,
+        {
+          headers: { Authorization: `Bearer ${appleJwt()}` },
+        },
+      );
       if (!res.ok) throw invalidPurchase('The App Store could not verify this purchase');
       const body = (await res.json()) as { signedTransactionInfo?: string };
       const part = body.signedTransactionInfo?.split('.')[1];
@@ -86,10 +119,12 @@ export function createIapGateway(env: Env): IapGateway {
         type?: string;
         revocationDate?: number;
       };
-      if (info.bundleId !== env.APPLE_BUNDLE_ID) throw invalidPurchase('Purchase belongs to another app');
+      if (info.bundleId !== env.APPLE_BUNDLE_ID)
+        throw invalidPurchase('Purchase belongs to another app');
       if (info.type !== 'Consumable') throw invalidPurchase('Not a consumable purchase');
       if (info.revocationDate) throw invalidPurchase('Purchase was refunded');
-      if (!info.productId || !info.transactionId) throw invalidPurchase('Malformed App Store transaction');
+      if (!info.productId || !info.transactionId)
+        throw invalidPurchase('Malformed App Store transaction');
       return { store: 'apple', productId: info.productId, transactionId: info.transactionId };
     },
   };

@@ -28,7 +28,9 @@ export const CONFIG_SCHEMAS = {
     adsEnabled: z.boolean().default(false),
   }),
   app: z.object({
-    minSupportedBuild: z.object({ android: z.number().int().min(0), ios: z.number().int().min(0) }).default({ android: 0, ios: 0 }),
+    minSupportedBuild: z
+      .object({ android: z.number().int().min(0), ios: z.number().int().min(0) })
+      .default({ android: 0, ios: 0 }),
     latestVersion: z.string().default('1.0.0'),
     maintenance: z.boolean().default(false),
     maintenanceMessage: z.string().max(500).default(''),
@@ -71,7 +73,8 @@ export class ConfigService {
     const doc = await this.ctx.col.appConfig.findOne({ _id: key });
     const parsed = CONFIG_SCHEMAS[key].safeParse(doc?.value ?? {});
     // A stored value that no longer validates (schema evolved) falls back to defaults, loudly.
-    if (!parsed.success) this.ctx.log.error({ key, issues: parsed.error.issues }, 'stored config invalid');
+    if (!parsed.success)
+      this.ctx.log.error({ key, issues: parsed.error.issues }, 'stored config invalid');
     const value = (parsed.success ? parsed.data : CONFIG_SCHEMAS[key].parse({})) as ConfigValue<K>;
     this.cache.set(key, { value, at: Date.now() });
     return value;
@@ -80,7 +83,10 @@ export class ConfigService {
   async set<K extends ConfigKey>(key: K, input: unknown, adminId: string): Promise<ConfigValue<K>> {
     const parsed = CONFIG_SCHEMAS[key].safeParse(input);
     if (!parsed.success) {
-      throw badRequest(`Invalid ${key} config`, parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })));
+      throw badRequest(
+        `Invalid ${key} config`,
+        parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      );
     }
     await this.ctx.col.appConfig.updateOne(
       { _id: key },
@@ -94,7 +100,9 @@ export class ConfigService {
   async all(): Promise<{ [K in ConfigKey]: ConfigValue<K> }> {
     const keys = Object.keys(CONFIG_SCHEMAS) as ConfigKey[];
     const values = await Promise.all(keys.map((k) => this.get(k)));
-    return Object.fromEntries(keys.map((k, i) => [k, values[i]])) as { [K in ConfigKey]: ConfigValue<K> };
+    return Object.fromEntries(keys.map((k, i) => [k, values[i]])) as {
+      [K in ConfigKey]: ConfigValue<K>;
+    };
   }
 
   invalidate(): void {

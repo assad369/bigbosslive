@@ -43,8 +43,17 @@ export class FakeAuth implements AuthProvider {
   async verifyIdToken(token: string) {
     const [prefix, uid, role] = token.split(':');
     if (prefix !== 'test' || !uid) throw new Error('bad token');
-    const claim = this.roles.has(uid) ? this.roles.get(uid)! : ((role as AdminRole | undefined) ?? null);
-    return { uid, email: `${uid}@example.com`, phone: null, name: `User ${uid}`, picture: null, adminRole: claim };
+    const claim = this.roles.has(uid)
+      ? this.roles.get(uid)!
+      : ((role as AdminRole | undefined) ?? null);
+    return {
+      uid,
+      email: `${uid}@example.com`,
+      phone: null,
+      name: `User ${uid}`,
+      picture: null,
+      adminRole: claim,
+    };
   }
   async setAdminRole(uid: string, role: AdminRole | null) {
     this.roles.set(uid, role);
@@ -104,14 +113,24 @@ export class FakePush implements PushGateway {
   async sendToTokens(tokens: string[], message: PushMessage) {
     this.sent.push({ tokens, message });
     const invalidTokens = tokens.filter((t) => this.invalid.has(t));
-    return { successCount: tokens.length - invalidTokens.length, failureCount: invalidTokens.length, invalidTokens };
+    return {
+      successCount: tokens.length - invalidTokens.length,
+      failureCount: invalidTokens.length,
+      invalidTokens,
+    };
   }
 }
 
 export const fakeStorage: StorageGateway = {
   async presignUpload({ folder, ownerId, contentType, ext }) {
     const key = `${folder}/${ownerId}/${randomUUID()}.${ext}`;
-    return { uploadUrl: `https://s3.test/${key}?sig=1`, publicUrl: `https://cdn.test/${key}`, key, expiresIn: 300, headers: { 'Content-Type': contentType } };
+    return {
+      uploadUrl: `https://s3.test/${key}?sig=1`,
+      publicUrl: `https://cdn.test/${key}`,
+      key,
+      expiresIn: 300,
+      headers: { 'Content-Type': contentType },
+    };
   },
 };
 
@@ -150,7 +169,9 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends Date ? T[K] : DeepPartial<T[K]>) : T[K] };
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? (T[K] extends Date ? T[K] : DeepPartial<T[K]>) : T[K];
+};
 
 let shortIdSeq = 20_000_000;
 
@@ -161,7 +182,12 @@ export async function createHarness(): Promise<Harness> {
   const db = wrapDb(client, `bb_test_${randomUUID().replace(/-/g, '').slice(0, 16)}`);
   await ensureIndexes(db);
 
-  const env = loadEnv({ NODE_ENV: 'test', MONGODB_URI: uri, LOG_LEVEL: 'silent', AGENCY_RESET_TIMEZONE: 'UTC' });
+  const env = loadEnv({
+    NODE_ENV: 'test',
+    MONGODB_URI: uri,
+    LOG_LEVEL: 'silent',
+    AGENCY_RESET_TIMEZONE: 'UTC',
+  });
   const log = createLogger({ level: process.env.LOG_LEVEL ?? 'silent' });
   const clock = new TestClock();
   const auth = new FakeAuth();
@@ -170,7 +196,19 @@ export async function createHarness(): Promise<Harness> {
   const iap = new FakeIap();
   const jobs = new InlineJobQueue(log);
 
-  const ctx = buildContext({ env, log, db, redis: null, auth, livekit, push, storage: fakeStorage, iap, jobs, clock });
+  const ctx = buildContext({
+    env,
+    log,
+    db,
+    redis: null,
+    auth,
+    livekit,
+    push,
+    storage: fakeStorage,
+    iap,
+    jobs,
+    clock,
+  });
   jobs.setHandlers(jobHandlers(ctx));
   const app = createApp(ctx);
 
@@ -193,7 +231,15 @@ export async function createHarness(): Promise<Harness> {
       adminRole: o.adminRole ?? null,
       isAgent: o.isAgent ?? false,
       wallet: { diamonds: 0, beans: 0, agentStock: 0, ...o.wallet },
-      stats: { followers: 0, following: 0, totalRecharged: 0, totalReceived: 0, totalSent: 0, liveSeconds: 0, ...o.stats },
+      stats: {
+        followers: 0,
+        following: 0,
+        totalRecharged: 0,
+        totalReceived: 0,
+        totalSent: 0,
+        liveSeconds: 0,
+        ...o.stats,
+      },
       level: { level: 0, points: 0, ...o.level },
       vip: { tier: 0, expiresAt: null, ...o.vip } as UserDoc['vip'],
       equipped: { frameId: null, entryAnimationId: null, frameUrl: null },

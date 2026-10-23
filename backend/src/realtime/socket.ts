@@ -34,7 +34,10 @@ export function attachSocketServer(ctx: Ctx, http: HttpServer): Server {
     if (typeof token !== 'string' || !token) return next(new Error('unauthorized'));
     try {
       const verified = await ctx.auth.verifyIdToken(token);
-      const user = await ctx.col.users.findOne({ _id: verified.uid }, { projection: { status: 1 } });
+      const user = await ctx.col.users.findOne(
+        { _id: verified.uid },
+        { projection: { status: 1 } },
+      );
       if (!user || user.status !== 'active') return next(new Error('forbidden'));
       (socket.data as SocketData).uid = verified.uid;
       next();
@@ -55,7 +58,11 @@ export function attachSocketServer(ctx: Ctx, http: HttpServer): Server {
       const conversationId = (payload as { conversationId?: unknown })?.conversationId;
       if (typeof conversationId !== 'string') return;
       const peer = await ctx.services.chat.isParticipant(uid, conversationId).catch(() => null);
-      if (peer) ctx.realtime.toUser(SOCKET.namespaces.app, peer, SOCKET.app.chatTyping, { conversationId, uid });
+      if (peer)
+        ctx.realtime.toUser(SOCKET.namespaces.app, peer, SOCKET.app.chatTyping, {
+          conversationId,
+          uid,
+        });
     });
   });
 
@@ -68,7 +75,8 @@ export function attachSocketServer(ctx: Ctx, http: HttpServer): Server {
     socket.on(SOCKET.games.subscribe, async (key: unknown, ack?: (state: unknown) => void) => {
       if (typeof key !== 'string' || !(GAME_KEYS as readonly string[]).includes(key)) return;
       await socket.join(`game:${key}`);
-      if (typeof ack === 'function') ack(await ctx.services.games.state(key as GameKey, uid).catch(() => null));
+      if (typeof ack === 'function')
+        ack(await ctx.services.games.state(key as GameKey, uid).catch(() => null));
     });
     socket.on(SOCKET.games.unsubscribe, (key: unknown) => {
       if (typeof key === 'string') void socket.leave(`game:${key}`);

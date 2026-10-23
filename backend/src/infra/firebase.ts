@@ -60,9 +60,10 @@ export function createFirebaseAuth(env: Env): AuthProvider {
     async verifyIdToken(token) {
       // checkRevoked=true: banned or signed-out users lose access immediately.
       const decoded = await auth.verifyIdToken(token, true);
-      const role = typeof decoded.adminRole === 'string' && ROLE_SET.has(decoded.adminRole)
-        ? (decoded.adminRole as AdminRole)
-        : null;
+      const role =
+        typeof decoded.adminRole === 'string' && ROLE_SET.has(decoded.adminRole)
+          ? (decoded.adminRole as AdminRole)
+          : null;
       return {
         uid: decoded.uid,
         email: decoded.email ?? null,
@@ -124,5 +125,9 @@ export function createFcmGateway(env: Env): PushGateway {
 
 /** Used when Firebase is not configured (local dev without credentials). Push is a no-op. */
 export const noopPush: PushGateway = {
-  sendToTokens: async (tokens) => ({ successCount: 0, failureCount: tokens.length, invalidTokens: [] }),
+  sendToTokens: async (tokens) => ({
+    successCount: 0,
+    failureCount: tokens.length,
+    invalidTokens: [],
+  }),
 };

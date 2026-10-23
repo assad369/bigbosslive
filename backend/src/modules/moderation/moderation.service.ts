@@ -34,7 +34,11 @@ export class ModerationService {
     const cfg = await this.ctx.services.config.get('moderation');
     const res = filterText(text, cfg.blockedWords);
     if (cfg.blockContactInfo && res.contactInfo) {
-      throw new AppError(422, 'contact_info_blocked', `Contact details and links are not allowed in ${field}`);
+      throw new AppError(
+        422,
+        'contact_info_blocked',
+        `Contact details and links are not allowed in ${field}`,
+      );
     }
     return res.text;
   }
@@ -44,15 +48,24 @@ export class ModerationService {
   async isDeviceBanned(deviceId: string): Promise<boolean> {
     const hit = this.deviceCache.get(deviceId);
     if (hit && Date.now() - hit.at < DEVICE_CACHE_TTL_MS) return hit.banned;
-    const banned = (await this.ctx.col.deviceBans.countDocuments({ _id: deviceId }, { limit: 1 })) > 0;
+    const banned =
+      (await this.ctx.col.deviceBans.countDocuments({ _id: deviceId }, { limit: 1 })) > 0;
     this.deviceCache.set(deviceId, { banned, at: Date.now() });
     return banned;
   }
 
   /** Ban a device and (optionally) every account that has used it. */
-  async banDevice(deviceId: string, opts: { reason: string; by: string; cascade: boolean }): Promise<{ bannedUsers: number }> {
+  async banDevice(
+    deviceId: string,
+    opts: { reason: string; by: string; cascade: boolean },
+  ): Promise<{ bannedUsers: number }> {
     try {
-      await this.ctx.col.deviceBans.insertOne({ _id: deviceId, reason: opts.reason, by: opts.by, createdAt: this.ctx.clock.now() });
+      await this.ctx.col.deviceBans.insertOne({
+        _id: deviceId,
+        reason: opts.reason,
+        by: opts.by,
+        createdAt: this.ctx.clock.now(),
+      });
     } catch (err) {
       if (!isDuplicateKeyError(err)) throw err;
     }
@@ -81,15 +94,24 @@ export class ModerationService {
   }
 
   async usersForDevice(deviceId: string) {
-    const rows = await this.ctx.col.devices.find({ deviceId }).sort({ lastSeenAt: -1 }).limit(200).toArray();
+    const rows = await this.ctx.col.devices
+      .find({ deviceId })
+      .sort({ lastSeenAt: -1 })
+      .limit(200)
+      .toArray();
     const briefs = await this.ctx.services.users.briefs(rows.map((r) => r.userId));
-    return rows.map((r) => ({ user: briefs.get(r.userId) ?? null, lastSeenAt: r.lastSeenAt, platform: r.platform }));
+    return rows.map((r) => ({
+      user: briefs.get(r.userId) ?? null,
+      lastSeenAt: r.lastSeenAt,
+      platform: r.platform,
+    }));
   }
 
   // ── Reports ─────────────────────────────────────────────────────────────────
 
   async report(reporterId: string, input: z.infer<typeof reportInput>): Promise<ReportDoc> {
-    if (input.targetType === 'user' && input.targetId === reporterId) throw badRequest('You cannot report yourself');
+    if (input.targetType === 'user' && input.targetId === reporterId)
+      throw badRequest('You cannot report yourself');
     const doc: ReportDoc = {
       _id: new ObjectId(),
       reporterId,
@@ -110,21 +132,43 @@ export class ModerationService {
     return doc;
   }
 
-  async listReports(filter: { status?: ReportStatus; targetType?: ReportTarget }, page: number, pageSize: number) {
+  async listReports(
+    filter: { status?: ReportStatus; targetType?: ReportTarget },
+    page: number,
+    pageSize: number,
+  ) {
     const q: Filter<ReportDoc> = {};
     if (filter.status) q.status = filter.status;
     if (filter.targetType) q.targetType = filter.targetType;
     const [items, total] = await Promise.all([
-      this.ctx.col.reports.find(q).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray(),
+      this.ctx.col.reports
+        .find(q)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .toArray(),
       this.ctx.col.reports.countDocuments(q),
     ]);
     return { items, total, page, pageSize };
   }
 
-  async resolveReport(id: ObjectId, opts: { by: string; status: 'resolved' | 'dismissed'; action: string; note: string | null }) {
+  async resolveReport(
+    id: ObjectId,
+    opts: { by: string; status: 'resolved' | 'dismissed'; action: string; note: string | null },
+  ) {
     const res = await this.ctx.col.reports.findOneAndUpdate(
       { _id: id, status: 'open' },
-      { $set: { status: opts.status, resolution: { by: opts.by, action: opts.action, note: opts.note, at: this.ctx.clock.now() } } },
+      {
+        $set: {
+          status: opts.status,
+          resolution: {
+            by: opts.by,
+            action: opts.action,
+            note: opts.note,
+            at: this.ctx.clock.now(),
+          },
+        },
+      },
       { returnDocument: 'after' },
     );
     if (!res) throw notFound('Open report');

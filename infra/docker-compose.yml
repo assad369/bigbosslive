@@ -1,0 +1,62 @@
+# Local full stack: MongoDB (single-node replica set), Redis, LiveKit (dev mode) and the API.
+#   docker compose -f infra/docker-compose.yml up --build
+# Then: admin dashboard → `npm run dev:admin`, games → `npm run dev:games`.
+name: bigbosslive
+
+services:
+  mongo:
+    image: mongo:7
+    command: ['--replSet', 'rs0', '--bind_ip_all']
+    ports: ['27017:27017']
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      # Initiates the replica set on first boot, then reports primary status.
+      test: >
+        mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }"
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports: ['6379:6379']
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      retries: 10
+
+  livekit:
+    image: livekit/livekit-server:v1.9
+    command: ['--config', '/etc/livekit.yaml', '--node-ip', '127.0.0.1']
+    volumes: ['./livekit.yaml:/etc/livekit.yaml:ro']
+    ports:
+      - '7880:7880' # HTTP / WebSocket signalling
+      - '7881:7881' # ICE/TCP
+      - '50000-50100:50000-50100/udp' # media
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    env_file:
+      - path: ../backend/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/bigbosslive?replicaSet=rs0
+      REDIS_URL: redis://redis:6379
+      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: bigboss-dev-secret-change-me-0123456789
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174
+    ports: ['3000:3000']
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      livekit: { condition: service_started }
+
+volumes:
+  mongo-data:
+  redis-data:

@@ -79,7 +79,10 @@ export interface LiveRoom {
   title: string;
   coverUrl: string | null;
   tags: string[];
-  host: Pick<PublicUser, 'id' | 'shortId' | 'displayName' | 'avatarUrl' | 'level' | 'vipTier' | 'country'>;
+  host: Pick<
+    PublicUser,
+    'id' | 'shortId' | 'displayName' | 'avatarUrl' | 'level' | 'vipTier' | 'country'
+  >;
   viewerCount: number;
   peakViewers: number;
   giftBeans: number;
@@ -115,7 +118,13 @@ export interface LedgerEntry {
 export interface PkBattle {
   id: string;
   status: PkStatus;
-  hosts: { uid: string; roomId: string; score: number; displayName: string; avatarUrl: string | null }[];
+  hosts: {
+    uid: string;
+    roomId: string;
+    score: number;
+    displayName: string;
+    avatarUrl: string | null;
+  }[];
   durationSec: number;
   startedAt: IsoDate | null;
   endsAt: IsoDate | null;

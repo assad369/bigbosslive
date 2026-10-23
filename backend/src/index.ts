@@ -25,7 +25,9 @@ async function main(): Promise<void> {
   log.info('mongo connected, indexes ensured');
 
   // BullMQ requires maxRetriesPerRequest: null on its connections.
-  const redis = env.REDIS_URL ? new Redis(env.REDIS_URL, { maxRetriesPerRequest: null, enableReadyCheck: true }) : null;
+  const redis = env.REDIS_URL
+    ? new Redis(env.REDIS_URL, { maxRetriesPerRequest: null, enableReadyCheck: true })
+    : null;
   const bullConnection = env.REDIS_URL ? { url: env.REDIS_URL, maxRetriesPerRequest: null } : null;
 
   const firebaseConfigured = Boolean(env.FIREBASE_PROJECT_ID);
@@ -50,7 +52,8 @@ async function main(): Promise<void> {
     iap: createIapGateway(env),
     jobs,
   });
-  if (!firebaseConfigured) log.warn('FIREBASE_PROJECT_ID not set — authentication will reject every request');
+  if (!firebaseConfigured)
+    log.warn('FIREBASE_PROJECT_ID not set — authentication will reject every request');
 
   await ctx.services.games.ensureRegistry();
 
@@ -69,7 +72,9 @@ async function main(): Promise<void> {
   server.headersTimeout = 66_000;
   const io = attachSocketServer(ctx, server);
 
-  server.listen(env.PORT, () => log.info({ port: env.PORT, env: env.NODE_ENV }, 'BigBoss Live API listening'));
+  server.listen(env.PORT, () =>
+    log.info({ port: env.PORT, env: env.NODE_ENV }, 'BigBoss Live API listening'),
+  );
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {

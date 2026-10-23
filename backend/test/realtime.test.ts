@@ -30,7 +30,11 @@ afterAll(async () => {
 
 function open(uid: string | null, namespace = ''): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const s = connect(`${url}${namespace}`, { auth: uid ? { token: tokenFor(uid) } : {}, transports: ['websocket'], reconnection: false });
+    const s = connect(`${url}${namespace}`, {
+      auth: uid ? { token: tokenFor(uid) } : {},
+      transports: ['websocket'],
+      reconnection: false,
+    });
     sockets.push(s);
     s.on('connect', () => resolve(s));
     s.on('connect_error', reject);
@@ -44,8 +48,14 @@ describe('socket.io', () => {
 
   it('delivers chat messages to the recipient in real time', async () => {
     const bo = await open('bo');
-    const received = new Promise<{ text: string; senderId: string }>((resolve) => bo.on(SOCKET.app.chatMessage, resolve));
-    await h.api.post('/v1/chat/messages').set(h.as('ana')).send({ toUserId: 'bo', type: 'text', text: 'Live now?' }).expect(201);
+    const received = new Promise<{ text: string; senderId: string }>((resolve) =>
+      bo.on(SOCKET.app.chatMessage, resolve),
+    );
+    await h.api
+      .post('/v1/chat/messages')
+      .set(h.as('ana'))
+      .send({ toUserId: 'bo', type: 'text', text: 'Live now?' })
+      .expect(201);
     expect(await received).toMatchObject({ text: 'Live now?', senderId: 'ana' });
   });
 
@@ -62,7 +72,9 @@ describe('socket.io', () => {
     const ana = await open('ana');
     ana.emit(SOCKET.app.subscribeRooms);
     await new Promise((r) => setTimeout(r, 50));
-    const upserted = new Promise<{ id: string }>((resolve) => ana.on(SOCKET.app.roomUpserted, resolve));
+    const upserted = new Promise<{ id: string }>((resolve) =>
+      ana.on(SOCKET.app.roomUpserted, resolve),
+    );
     const res = await h.api.post('/v1/live').set(h.as('bo')).send({ title: 'Going live' });
     expect((await upserted).id).toBe(res.body.room.id);
   });
@@ -72,7 +84,9 @@ describe('socket.io', () => {
     await h.ctx.services.games.updateMeta('teen_patti', { enabled: true });
     await h.ctx.services.games.tick();
     const g = await open('ana', SOCKET.namespaces.games);
-    const state = await new Promise<{ round: { status: string } }>((resolve) => g.emit(SOCKET.games.subscribe, 'teen_patti', resolve));
+    const state = await new Promise<{ round: { status: string } }>((resolve) =>
+      g.emit(SOCKET.games.subscribe, 'teen_patti', resolve),
+    );
     expect(state.round.status).toBe('betting');
   });
 });

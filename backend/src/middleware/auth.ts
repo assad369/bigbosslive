@@ -65,7 +65,11 @@ export function requireAuth(ctx: Ctx): RequestHandler {
     const token = await verify(ctx, req);
     const user = await ctx.col.users.findOne({ _id: token.uid });
     if (!user || user.status === 'deleted') {
-      throw new AppError(401, 'profile_required', 'Create a profile via POST /v1/auth/session first');
+      throw new AppError(
+        401,
+        'profile_required',
+        'Create a profile via POST /v1/auth/session first',
+      );
     }
     const now = ctx.clock.now();
     if (user.status === 'banned') {
@@ -90,9 +94,9 @@ export function requireAuth(ctx: Ctx): RequestHandler {
 
     if (now.getTime() - user.lastSeenAt.getTime() > LAST_SEEN_WRITE_INTERVAL_MS) {
       // Fire-and-forget: presence bookkeeping must never fail a request.
-      void ctx.services.users.touch(user._id, deviceId, req.header('x-platform') ?? null).catch((err: unknown) =>
-        ctx.log.warn({ err }, 'touch failed'),
-      );
+      void ctx.services.users
+        .touch(user._id, deviceId, req.header('x-platform') ?? null)
+        .catch((err: unknown) => ctx.log.warn({ err }, 'touch failed'));
     }
     next();
   };

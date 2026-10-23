@@ -2,7 +2,13 @@ import { ObjectId, type ClientSession, type Filter } from 'mongodb';
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import type { AgencyDoc, AgencyMemberDoc } from '../../db/schema.js';
-import { badRequest, conflict, forbidden, isDuplicateKeyError, notFound } from '../../lib/errors.js';
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  isDuplicateKeyError,
+  notFound,
+} from '../../lib/errors.js';
 import { monthKey } from '../../lib/time.js';
 
 export const agencyInput = z.object({
@@ -58,7 +64,10 @@ export class AgenciesService {
     return doc;
   }
 
-  async update(id: ObjectId, patch: Partial<Pick<AgencyDoc, 'name' | 'logoUrl' | 'commissionRate' | 'status'>>): Promise<AgencyDoc> {
+  async update(
+    id: ObjectId,
+    patch: Partial<Pick<AgencyDoc, 'name' | 'logoUrl' | 'commissionRate' | 'status'>>,
+  ): Promise<AgencyDoc> {
     const res = await this.ctx.col.agencies.findOneAndUpdate(
       { _id: id },
       { $set: { ...patch, updatedAt: this.ctx.clock.now() } },
@@ -71,9 +80,15 @@ export class AgenciesService {
   async list(filter: { q?: string; status?: AgencyDoc['status'] }, page: number, pageSize: number) {
     const q: Filter<AgencyDoc> = {};
     if (filter.status) q.status = filter.status;
-    if (filter.q) q.name = { $regex: filter.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    if (filter.q)
+      q.name = { $regex: filter.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
     const [items, total] = await Promise.all([
-      this.ctx.col.agencies.find(q).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray(),
+      this.ctx.col.agencies
+        .find(q)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .toArray(),
       this.ctx.col.agencies.countDocuments(q),
     ]);
     return { items, total, page, pageSize };
@@ -88,11 +103,22 @@ export class AgenciesService {
     try {
       await this.ctx.db.withTransaction(async (session) => {
         await this.ctx.col.agencyMembers.insertOne(
-          { agencyId, userId, joinedAt: this.ctx.clock.now(), periodKey: this.currentPeriodKey(), periodBeans: 0, periodLiveSeconds: 0 },
+          {
+            agencyId,
+            userId,
+            joinedAt: this.ctx.clock.now(),
+            periodKey: this.currentPeriodKey(),
+            periodBeans: 0,
+            periodLiveSeconds: 0,
+          },
           { session },
         );
         await this.ctx.col.users.updateOne({ _id: userId }, { $set: { agencyId } }, { session });
-        await this.ctx.col.agencies.updateOne({ _id: agencyId }, { $inc: { memberCount: 1 } }, { session });
+        await this.ctx.col.agencies.updateOne(
+          { _id: agencyId },
+          { $inc: { memberCount: 1 } },
+          { session },
+        );
       });
     } catch (err) {
       if (isDuplicateKeyError(err)) throw conflict('User already belongs to an agency');
@@ -104,23 +130,43 @@ export class AgenciesService {
     await this.ctx.db.withTransaction(async (session) => {
       const member = await this.ctx.col.agencyMembers.findOneAndDelete({ userId }, { session });
       if (!member) throw notFound('Agency membership');
-      await this.ctx.col.users.updateOne({ _id: userId }, { $set: { agencyId: null } }, { session });
-      await this.ctx.col.agencies.updateOne({ _id: member.agencyId }, { $inc: { memberCount: -1 } }, { session });
+      await this.ctx.col.users.updateOne(
+        { _id: userId },
+        { $set: { agencyId: null } },
+        { session },
+      );
+      await this.ctx.col.agencies.updateOne(
+        { _id: member.agencyId },
+        { $inc: { memberCount: -1 } },
+        { session },
+      );
     });
   }
 
   async requestToJoin(userId: string, agencyId: ObjectId): Promise<void> {
     const agency = await this.get(agencyId);
     if (agency.status !== 'active') throw forbidden('Agency is not accepting hosts');
-    if (await this.ctx.col.agencyMembers.findOne({ userId })) throw conflict('You already belong to an agency');
+    if (await this.ctx.col.agencyMembers.findOne({ userId }))
+      throw conflict('You already belong to an agency');
     try {
-      await this.ctx.col.agencyRequests.insertOne({ agencyId, userId, status: 'pending', createdAt: this.ctx.clock.now(), decidedAt: null });
+      await this.ctx.col.agencyRequests.insertOne({
+        agencyId,
+        userId,
+        status: 'pending',
+        createdAt: this.ctx.clock.now(),
+        decidedAt: null,
+      });
     } catch (err) {
       if (isDuplicateKeyError(err)) throw conflict('You already have a pending request');
       throw err;
     }
     void this.ctx.services.notifications
-      .notify(agency.ownerId, { type: 'agency', title: 'New host application', body: 'A host wants to join your agency', data: { userId } })
+      .notify(agency.ownerId, {
+        type: 'agency',
+        title: 'New host application',
+        body: 'A host wants to join your agency',
+        data: { userId },
+      })
       .catch(() => undefined);
   }
 
@@ -147,13 +193,25 @@ export class AgenciesService {
   async pendingRequests(ownerId: string) {
     const agency = await this.byOwner(ownerId);
     if (!agency) throw forbidden('You do not own an agency');
-    const rows = await this.ctx.col.agencyRequests.find({ agencyId: agency._id, status: 'pending' }).sort({ createdAt: -1 }).limit(200).toArray();
+    const rows = await this.ctx.col.agencyRequests
+      .find({ agencyId: agency._id, status: 'pending' })
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .toArray();
     const briefs = await this.ctx.services.users.briefs(rows.map((r) => r.userId));
-    return rows.map((r) => ({ id: String(r._id), user: briefs.get(r.userId) ?? null, createdAt: r.createdAt }));
+    return rows.map((r) => ({
+      id: String(r._id),
+      user: briefs.get(r.userId) ?? null,
+      createdAt: r.createdAt,
+    }));
   }
 
   async members(agencyId: ObjectId) {
-    const rows = await this.ctx.col.agencyMembers.find({ agencyId }).sort({ periodBeans: -1 }).limit(1000).toArray();
+    const rows = await this.ctx.col.agencyMembers
+      .find({ agencyId })
+      .sort({ periodBeans: -1 })
+      .limit(1000)
+      .toArray();
     const briefs = await this.ctx.services.users.briefs(rows.map((r) => r.userId));
     const current = this.currentPeriodKey();
     return rows.map((r) => ({
@@ -192,14 +250,22 @@ export class AgenciesService {
   // ── Accounting ─────────────────────────────────────────────────────────────
 
   /** Called inside the gift transaction. */
-  async recordEarnings(session: ClientSession, agencyId: ObjectId, userId: string, beans: number, periodKey: string): Promise<void> {
+  async recordEarnings(
+    session: ClientSession,
+    agencyId: ObjectId,
+    userId: string,
+    beans: number,
+    periodKey: string,
+  ): Promise<void> {
     await this.bump(session, agencyId, userId, periodKey, { periodBeans: beans });
   }
 
   async recordLiveTime(agencyId: ObjectId, userId: string, seconds: number): Promise<void> {
     if (seconds <= 0) return;
     const periodKey = this.currentPeriodKey();
-    await this.ctx.db.withTransaction((session) => this.bump(session, agencyId, userId, periodKey, { periodLiveSeconds: seconds }));
+    await this.ctx.db.withTransaction((session) =>
+      this.bump(session, agencyId, userId, periodKey, { periodLiveSeconds: seconds }),
+    );
   }
 
   private async bump(
@@ -209,16 +275,28 @@ export class AgenciesService {
     periodKey: string,
     inc: Partial<Record<'periodBeans' | 'periodLiveSeconds', number>>,
   ): Promise<void> {
-    const res = await this.ctx.col.agencyMembers.updateOne({ agencyId, userId, periodKey }, { $inc: inc }, { session });
+    const res = await this.ctx.col.agencyMembers.updateOne(
+      { agencyId, userId, periodKey },
+      { $inc: inc },
+      { session },
+    );
     if (res.matchedCount) return;
     // The member is still on an old period (reset job has not reached them): roll inline.
     const member = await this.ctx.col.agencyMembers.findOne({ agencyId, userId }, { session });
     if (!member) return; // left the agency mid-flight
     await this.rollMember(session, member, periodKey);
-    await this.ctx.col.agencyMembers.updateOne({ agencyId, userId, periodKey }, { $inc: inc }, { session });
+    await this.ctx.col.agencyMembers.updateOne(
+      { agencyId, userId, periodKey },
+      { $inc: inc },
+      { session },
+    );
   }
 
-  private async rollMember(session: ClientSession, member: AgencyMemberDoc, newPeriodKey: string): Promise<void> {
+  private async rollMember(
+    session: ClientSession,
+    member: AgencyMemberDoc,
+    newPeriodKey: string,
+  ): Promise<void> {
     if (member.periodKey === newPeriodKey) return;
     // $setOnInsert makes the archive write-once: a retried roll can never double-count.
     await this.ctx.col.agencyPeriods.updateOne(

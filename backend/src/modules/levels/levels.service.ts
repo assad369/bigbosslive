@@ -37,7 +37,10 @@ export class LevelsService {
     this.cache = null;
   }
 
-  static pointsFor(stats: Pick<UserDoc['stats'], 'totalRecharged' | 'totalReceived'>, weight: number): number {
+  static pointsFor(
+    stats: Pick<UserDoc['stats'], 'totalRecharged' | 'totalReceived'>,
+    weight: number,
+  ): number {
     return stats.totalRecharged + Math.floor(stats.totalReceived * weight);
   }
 
@@ -51,7 +54,10 @@ export class LevelsService {
   }
 
   async progress(user: Pick<UserDoc, 'stats'>): Promise<LevelProgress> {
-    const [configs, economy] = await Promise.all([this.configs(), this.ctx.services.config.get('economy')]);
+    const [configs, economy] = await Promise.all([
+      this.configs(),
+      this.ctx.services.config.get('economy'),
+    ]);
     const points = LevelsService.pointsFor(user.stats, economy.receivedLevelWeight);
     const level = LevelsService.levelFor(points, configs);
     const current = configs.find((c) => c._id === level);
@@ -70,13 +76,19 @@ export class LevelsService {
    * that moved `totalRecharged` / `totalReceived`, passing that session, so the level can never
    * drift from the counters.
    */
-  async recalculate(uid: string, session?: ClientSession): Promise<{ level: number; points: number; changed: boolean }> {
+  async recalculate(
+    uid: string,
+    session?: ClientSession,
+  ): Promise<{ level: number; points: number; changed: boolean }> {
     const user = await this.ctx.col.users.findOne(
       { _id: uid },
       { projection: { stats: 1, level: 1 }, ...(session ? { session } : {}) },
     );
     if (!user) return { level: 0, points: 0, changed: false };
-    const [configs, economy] = await Promise.all([this.configs(), this.ctx.services.config.get('economy')]);
+    const [configs, economy] = await Promise.all([
+      this.configs(),
+      this.ctx.services.config.get('economy'),
+    ]);
     const points = LevelsService.pointsFor(user.stats, economy.receivedLevelWeight);
     const level = LevelsService.levelFor(points, configs);
     const changed = level !== user.level.level || points !== user.level.points;
@@ -120,7 +132,10 @@ export class LevelsService {
 
   /** Re-level every user from stored counters (after a ladder or weight change). */
   async relevelAll(): Promise<{ scanned: number; updated: number }> {
-    const [configs, economy] = await Promise.all([this.configs(), this.ctx.services.config.get('economy')]);
+    const [configs, economy] = await Promise.all([
+      this.configs(),
+      this.ctx.services.config.get('economy'),
+    ]);
     let scanned = 0;
     let updated = 0;
     const cursor = this.ctx.col.users.find({}, { projection: { stats: 1, level: 1 } });
@@ -133,7 +148,11 @@ export class LevelsService {
         // Conditional on the counters we read, so a concurrent credit is never overwritten.
         ops.push({
           updateOne: {
-            filter: { _id: u._id, 'stats.totalRecharged': u.stats.totalRecharged, 'stats.totalReceived': u.stats.totalReceived },
+            filter: {
+              _id: u._id,
+              'stats.totalRecharged': u.stats.totalRecharged,
+              'stats.totalReceived': u.stats.totalReceived,
+            },
             update: { $set: { level: { level, points } } },
           },
         });

@@ -28,12 +28,19 @@ export function toLiveRoom(r: LiveRoomDoc, host: UserBrief | undefined): LiveRoo
   };
 }
 
-export function toRoomDetail(r: LiveRoomDoc, host: UserBrief | undefined, seatUsers: Map<string, UserBrief>) {
+export function toRoomDetail(
+  r: LiveRoomDoc,
+  host: UserBrief | undefined,
+  seatUsers: Map<string, UserBrief>,
+) {
   return {
     ...toLiveRoom(r, host),
     livekitRoom: r.livekitRoom,
     moderatorIds: r.moderatorIds,
     backgroundUrl: r.backgroundUrl,
-    seats: r.seats.map((s) => ({ ...s, user: s.userId ? (seatUsers.get(s.userId) ?? null) : null })),
+    seats: r.seats.map((s) => ({
+      ...s,
+      user: s.userId ? (seatUsers.get(s.userId) ?? null) : null,
+    })),
   };
 }

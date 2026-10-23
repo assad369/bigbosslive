@@ -18,6 +18,13 @@ export function docsRoutes(): Router {
     }
     res.type('application/yaml').send(spec);
   });
-  r.use('/', swaggerUi.serve, swaggerUi.setup(undefined, { swaggerOptions: { url: '/docs/openapi.yaml' }, customSiteTitle: 'BigBoss Live API' }));
+  r.use(
+    '/',
+    swaggerUi.serve,
+    swaggerUi.setup(undefined, {
+      swaggerOptions: { url: '/docs/openapi.yaml' },
+      customSiteTitle: 'BigBoss Live API',
+    }),
+  );
   return r;
 }

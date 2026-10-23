@@ -6,11 +6,17 @@ import type { JobHandlers } from './queue.js';
 /** Handlers for one-off jobs enqueued by services. */
 export function jobHandlers(ctx: Ctx): JobHandlers {
   return {
-    'announcement.send': ({ announcementId }) => ctx.services.notifications.sendAnnouncement(new ObjectId(announcementId)),
+    'announcement.send': ({ announcementId }) =>
+      ctx.services.notifications.sendAnnouncement(new ObjectId(announcementId)),
     'push.user': async ({ userId, title, body, data }) => {
-      await ctx.services.notifications.pushToUsers([userId], { title, body, ...(data ? { data } : {}) });
+      await ctx.services.notifications.pushToUsers([userId], {
+        title,
+        body,
+        ...(data ? { data } : {}),
+      });
     },
-    'push.followers': ({ hostId, roomId }) => ctx.services.notifications.pushFollowersGoLive(hostId, roomId),
+    'push.followers': ({ hostId, roomId }) =>
+      ctx.services.notifications.pushFollowersGoLive(hostId, roomId),
   };
 }
 
@@ -24,7 +30,11 @@ export const TICKS: { name: string; everyMs: number; run: (ctx: Ctx) => Promise<
   { name: 'live.sweep', everyMs: 30_000, run: (ctx) => ctx.services.live.sweepStale() },
   { name: 'store.sweep', everyMs: 60 * 60_000, run: (ctx) => ctx.services.store.sweepExpired() },
   // Hourly is enough: members are also rolled lazily on their first earning in a new month.
-  { name: 'agencies.reset', everyMs: 60 * 60_000, run: (ctx) => ctx.services.agencies.monthlyReset() },
+  {
+    name: 'agencies.reset',
+    everyMs: 60 * 60_000,
+    run: (ctx) => ctx.services.agencies.monthlyReset(),
+  },
 ];
 
 const TICK_QUEUE = 'bb-ticks';
@@ -54,7 +64,10 @@ export class TickScheduler {
       }
       return;
     }
-    this.queue = new Queue(TICK_QUEUE, { connection, defaultJobOptions: { removeOnComplete: true, removeOnFail: 100 } });
+    this.queue = new Queue(TICK_QUEUE, {
+      connection,
+      defaultJobOptions: { removeOnComplete: true, removeOnFail: 100 },
+    });
     for (const t of TICKS) {
       await this.queue.upsertJobScheduler(t.name, { every: t.everyMs }, { name: t.name });
     }
@@ -66,7 +79,9 @@ export class TickScheduler {
       },
       { connection, concurrency: TICKS.length },
     );
-    this.worker.on('failed', (job, err) => this.ctx.log.error({ err, job: job?.name }, 'tick failed'));
+    this.worker.on('failed', (job, err) =>
+      this.ctx.log.error({ err, job: job?.name }, 'tick failed'),
+    );
   }
 
   async stop(): Promise<void> {

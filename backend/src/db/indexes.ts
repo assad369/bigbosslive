@@ -28,10 +28,7 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { followeeId: 1, createdAt: -1 } },
     { key: { followerId: 1, createdAt: -1 } },
   ],
-  blocks: [
-    { key: { blockerId: 1, blockedId: 1 }, unique: true },
-    { key: { blockedId: 1 } },
-  ],
+  blocks: [{ key: { blockerId: 1, blockedId: 1 }, unique: true }, { key: { blockedId: 1 } }],
   liveRooms: [
     {
       key: { hostId: 1 },
@@ -47,10 +44,18 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   roomPresence: [{ key: { roomId: 1, identity: 1 }, unique: true }],
   roomBans: [
     { key: { hostId: 1, userId: 1 }, unique: true },
-    { key: { until: 1 }, expireAfterSeconds: 0, partialFilterExpression: { until: { $type: 'date' } } },
+    {
+      key: { until: 1 },
+      expireAfterSeconds: 0,
+      partialFilterExpression: { until: { $type: 'date' } },
+    },
   ],
   seatRequests: [
-    { key: { roomId: 1, userId: 1, kind: 1 }, unique: true, partialFilterExpression: { status: 'pending' } },
+    {
+      key: { roomId: 1, userId: 1, kind: 1 },
+      unique: true,
+      partialFilterExpression: { status: 'pending' },
+    },
     { key: { status: 1, expiresAt: 1 } },
   ],
   gifts: [{ key: { active: 1, category: 1, sortOrder: 1 } }],
@@ -79,14 +84,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { userId: 1, cosmeticId: 1 }, unique: true },
     { key: { userId: 1, type: 1, expiresAt: -1 } },
   ],
-  agencies: [
-    { key: { ownerId: 1 }, unique: true },
-    { key: { name: 1 } },
-  ],
-  agencyMembers: [
-    { key: { userId: 1 }, unique: true },
-    { key: { agencyId: 1, periodBeans: -1 } },
-  ],
+  agencies: [{ key: { ownerId: 1 }, unique: true }, { key: { name: 1 } }],
+  agencyMembers: [{ key: { userId: 1 }, unique: true }, { key: { agencyId: 1, periodBeans: -1 } }],
   agencyRequests: [
     { key: { userId: 1 }, unique: true, partialFilterExpression: { status: 'pending' } },
     { key: { agencyId: 1, status: 1, createdAt: -1 } },
@@ -106,10 +105,7 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
       name: 'one_pending_withdrawal_per_user',
     },
   ],
-  conversations: [
-    { key: { key: 1 }, unique: true },
-    { key: { participants: 1, updatedAt: -1 } },
-  ],
+  conversations: [{ key: { key: 1 }, unique: true }, { key: { participants: 1, updatedAt: -1 } }],
   messages: [
     { key: { conversationId: 1, createdAt: -1 } },
     {
@@ -131,16 +127,20 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { createdAt: 1 }, expireAfterSeconds: 60 * 60 * 24 * 90 },
   ],
   announcements: [{ key: { createdAt: -1 } }],
-  pushTokens: [{ key: { userId: 1 } }, { key: { updatedAt: 1 }, expireAfterSeconds: 60 * 60 * 24 * 120 }],
+  pushTokens: [
+    { key: { userId: 1 } },
+    { key: { updatedAt: 1 }, expireAfterSeconds: 60 * 60 * 24 * 120 },
+  ],
   reports: [
     { key: { status: 1, createdAt: -1 } },
     { key: { targetType: 1, targetId: 1 } },
-    { key: { reporterId: 1, targetType: 1, targetId: 1 }, unique: true, partialFilterExpression: { status: 'open' } },
+    {
+      key: { reporterId: 1, targetType: 1, targetId: 1 },
+      unique: true,
+      partialFilterExpression: { status: 'open' },
+    },
   ],
-  devices: [
-    { key: { userId: 1, deviceId: 1 }, unique: true },
-    { key: { deviceId: 1 } },
-  ],
+  devices: [{ key: { userId: 1, deviceId: 1 }, unique: true }, { key: { deviceId: 1 } }],
   pkBattles: [
     {
       key: { participantUids: 1 },

@@ -108,7 +108,10 @@ export interface Database {
    * Run `fn` inside a multi-document transaction, retrying on transient errors.
    * Everything that moves money MUST go through here.
    */
-  withTransaction<T>(fn: (session: ClientSession) => Promise<T>, opts?: TransactionOptions): Promise<T>;
+  withTransaction<T>(
+    fn: (session: ClientSession) => Promise<T>,
+    opts?: TransactionOptions,
+  ): Promise<T>;
   ping(): Promise<boolean>;
   close(): Promise<void>;
 }

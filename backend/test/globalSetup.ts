@@ -14,7 +14,9 @@ declare module 'vitest' {
 export default async function setup(project: TestProject) {
   const replSet = await MongoMemoryReplSet.create({
     replSet: { count: 1, storageEngine: 'wiredTiger' },
-    ...(process.env.MONGOMS_SYSTEM_BINARY ? { binary: { systemBinary: process.env.MONGOMS_SYSTEM_BINARY } } : {}),
+    ...(process.env.MONGOMS_SYSTEM_BINARY
+      ? { binary: { systemBinary: process.env.MONGOMS_SYSTEM_BINARY } }
+      : {}),
   });
   project.provide('mongoUri', replSet.getUri());
   return async () => {

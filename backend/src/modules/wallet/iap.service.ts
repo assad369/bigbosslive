@@ -6,7 +6,11 @@ import type { IapGateway } from '../../infra/iap.js';
 import { conflict, notFound } from '../../lib/errors.js';
 
 export const iapVerifyInput = z.discriminatedUnion('store', [
-  z.object({ store: z.literal('google'), productId: z.string().min(1).max(200), purchaseToken: z.string().min(10).max(4096) }),
+  z.object({
+    store: z.literal('google'),
+    productId: z.string().min(1).max(200),
+    purchaseToken: z.string().min(10).max(4096),
+  }),
   z.object({ store: z.literal('apple'), transactionId: z.string().min(1).max(200) }),
 ]);
 
@@ -28,10 +32,16 @@ export class IapService {
   }
 
   async packages(includeInactive = false): Promise<RechargePackageDoc[]> {
-    return this.ctx.col.rechargePackages.find(includeInactive ? {} : { active: true }).sort({ sortOrder: 1, diamonds: 1 }).toArray();
+    return this.ctx.col.rechargePackages
+      .find(includeInactive ? {} : { active: true })
+      .sort({ sortOrder: 1, diamonds: 1 })
+      .toArray();
   }
 
-  async upsertPackage(id: ObjectId | null, input: z.infer<typeof rechargePackageInput>): Promise<RechargePackageDoc> {
+  async upsertPackage(
+    id: ObjectId | null,
+    input: z.infer<typeof rechargePackageInput>,
+  ): Promise<RechargePackageDoc> {
     if (!id) {
       const doc: RechargePackageDoc = { _id: new ObjectId(), ...input };
       try {
@@ -42,7 +52,11 @@ export class IapService {
       }
       return doc;
     }
-    const res = await this.ctx.col.rechargePackages.findOneAndUpdate({ _id: id }, { $set: input }, { returnDocument: 'after' });
+    const res = await this.ctx.col.rechargePackages.findOneAndUpdate(
+      { _id: id },
+      { $set: input },
+      { returnDocument: 'after' },
+    );
     if (!res) throw notFound('Package');
     return res;
   }
@@ -66,9 +80,11 @@ export class IapService {
     });
     if (replayed && recharge.userId !== uid) throw conflict('This purchase was already redeemed');
     if (input.store === 'google') {
-      await this.gateway.consumeGoogle(input.productId, input.purchaseToken).catch((err: unknown) =>
-        this.ctx.log.error({ err }, 'google consume failed; purchase credited but not consumed'),
-      );
+      await this.gateway
+        .consumeGoogle(input.productId, input.purchaseToken)
+        .catch((err: unknown) =>
+          this.ctx.log.error({ err }, 'google consume failed; purchase credited but not consumed'),
+        );
     }
     const { diamonds } = await this.ctx.services.wallet.balances(uid);
     return { credited: replayed ? 0 : recharge.diamonds, diamonds, replayed };

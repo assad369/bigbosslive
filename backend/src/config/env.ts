@@ -1,17 +1,13 @@
 import { z } from 'zod';
 
-const bool = z
-  .enum(['true', 'false', '1', '0'])
-  .transform((v) => v === 'true' || v === '1');
+const bool = z.enum(['true', 'false', '1', '0']).transform((v) => v === 'true' || v === '1');
 
-const csv = z
-  .string()
-  .transform((v) =>
-    v
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
+const csv = z.string().transform((v) =>
+  v
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -32,7 +28,11 @@ const EnvSchema = z.object({
   LIVEKIT_URL: z.string().default(''),
   LIVEKIT_API_KEY: z.string().default(''),
   LIVEKIT_API_SECRET: z.string().default(''),
-  LIVEKIT_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(6 * 60 * 60),
+  LIVEKIT_TOKEN_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(6 * 60 * 60),
 
   S3_ENDPOINT: z.string().optional(),
   S3_REGION: z.string().default('auto'),
@@ -70,7 +70,13 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const env = parsed.data;
   if (env.NODE_ENV === 'production') {
     const missing = (
-      ['REDIS_URL', 'LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'FIREBASE_PROJECT_ID'] as const
+      [
+        'REDIS_URL',
+        'LIVEKIT_URL',
+        'LIVEKIT_API_KEY',
+        'LIVEKIT_API_SECRET',
+        'FIREBASE_PROJECT_ID',
+      ] as const
     ).filter((k) => !env[k]);
     if (missing.length) {
       throw new Error(`Missing required production configuration: ${missing.join(', ')}`);

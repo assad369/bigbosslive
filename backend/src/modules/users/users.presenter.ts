@@ -77,7 +77,11 @@ export function toMeUser(u: UserDoc, levelProgress: LevelProgress, now = new Dat
 }
 
 /** Compact identity used in live rooms, chat rows, leaderboards. */
-export function toUserBrief(u: Pick<UserDoc, '_id' | 'shortId' | 'displayName' | 'avatarUrl' | 'level' | 'vip' | 'country'> & Partial<Pick<UserDoc, 'equipped'>>, now = new Date()) {
+export function toUserBrief(
+  u: Pick<UserDoc, '_id' | 'shortId' | 'displayName' | 'avatarUrl' | 'level' | 'vip' | 'country'> &
+    Partial<Pick<UserDoc, 'equipped'>>,
+  now = new Date(),
+) {
   return {
     id: u._id,
     shortId: u.shortId,

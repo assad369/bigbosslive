@@ -20,8 +20,26 @@ function inverseWeights(payouts: Record<string, number>): Record<string, number>
   return Object.fromEntries(Object.entries(payouts).map(([k, m]) => [k, Math.round(1000 / m)]));
 }
 
-const WHEEL_PAYOUTS = { crown: 45, diamond: 25, ring: 15, coin: 10, cherry: 5, lemon: 5, grape: 5, melon: 5 };
-const FERRIS_PAYOUTS = { phoenix: 40, dragon: 20, tiger: 10, koi: 8, lotus: 5, bamboo: 5, lantern: 5, fan: 5 };
+const WHEEL_PAYOUTS = {
+  crown: 45,
+  diamond: 25,
+  ring: 15,
+  coin: 10,
+  cherry: 5,
+  lemon: 5,
+  grape: 5,
+  melon: 5,
+};
+const FERRIS_PAYOUTS = {
+  phoenix: 40,
+  dragon: 20,
+  tiger: 10,
+  koi: 8,
+  lotus: 5,
+  bamboo: 5,
+  lantern: 5,
+  fan: 5,
+};
 
 const CHIPS = [100, 1_000, 10_000, 100_000];
 
@@ -95,6 +113,9 @@ export const GAME_DEFINITIONS: Record<GameKey, GameDefinition> = {
 export function theoreticalRtp(config: GameConfig): Record<string, number> {
   const total = Object.values(config.weights).reduce((s, w) => s + w, 0);
   return Object.fromEntries(
-    Object.entries(config.payouts).map(([k, m]) => [k, total ? ((config.weights[k] ?? 0) / total) * m : 0]),
+    Object.entries(config.payouts).map(([k, m]) => [
+      k,
+      total ? ((config.weights[k] ?? 0) / total) * m : 0,
+    ]),
   );
 }

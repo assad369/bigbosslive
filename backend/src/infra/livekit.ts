@@ -30,7 +30,11 @@ export interface LiveKitGateway {
   deleteRoom(room: string): Promise<void>;
   /** Server-side SFU forwarding of a host's tracks into another room (PK battles). */
   forwardParticipant(sourceRoom: string, identity: string, destinationRoom: string): Promise<void>;
-  unforwardParticipant(sourceRoom: string, identity: string, destinationRoom: string): Promise<void>;
+  unforwardParticipant(
+    sourceRoom: string,
+    identity: string,
+    destinationRoom: string,
+  ): Promise<void>;
   receiveWebhook(body: string, authHeader: string | undefined): Promise<WebhookEvent>;
 }
 

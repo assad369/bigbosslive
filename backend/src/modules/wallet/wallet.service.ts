@@ -2,7 +2,13 @@ import type { ClientSession, Filter } from 'mongodb';
 import { SOCKET, type Currency, type LedgerReason } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { LedgerDoc, RechargeDoc, UserDoc } from '../../db/schema.js';
-import { badRequest, forbidden, insufficientBalance, isDuplicateKeyError, notFound } from '../../lib/errors.js';
+import {
+  badRequest,
+  forbidden,
+  insufficientBalance,
+  isDuplicateKeyError,
+  notFound,
+} from '../../lib/errors.js';
 import { afterCursor, encodeCursor } from '../../lib/http.js';
 
 const FIELD: Record<Currency, 'wallet.diamonds' | 'wallet.beans' | 'wallet.agentStock'> = {
@@ -12,7 +18,11 @@ const FIELD: Record<Currency, 'wallet.diamonds' | 'wallet.beans' | 'wallet.agent
 };
 
 function balanceOf(user: Pick<UserDoc, 'wallet'>, currency: Currency): number {
-  return currency === 'diamonds' ? user.wallet.diamonds : currency === 'beans' ? user.wallet.beans : user.wallet.agentStock;
+  return currency === 'diamonds'
+    ? user.wallet.diamonds
+    : currency === 'beans'
+      ? user.wallet.beans
+      : user.wallet.agentStock;
 }
 
 export interface Movement {
@@ -35,7 +45,8 @@ export class WalletService {
   constructor(private readonly ctx: Ctx) {}
 
   async debit(session: ClientSession, m: Movement): Promise<number> {
-    if (!Number.isSafeInteger(m.amount) || m.amount <= 0) throw badRequest('Amount must be a positive integer');
+    if (!Number.isSafeInteger(m.amount) || m.amount <= 0)
+      throw badRequest('Amount must be a positive integer');
     const field = FIELD[m.currency];
     const updated = await this.ctx.col.users.findOneAndUpdate(
       { _id: m.uid, status: 'active', [field]: { $gte: m.amount } } as Filter<UserDoc>,
@@ -43,7 +54,10 @@ export class WalletService {
       { session, returnDocument: 'after', projection: { wallet: 1 } },
     );
     if (!updated) {
-      const exists = await this.ctx.col.users.findOne({ _id: m.uid }, { session, projection: { status: 1 } });
+      const exists = await this.ctx.col.users.findOne(
+        { _id: m.uid },
+        { session, projection: { status: 1 } },
+      );
       if (!exists) throw notFound('User');
       if (exists.status !== 'active') throw forbidden('Account is not active');
       throw insufficientBalance(m.currency === 'agent_stock' ? 'agent stock' : m.currency);
@@ -54,7 +68,8 @@ export class WalletService {
   }
 
   async credit(session: ClientSession, m: Movement): Promise<number> {
-    if (!Number.isSafeInteger(m.amount) || m.amount < 0) throw badRequest('Amount must be a non-negative integer');
+    if (!Number.isSafeInteger(m.amount) || m.amount < 0)
+      throw badRequest('Amount must be a non-negative integer');
     const field = FIELD[m.currency];
     const updated = await this.ctx.col.users.findOneAndUpdate(
       { _id: m.uid, status: { $ne: 'deleted' } },
@@ -67,7 +82,12 @@ export class WalletService {
     return balanceAfter;
   }
 
-  private async writeLedger(session: ClientSession, m: Movement, delta: number, balanceAfter: number) {
+  private async writeLedger(
+    session: ClientSession,
+    m: Movement,
+    delta: number,
+    balanceAfter: number,
+  ) {
     const row: LedgerDoc = {
       userId: m.uid,
       currency: m.currency,
@@ -90,7 +110,11 @@ export class WalletService {
   async ledger(uid: string, opts: { currency?: Currency; cursor?: string; limit: number }) {
     const q: Filter<LedgerDoc> = { userId: uid, ...afterCursor(opts.cursor) };
     if (opts.currency) q.currency = opts.currency;
-    const rows = await this.ctx.col.ledger.find(q).sort({ createdAt: -1, _id: -1 }).limit(opts.limit + 1).toArray();
+    const rows = await this.ctx.col.ledger
+      .find(q)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(opts.limit + 1)
+      .toArray();
     const page = rows.slice(0, opts.limit);
     const last = page.at(-1);
     return {
@@ -104,7 +128,8 @@ export class WalletService {
         refId: r.refId,
         createdAt: r.createdAt.toISOString(),
       })),
-      nextCursor: rows.length > opts.limit && last ? encodeCursor(last.createdAt, String(last._id)) : null,
+      nextCursor:
+        rows.length > opts.limit && last ? encodeCursor(last.createdAt, String(last._id)) : null,
     };
   }
 
@@ -121,13 +146,19 @@ export class WalletService {
     note?: string | null;
     idempotencyKey: string;
   }): Promise<{ recharge: RechargeDoc; replayed: boolean }> {
-    if (!Number.isSafeInteger(input.diamonds) || input.diamonds <= 0) throw badRequest('Diamonds must be a positive integer');
-    if (input.agentId && input.agentId === input.uid) throw badRequest('Agents cannot recharge themselves');
+    if (!Number.isSafeInteger(input.diamonds) || input.diamonds <= 0)
+      throw badRequest('Diamonds must be a positive integer');
+    if (input.agentId && input.agentId === input.uid)
+      throw badRequest('Agents cannot recharge themselves');
     const existing = await this.ctx.col.recharges.findOne({ idempotencyKey: input.idempotencyKey });
     if (existing) return { recharge: existing, replayed: true };
 
     const reason: LedgerReason =
-      input.source === 'agent' ? 'recharge_agent' : input.source === 'iap' ? 'recharge_iap' : 'recharge_admin';
+      input.source === 'agent'
+        ? 'recharge_agent'
+        : input.source === 'iap'
+          ? 'recharge_iap'
+          : 'recharge_admin';
     const doc: RechargeDoc = {
       userId: input.uid,
       diamonds: input.diamonds,
@@ -145,9 +176,19 @@ export class WalletService {
         const refId = String(insertedId);
         if (input.source === 'agent') {
           if (!input.agentId) throw badRequest('agentId required');
-          const agent = await this.ctx.col.users.findOne({ _id: input.agentId }, { session, projection: { isAgent: 1 } });
+          const agent = await this.ctx.col.users.findOne(
+            { _id: input.agentId },
+            { session, projection: { isAgent: 1 } },
+          );
           if (!agent?.isAgent) throw forbidden('Only agents can recharge users');
-          await this.debit(session, { uid: input.agentId, currency: 'agent_stock', amount: input.diamonds, reason: 'agent_stock_transfer', refId, meta: { to: input.uid } });
+          await this.debit(session, {
+            uid: input.agentId,
+            currency: 'agent_stock',
+            amount: input.diamonds,
+            reason: 'agent_stock_transfer',
+            refId,
+            meta: { to: input.uid },
+          });
         }
         await this.credit(session, {
           uid: input.uid,
@@ -161,12 +202,16 @@ export class WalletService {
       });
     } catch (err) {
       if (isDuplicateKeyError(err)) {
-        const raced = await this.ctx.col.recharges.findOne({ idempotencyKey: input.idempotencyKey });
+        const raced = await this.ctx.col.recharges.findOne({
+          idempotencyKey: input.idempotencyKey,
+        });
         if (raced) return { recharge: raced, replayed: true };
       }
       throw err;
     }
-    this.ctx.realtime.toUser(SOCKET.namespaces.app, input.uid, SOCKET.app.walletUpdated, { reason });
+    this.ctx.realtime.toUser(SOCKET.namespaces.app, input.uid, SOCKET.app.walletUpdated, {
+      reason,
+    });
     return { recharge: doc, replayed: false };
   }
 
@@ -174,14 +219,24 @@ export class WalletService {
    * Admin balance correction. Moves a balance up or down without touching level counters —
    * corrections are not recharges. Never lets a balance go negative.
    */
-  async adjust(input: { uid: string; currency: Currency; delta: number; adminId: string; note: string }): Promise<number> {
-    if (!Number.isSafeInteger(input.delta) || input.delta === 0) throw badRequest('Delta must be a non-zero integer');
+  async adjust(input: {
+    uid: string;
+    currency: Currency;
+    delta: number;
+    adminId: string;
+    note: string;
+  }): Promise<number> {
+    if (!Number.isSafeInteger(input.delta) || input.delta === 0)
+      throw badRequest('Delta must be a non-zero integer');
     return this.ctx.db.withTransaction(async (session) => {
       const m: Movement = {
         uid: input.uid,
         currency: input.currency,
         amount: Math.abs(input.delta),
-        reason: input.currency === 'agent_stock' && input.delta > 0 ? 'agent_stock_topup' : 'admin_adjustment',
+        reason:
+          input.currency === 'agent_stock' && input.delta > 0
+            ? 'agent_stock_topup'
+            : 'admin_adjustment',
         refId: null,
         meta: { adminId: input.adminId, note: input.note },
       };
@@ -190,20 +245,47 @@ export class WalletService {
   }
 
   async setAgent(uid: string, isAgent: boolean): Promise<void> {
-    const res = await this.ctx.col.users.updateOne({ _id: uid, status: { $ne: 'deleted' } }, { $set: { isAgent } });
+    const res = await this.ctx.col.users.updateOne(
+      { _id: uid, status: { $ne: 'deleted' } },
+      { $set: { isAgent } },
+    );
     if (!res.matchedCount) throw notFound('User');
   }
 
-  async listRecharges(filter: { uid?: string; agentId?: string; source?: RechargeDoc['source']; from?: Date; to?: Date }, page: number, pageSize: number) {
+  async listRecharges(
+    filter: {
+      uid?: string;
+      agentId?: string;
+      source?: RechargeDoc['source'];
+      from?: Date;
+      to?: Date;
+    },
+    page: number,
+    pageSize: number,
+  ) {
     const q: Filter<RechargeDoc> = {};
     if (filter.uid) q.userId = filter.uid;
     if (filter.agentId) q.agentId = filter.agentId;
     if (filter.source) q.source = filter.source;
-    if (filter.from || filter.to) q.createdAt = { ...(filter.from ? { $gte: filter.from } : {}), ...(filter.to ? { $lt: filter.to } : {}) };
+    if (filter.from || filter.to)
+      q.createdAt = {
+        ...(filter.from ? { $gte: filter.from } : {}),
+        ...(filter.to ? { $lt: filter.to } : {}),
+      };
     const [items, total, sum] = await Promise.all([
-      this.ctx.col.recharges.find(q).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray(),
+      this.ctx.col.recharges
+        .find(q)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .toArray(),
       this.ctx.col.recharges.countDocuments(q),
-      this.ctx.col.recharges.aggregate<{ total: number }>([{ $match: q }, { $group: { _id: null, total: { $sum: '$diamonds' } } }]).toArray(),
+      this.ctx.col.recharges
+        .aggregate<{ total: number }>([
+          { $match: q },
+          { $group: { _id: null, total: { $sum: '$diamonds' } } },
+        ])
+        .toArray(),
     ]);
     return { items, total, page, pageSize, totalDiamonds: sum[0]?.total ?? 0 };
   }

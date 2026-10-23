@@ -43,16 +43,29 @@ export function notFoundHandler(): RequestHandler {
 export function errorHandler(log: Logger): ErrorRequestHandler {
   return (err: unknown, req, res, _next) => {
     // Malformed JSON from express.json()
-    if (typeof err === 'object' && err !== null && (err as { type?: string }).type === 'entity.parse.failed') {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      (err as { type?: string }).type === 'entity.parse.failed'
+    ) {
       err = new AppError(400, 'invalid_json', 'Malformed JSON body');
     }
-    if (typeof err === 'object' && err !== null && (err as { type?: string }).type === 'entity.too.large') {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      (err as { type?: string }).type === 'entity.too.large'
+    ) {
       err = new AppError(413, 'payload_too_large', 'Request body too large');
     }
     if (err instanceof AppError) {
       if (err.status >= 500) log.error({ err, requestId: req.requestId }, err.message);
       res.status(err.status).json({
-        error: { code: err.code, message: err.message, details: err.details, requestId: req.requestId },
+        error: {
+          code: err.code,
+          message: err.message,
+          details: err.details,
+          requestId: req.requestId,
+        },
       });
       return;
     }
@@ -77,10 +90,9 @@ export function createRateLimiter(redis: Redis | null, opts: RateLimitOpts): Req
     limit: opts.limit,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
-    handler: (_req, _res, next) => next(new AppError(429, 'rate_limited', 'Too many requests, slow down')),
-    ...(opts.byUser
-      ? { keyGenerator: (req: Request) => req.auth?.uid ?? req.ip ?? 'anon' }
-      : {}),
+    handler: (_req, _res, next) =>
+      next(new AppError(429, 'rate_limited', 'Too many requests, slow down')),
+    ...(opts.byUser ? { keyGenerator: (req: Request) => req.auth?.uid ?? req.ip ?? 'anon' } : {}),
   };
   if (redis) {
     config.store = new RedisStore({

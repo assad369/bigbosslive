@@ -3,7 +3,13 @@ import { z } from 'zod';
 import { GAME_KEYS, SOCKET, type GameKey, type GameRound } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { GameConfig, GameDoc, GameRoundDoc } from '../../db/schema.js';
-import { AppError, badRequest, forbidden, isDuplicateKeyError, notFound } from '../../lib/errors.js';
+import {
+  AppError,
+  badRequest,
+  forbidden,
+  isDuplicateKeyError,
+  notFound,
+} from '../../lib/errors.js';
 import { addSeconds } from '../../lib/time.js';
 import { GAME_DEFINITIONS, theoreticalRtp } from './definitions.js';
 import { hashSeed, newServerSeed } from './rng.js';
@@ -88,7 +94,10 @@ export class GamesService {
   async registry(includeDisabled = false): Promise<GameDoc[]> {
     const features = await this.ctx.services.config.get('features');
     if (!features.gamesEnabled && !includeDisabled) return [];
-    return this.ctx.col.games.find(includeDisabled ? {} : { enabled: true }).sort({ sortOrder: 1 }).toArray();
+    return this.ctx.col.games
+      .find(includeDisabled ? {} : { enabled: true })
+      .sort({ sortOrder: 1 })
+      .toArray();
   }
 
   async game(key: GameKey): Promise<GameDoc> {
@@ -98,7 +107,11 @@ export class GamesService {
   }
 
   async updateMeta(key: GameKey, patch: z.infer<typeof gameMetaInput>): Promise<GameDoc> {
-    const res = await this.ctx.col.games.findOneAndUpdate({ _id: key }, { $set: { ...patch, updatedAt: this.ctx.clock.now() } }, { returnDocument: 'after' });
+    const res = await this.ctx.col.games.findOneAndUpdate(
+      { _id: key },
+      { $set: { ...patch, updatedAt: this.ctx.clock.now() } },
+      { returnDocument: 'after' },
+    );
     if (!res) throw notFound('Game');
     return res;
   }
@@ -107,17 +120,26 @@ export class GamesService {
   async updateConfig(key: GameKey, config: GameConfig): Promise<GameDoc> {
     const def = GAME_DEFINITIONS[key];
     const options = Object.keys(def.defaultConfig.payouts).sort();
-    if (Object.keys(config.payouts).sort().join() !== options.join() || Object.keys(config.weights).sort().join() !== options.join()) {
+    if (
+      Object.keys(config.payouts).sort().join() !== options.join() ||
+      Object.keys(config.weights).sort().join() !== options.join()
+    ) {
       throw badRequest(`Payouts and weights must define exactly: ${options.join(', ')}`);
     }
     if (config.minBet > config.maxBet) throw badRequest('minBet cannot exceed maxBet');
-    if (config.chips.some((c) => c < config.minBet || c > config.maxBet)) throw badRequest('Chips must be within min/max bet');
-    if (Object.values(config.weights).every((w) => w === 0)) throw badRequest('At least one weight must be positive');
+    if (config.chips.some((c) => c < config.minBet || c > config.maxBet))
+      throw badRequest('Chips must be within min/max bet');
+    if (Object.values(config.weights).every((w) => w === 0))
+      throw badRequest('At least one weight must be positive');
     const rtp = theoreticalRtp(config);
     if (key !== 'teen_patti' && Object.values(rtp).some((r) => r > 1)) {
       throw badRequest('Config would pay out more than it takes in (RTP > 100%)', rtp);
     }
-    const res = await this.ctx.col.games.findOneAndUpdate({ _id: key }, { $set: { config, updatedAt: this.ctx.clock.now() } }, { returnDocument: 'after' });
+    const res = await this.ctx.col.games.findOneAndUpdate(
+      { _id: key },
+      { $set: { config, updatedAt: this.ctx.clock.now() } },
+      { returnDocument: 'after' },
+    );
     if (!res) throw notFound('Game');
     return res;
   }
@@ -130,14 +152,29 @@ export class GamesService {
     const game = await this.game(key);
     const round = await this.currentRound(key);
     const [myBets, wallet, recent] = await Promise.all([
-      round ? this.ctx.col.gameBets.find({ roundId: round._id, userId: uid }).toArray() : Promise.resolve([]),
+      round
+        ? this.ctx.col.gameBets.find({ roundId: round._id, userId: uid }).toArray()
+        : Promise.resolve([]),
       this.ctx.services.wallet.balances(uid),
-      this.ctx.col.gameRounds.find({ game: key, status: 'settled' }).sort({ roundNo: -1 }).limit(20).project<{ roundNo: number; outcome: string }>({ roundNo: 1, outcome: 1 }).toArray(),
+      this.ctx.col.gameRounds
+        .find({ game: key, status: 'settled' })
+        .sort({ roundNo: -1 })
+        .limit(20)
+        .project<{ roundNo: number; outcome: string }>({ roundNo: 1, outcome: 1 })
+        .toArray(),
     ]);
     const mine: Record<string, number> = {};
     for (const b of myBets) mine[b.option] = (mine[b.option] ?? 0) + b.amount;
     return {
-      game: { key: game._id, name: game.name, enabled: game.enabled, chips: game.config.chips, payouts: game.config.payouts, minBet: game.config.minBet, maxBet: game.config.maxBet },
+      game: {
+        key: game._id,
+        name: game.name,
+        enabled: game.enabled,
+        chips: game.config.chips,
+        payouts: game.config.payouts,
+        minBet: game.config.minBet,
+        maxBet: game.config.maxBet,
+      },
       round: round ? this.toRound(round) : null,
       myBets: mine,
       diamonds: wallet.diamonds,
@@ -147,13 +184,17 @@ export class GamesService {
   }
 
   async placeBet(uid: string, key: GameKey, rawKey: string, input: z.infer<typeof placeBetInput>) {
-    const [game, features] = await Promise.all([this.game(key), this.ctx.services.config.get('features')]);
+    const [game, features] = await Promise.all([
+      this.game(key),
+      this.ctx.services.config.get('features'),
+    ]);
     if (!game.enabled || !features.gamesEnabled) throw forbidden('This game is unavailable');
     const roundId = new ObjectId(input.roundId);
     const now = this.ctx.clock.now();
     const round = await this.ctx.col.gameRounds.findOne({ _id: roundId, game: key });
     if (!round) throw notFound('Round');
-    if (round.status !== 'betting' || round.bettingEndsAt <= now) throw new AppError(409, 'betting_closed', 'Betting is closed for this round');
+    if (round.status !== 'betting' || round.bettingEndsAt <= now)
+      throw new AppError(409, 'betting_closed', 'Betting is closed for this round');
     if (!round.options.includes(input.option)) throw badRequest('Unknown option');
     const { config } = game;
     if (input.amount < config.minBet || input.amount > config.maxBet) {
@@ -162,14 +203,25 @@ export class GamesService {
 
     const idempotencyKey = `${uid}:${rawKey}`;
     const existing = await this.ctx.col.gameBets.findOne({ idempotencyKey });
-    if (existing) return { betId: String(existing._id), diamonds: (await this.ctx.services.wallet.balances(uid)).diamonds, replayed: true };
+    if (existing)
+      return {
+        betId: String(existing._id),
+        diamonds: (await this.ctx.services.wallet.balances(uid)).diamonds,
+        replayed: true,
+      };
 
     let diamonds: number;
     let betId: ObjectId;
     try {
       ({ diamonds, betId } = await this.ctx.db.withTransaction(async (session) => {
         const staked = await this.ctx.col.gameBets
-          .aggregate<{ total: number }>([{ $match: { roundId, userId: uid } }, { $group: { _id: null, total: { $sum: '$amount' } } }], { session })
+          .aggregate<{ total: number }>(
+            [
+              { $match: { roundId, userId: uid } },
+              { $group: { _id: null, total: { $sum: '$amount' } } },
+            ],
+            { session },
+          )
           .toArray();
         if ((staked[0]?.total ?? 0) + input.amount > config.maxRoundStake) {
           throw badRequest(`You can stake at most ${config.maxRoundStake} per round`);
@@ -180,9 +232,21 @@ export class GamesService {
           { $inc: { [`totals.${input.option}`]: input.amount, betCount: 1 } },
           { session },
         );
-        if (!open.modifiedCount) throw new AppError(409, 'betting_closed', 'Betting is closed for this round');
+        if (!open.modifiedCount)
+          throw new AppError(409, 'betting_closed', 'Betting is closed for this round');
         const { insertedId } = await this.ctx.col.gameBets.insertOne(
-          { roundId, game: key, userId: uid, option: input.option, amount: input.amount, payout: 0, status: 'placed', idempotencyKey, createdAt: now, settledAt: null },
+          {
+            roundId,
+            game: key,
+            userId: uid,
+            option: input.option,
+            amount: input.amount,
+            payout: 0,
+            status: 'placed',
+            idempotencyKey,
+            createdAt: now,
+            settledAt: null,
+          },
           { session },
         );
         const balance = await this.ctx.services.wallet.debit(session, {
@@ -198,12 +262,23 @@ export class GamesService {
     } catch (err) {
       if (isDuplicateKeyError(err)) {
         const raced = await this.ctx.col.gameBets.findOne({ idempotencyKey });
-        if (raced) return { betId: String(raced._id), diamonds: (await this.ctx.services.wallet.balances(uid)).diamonds, replayed: true };
+        if (raced)
+          return {
+            betId: String(raced._id),
+            diamonds: (await this.ctx.services.wallet.balances(uid)).diamonds,
+            replayed: true,
+          };
       }
       throw err;
     }
-    const totals = await this.ctx.col.gameRounds.findOne({ _id: roundId }, { projection: { totals: 1 } });
-    this.ctx.realtime.toRoom(SOCKET.namespaces.games, gameRoom(key), SOCKET.games.totals, { roundId: input.roundId, totals: totals?.totals ?? {} });
+    const totals = await this.ctx.col.gameRounds.findOne(
+      { _id: roundId },
+      { projection: { totals: 1 } },
+    );
+    this.ctx.realtime.toRoom(SOCKET.namespaces.games, gameRoom(key), SOCKET.games.totals, {
+      roundId: input.roundId,
+      totals: totals?.totals ?? {},
+    });
     return { betId: String(betId), diamonds, replayed: false };
   }
 
@@ -227,7 +302,11 @@ export class GamesService {
     const round = await this.currentRound(game._id);
 
     if (round?.status === 'betting' && round.bettingEndsAt <= now) {
-      const { outcome, reveal } = GAME_DEFINITIONS[game._id].resolve(round.serverSeed, round.roundNo, game.config);
+      const { outcome, reveal } = GAME_DEFINITIONS[game._id].resolve(
+        round.serverSeed,
+        round.roundNo,
+        game.config,
+      );
       const locked = await this.ctx.col.gameRounds.findOneAndUpdate(
         { _id: round._id, status: 'betting' },
         { $set: { status: 'locked', outcome, reveal } },
@@ -299,7 +378,11 @@ export class GamesService {
           refId: String(bet._id),
           meta: { game: round.game, roundNo: round.roundNo },
         });
-        await this.ctx.col.gameRounds.updateOne({ _id: round._id }, { $inc: { payoutTotal: payout } }, { session });
+        await this.ctx.col.gameRounds.updateOne(
+          { _id: round._id },
+          { $inc: { payoutTotal: payout } },
+          { session },
+        );
       });
       if (payout) winners.push({ userId: bet.userId, payout });
     }
@@ -312,11 +395,16 @@ export class GamesService {
     const byUser = new Map<string, number>();
     for (const w of winners) byUser.set(w.userId, (byUser.get(w.userId) ?? 0) + w.payout);
     for (const [uid, payout] of byUser) {
-      this.ctx.realtime.toUser(SOCKET.namespaces.games, uid, SOCKET.games.settled, { roundId: String(round._id), payout });
+      this.ctx.realtime.toUser(SOCKET.namespaces.games, uid, SOCKET.games.settled, {
+        roundId: String(round._id),
+        payout,
+      });
     }
     const top = [...byUser.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
     const briefs = await this.ctx.services.users.briefs(top.map(([u]) => u));
-    this.emitRound(settled, { topWinners: top.map(([u, p]) => ({ user: briefs.get(u) ?? null, payout: p })) });
+    this.emitRound(settled, {
+      topWinners: top.map(([u, p]) => ({ user: briefs.get(u) ?? null, payout: p })),
+    });
   }
 
   /** Refund every placed bet of a stuck round (admin action). */
@@ -328,18 +416,34 @@ export class GamesService {
     const cursor = this.ctx.col.gameBets.find({ roundId, status: 'placed' });
     for await (const bet of cursor) {
       await this.ctx.db.withTransaction(async (session) => {
-        const res = await this.ctx.col.gameBets.updateOne({ _id: bet._id, status: 'placed' }, { $set: { status: 'refunded', payout: bet.amount, settledAt: this.ctx.clock.now() } }, { session });
+        const res = await this.ctx.col.gameBets.updateOne(
+          { _id: bet._id, status: 'placed' },
+          { $set: { status: 'refunded', payout: bet.amount, settledAt: this.ctx.clock.now() } },
+          { session },
+        );
         if (!res.modifiedCount) return;
-        await this.ctx.services.wallet.credit(session, { uid: bet.userId, currency: 'diamonds', amount: bet.amount, reason: 'game_refund', refId: String(bet._id) });
+        await this.ctx.services.wallet.credit(session, {
+          uid: bet.userId,
+          currency: 'diamonds',
+          amount: bet.amount,
+          reason: 'game_refund',
+          refId: String(bet._id),
+        });
         refunded++;
       });
     }
-    await this.ctx.col.gameRounds.updateOne({ _id: roundId }, { $set: { status: 'settled', outcome: 'void', settledAt: this.ctx.clock.now() } });
+    await this.ctx.col.gameRounds.updateOne(
+      { _id: roundId },
+      { $set: { status: 'settled', outcome: 'void', settledAt: this.ctx.clock.now() } },
+    );
     return { refunded };
   }
 
   private emitRound(round: GameRoundDoc, extra: Record<string, unknown> = {}): void {
-    this.ctx.realtime.toRoom(SOCKET.namespaces.games, gameRoom(round.game), SOCKET.games.round, { round: this.toRound(round), ...extra });
+    this.ctx.realtime.toRoom(SOCKET.namespaces.games, gameRoom(round.game), SOCKET.games.round, {
+      round: this.toRound(round),
+      ...extra,
+    });
   }
 
   // ── Queries ──────────────────────────────────────────────────────────────
@@ -361,15 +465,34 @@ export class GamesService {
   }
 
   async myBets(uid: string, key: GameKey | undefined, limit: number) {
-    return this.ctx.col.gameBets.find({ userId: uid, ...(key ? { game: key } : {}) }).sort({ createdAt: -1 }).limit(limit).toArray();
+    return this.ctx.col.gameBets
+      .find({ userId: uid, ...(key ? { game: key } : {}) })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .toArray();
   }
 
   async rounds(key: GameKey, page: number, pageSize: number) {
     const [items, total] = await Promise.all([
-      this.ctx.col.gameRounds.find({ game: key }).sort({ roundNo: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray(),
+      this.ctx.col.gameRounds
+        .find({ game: key })
+        .sort({ roundNo: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .toArray(),
       this.ctx.col.gameRounds.countDocuments({ game: key }),
     ]);
-    return { items: items.map((r) => ({ ...this.toRound(r), betCount: r.betCount, payoutTotal: r.payoutTotal, staked: Object.values(r.totals).reduce((s, v) => s + v, 0) })), total, page, pageSize };
+    return {
+      items: items.map((r) => ({
+        ...this.toRound(r),
+        betCount: r.betCount,
+        payoutTotal: r.payoutTotal,
+        staked: Object.values(r.totals).reduce((s, v) => s + v, 0),
+      })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   /** Daily staked / paid / actual RTP over the last `days` days. */
@@ -391,9 +514,21 @@ export class GamesService {
       ])
       .toArray();
     const game = await this.game(key);
-    const daily = rows.map((r) => ({ date: r._id, staked: r.staked, paid: r.paid, bets: r.bets, players: r.players.length, rtp: r.staked ? r.paid / r.staked : 0, houseProfit: r.staked - r.paid }));
+    const daily = rows.map((r) => ({
+      date: r._id,
+      staked: r.staked,
+      paid: r.paid,
+      bets: r.bets,
+      players: r.players.length,
+      rtp: r.staked ? r.paid / r.staked : 0,
+      houseProfit: r.staked - r.paid,
+    }));
     const staked = daily.reduce((s, d) => s + d.staked, 0);
     const paid = daily.reduce((s, d) => s + d.paid, 0);
-    return { daily, totals: { staked, paid, houseProfit: staked - paid, rtp: staked ? paid / staked : 0 }, theoreticalRtp: theoreticalRtp(game.config) };
+    return {
+      daily,
+      totals: { staked, paid, houseProfit: staked - paid, rtp: staked ? paid / staked : 0 },
+      theoreticalRtp: theoreticalRtp(game.config),
+    };
   }
 }

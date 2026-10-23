@@ -21,7 +21,10 @@ export async function once<T>(
   try {
     const result = await ctx.db.withTransaction(async (session) => {
       const value = await fn(session);
-      await ctx.col.idempotency.insertOne({ _id: id, result: value, createdAt: ctx.clock.now() }, { session });
+      await ctx.col.idempotency.insertOne(
+        { _id: id, result: value, createdAt: ctx.clock.now() },
+        { session },
+      );
       return value;
     });
     return { result, replayed: false };

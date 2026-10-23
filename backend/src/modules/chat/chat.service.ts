@@ -14,7 +14,10 @@ export const sendMessageInput = z
     mediaUrl: z.url().nullable().default(null),
     clientId: z.string().min(8).max(64).nullable().default(null),
   })
-  .refine((m) => (m.type === 'text' ? Boolean(m.text) : Boolean(m.mediaUrl)), 'Text messages need text; image messages need mediaUrl');
+  .refine(
+    (m) => (m.type === 'text' ? Boolean(m.text) : Boolean(m.mediaUrl)),
+    'Text messages need text; image messages need mediaUrl',
+  );
 
 const pairKey = (a: string, b: string) => [a, b].sort().join(':');
 
@@ -58,8 +61,11 @@ export class ChatService {
   }
 
   async send(senderId: string, input: z.infer<typeof sendMessageInput>): Promise<ChatMessage> {
-    if (await this.ctx.services.users.isBlockedEitherWay(senderId, input.toUserId)) throw forbidden('You cannot message this user');
-    const text = input.text ? await this.ctx.services.moderation.assertClean(input.text, 'message') : null;
+    if (await this.ctx.services.users.isBlockedEitherWay(senderId, input.toUserId))
+      throw forbidden('You cannot message this user');
+    const text = input.text
+      ? await this.ctx.services.moderation.assertClean(input.text, 'message')
+      : null;
     const conv = await this.conversationWith(senderId, input.toUserId);
     const now = this.ctx.clock.now();
     const doc: MessageDoc = {
@@ -78,7 +84,11 @@ export class ChatService {
     } catch (err) {
       // Client retry with the same clientId: return the stored message.
       if (isDuplicateKeyError(err) && input.clientId) {
-        const existing = await this.ctx.col.messages.findOne({ conversationId: conv._id, senderId, clientId: input.clientId });
+        const existing = await this.ctx.col.messages.findOne({
+          conversationId: conv._id,
+          senderId,
+          clientId: input.clientId,
+        });
         if (existing) return toChatMessage(existing);
       }
       throw err;
@@ -86,15 +96,26 @@ export class ChatService {
     await this.ctx.col.conversations.updateOne(
       { _id: conv._id },
       {
-        $set: { lastMessage: { text: text ?? '📷 Photo', senderId, type: input.type, at: now }, updatedAt: now },
+        $set: {
+          lastMessage: { text: text ?? '📷 Photo', senderId, type: input.type, at: now },
+          updatedAt: now,
+        },
         $inc: { [`unread.${input.toUserId}`]: 1 },
       },
     );
     const message = toChatMessage(doc);
-    this.ctx.realtime.toUser(SOCKET.namespaces.app, input.toUserId, SOCKET.app.chatMessage, message);
+    this.ctx.realtime.toUser(
+      SOCKET.namespaces.app,
+      input.toUserId,
+      SOCKET.app.chatMessage,
+      message,
+    );
     this.ctx.realtime.toUser(SOCKET.namespaces.app, senderId, SOCKET.app.chatMessage, message);
 
-    const sender = await this.ctx.col.users.findOne({ _id: senderId }, { projection: { displayName: 1 } });
+    const sender = await this.ctx.col.users.findOne(
+      { _id: senderId },
+      { projection: { displayName: 1 } },
+    );
     await this.ctx.jobs.enqueue('push.user', {
       userId: input.toUserId,
       title: sender?.displayName ?? 'New message',
@@ -111,18 +132,23 @@ export class ChatService {
       .limit(limit + 1)
       .toArray();
     const page = rows.slice(0, limit);
-    const others = page.map((c) => (c.participants[0] === uid ? c.participants[1] : c.participants[0]));
+    const others = page.map((c) =>
+      c.participants[0] === uid ? c.participants[1] : c.participants[0],
+    );
     const briefs = await this.ctx.services.users.briefs(others);
     const last = page.at(-1);
     return {
       items: page.map((c, i) => ({
         id: String(c._id),
         peer: briefs.get(others[i]!) ?? null,
-        lastMessage: c.lastMessage ? { ...c.lastMessage, at: c.lastMessage.at.toISOString() } : null,
+        lastMessage: c.lastMessage
+          ? { ...c.lastMessage, at: c.lastMessage.at.toISOString() }
+          : null,
         unread: c.unread[uid] ?? 0,
         updatedAt: c.updatedAt.toISOString(),
       })),
-      nextCursor: rows.length > limit && last ? encodeCursor(last.updatedAt, String(last._id)) : null,
+      nextCursor:
+        rows.length > limit && last ? encodeCursor(last.updatedAt, String(last._id)) : null,
     };
   }
 
@@ -141,14 +167,25 @@ export class ChatService {
       .toArray();
     const page = rows.slice(0, limit);
     const last = page.at(-1);
-    return { items: page.map(toChatMessage), nextCursor: rows.length > limit && last ? encodeCursor(last.createdAt, String(last._id)) : null };
+    return {
+      items: page.map(toChatMessage),
+      nextCursor:
+        rows.length > limit && last ? encodeCursor(last.createdAt, String(last._id)) : null,
+    };
   }
 
   async markRead(uid: string, conversationId: ObjectId): Promise<void> {
     const conv = await this.assertParticipant(uid, conversationId);
-    await this.ctx.col.conversations.updateOne({ _id: conversationId }, { $set: { [`unread.${uid}`]: 0 } });
+    await this.ctx.col.conversations.updateOne(
+      { _id: conversationId },
+      { $set: { [`unread.${uid}`]: 0 } },
+    );
     const peer = conv.participants[0] === uid ? conv.participants[1] : conv.participants[0];
-    this.ctx.realtime.toUser(SOCKET.namespaces.app, peer, SOCKET.app.chatRead, { conversationId: String(conversationId), by: uid, at: this.ctx.clock.now().toISOString() });
+    this.ctx.realtime.toUser(SOCKET.namespaces.app, peer, SOCKET.app.chatRead, {
+      conversationId: String(conversationId),
+      by: uid,
+      at: this.ctx.clock.now().toISOString(),
+    });
   }
 
   async deleteMessage(uid: string, messageId: ObjectId): Promise<void> {
@@ -160,14 +197,20 @@ export class ChatService {
 
   async unreadTotal(uid: string): Promise<number> {
     const [row] = await this.ctx.col.conversations
-      .aggregate<{ total: number }>([{ $match: { participants: uid } }, { $group: { _id: null, total: { $sum: { $ifNull: [`$unread.${uid}`, 0] } } } }])
+      .aggregate<{ total: number }>([
+        { $match: { participants: uid } },
+        { $group: { _id: null, total: { $sum: { $ifNull: [`$unread.${uid}`, 0] } } } },
+      ])
       .toArray();
     return row?.total ?? 0;
   }
 
   async isParticipant(uid: string, conversationId: string): Promise<string | null> {
     if (!ObjectId.isValid(conversationId)) return null;
-    const conv = await this.ctx.col.conversations.findOne({ _id: new ObjectId(conversationId), participants: uid }, { projection: { participants: 1 } });
+    const conv = await this.ctx.col.conversations.findOne(
+      { _id: new ObjectId(conversationId), participants: uid },
+      { projection: { participants: 1 } },
+    );
     if (!conv) return null;
     return conv.participants[0] === uid ? conv.participants[1] : conv.participants[0];
   }
