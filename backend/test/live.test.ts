@@ -120,6 +120,24 @@ describe('live rooms', () => {
     expect((await h.api.post(`/v1/live/${roomId}/join`).set(h.as('troll'))).status).toBe(200);
   });
 
+  it('moderates in-room chat and fans it out on the data channel', async () => {
+    const ok = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as('viewer'))
+      .send({ text: 'hello shit show' });
+    expect(ok.status).toBe(201);
+    expect(ok.body.message.text).toBe('hello **** show');
+    expect(h.livekit.topics('bb.chat').at(-1)!.payload).toMatchObject({
+      text: 'hello **** show',
+      user: { uid: 'viewer', level: 3 },
+    });
+    const spam = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as('viewer'))
+      .send({ text: 'join t.me/scam' });
+    expect(spam.status).toBe(422);
+  });
+
   it('seats a guest on request and grants publish permission', async () => {
     await h.api.post(`/v1/live/${roomId}/seats/request`).set(h.as('viewer')).expect(202);
     const pending = await h.api.get(`/v1/live/${roomId}/seats/requests`).set(h.as('host'));

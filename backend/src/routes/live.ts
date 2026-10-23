@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ROOM_TYPES } from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 import { requireAuth } from '../middleware/auth.js';
+import { createRateLimiter } from '../middleware/http.js';
 import {
   currentUser,
   objectIdString,
@@ -22,6 +23,12 @@ export function liveRoutes(ctx: Ctx): Router {
   const r = Router();
   r.use(requireAuth(ctx));
   const { live } = ctx.services;
+  const chatLimit = createRateLimiter(ctx.redis, {
+    windowMs: 10_000,
+    limit: 15,
+    prefix: 'live-chat',
+    byUser: true,
+  });
   const rid = (req: express.Request) => toObjectId(parseParams(req, roomParam).id, 'room id');
 
   r.post('/', async (req, res) => {
@@ -75,6 +82,11 @@ export function liveRoutes(ctx: Ctx): Router {
       }),
     );
     res.json({ room: await live.update(rid(req), currentUser(req).uid, patch) });
+  });
+
+  r.post('/:id/chat', chatLimit, async (req, res) => {
+    const { text } = parseBody(req, z.object({ text: z.string().trim().min(1).max(300) }));
+    res.status(201).json({ message: await live.chat(rid(req), currentUser(req).uid, text) });
   });
 
   r.post('/:id/end', async (req, res) => {

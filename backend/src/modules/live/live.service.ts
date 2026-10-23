@@ -493,6 +493,31 @@ export class LiveService {
     await this.broadcastSystem(room, { kind: 'moderator', uid, enabled });
   }
 
+  /**
+   * In-room chat. Goes through the API (not client-to-client data) so every message is
+   * moderated, ban-checked and attributed with server-minted identity, then fanned out on the
+   * LiveKit data channel.
+   */
+  async chat(roomId: ObjectId, uid: string, text: string) {
+    const room = await this.getLive(roomId);
+    const ban = await this.ctx.col.roomBans.findOne({ hostId: room.hostId, userId: uid });
+    if (ban && (!ban.until || ban.until > this.ctx.clock.now()))
+      throw forbidden('You were removed from this live');
+    const clean = await this.ctx.services.moderation.assertClean(text, 'chat');
+    const { metadata } = await this.metadataFor(
+      uid,
+      room.hostId === uid ? 'host' : room.moderatorIds.includes(uid) ? 'moderator' : 'audience',
+    );
+    const message = {
+      id: new ObjectId().toHexString(),
+      text: clean,
+      user: metadata,
+      at: this.ctx.clock.now().toISOString(),
+    };
+    await this.ctx.livekit.sendData(room.livekitRoom, LIVEKIT_TOPICS.chat, message);
+    return message;
+  }
+
   async broadcastSystem(room: LiveRoomDoc, payload: Record<string, unknown>): Promise<void> {
     await this.ctx.livekit
       .sendData(room.livekitRoom, LIVEKIT_TOPICS.system, payload)
