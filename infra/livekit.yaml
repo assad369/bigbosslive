@@ -1,0 +1,17 @@
+# LiveKit dev config. In production use LiveKit Cloud or a TURN-enabled self-hosted cluster.
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: false
+keys:
+  devkey: bigboss-dev-secret-change-me-0123456789
+webhook:
+  api_key: devkey
+  urls:
+    - http://backend:3000/v1/webhooks/livekit
+room:
+  empty_timeout: 300
+logging:
+  level: info
