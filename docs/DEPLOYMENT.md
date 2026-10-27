@@ -1,5 +1,7 @@
 # Deployment
 
+Deploying on a single VPS with Coolify? Follow [COOLIFY.md](COOLIFY.md).
+
 ## Production checklist
 
 | Item | Requirement |
@@ -44,6 +46,11 @@ npm run seed -w backend               # catalog data (idempotent)
 npm run set-admin -w backend -- owner@yourcompany.com superadmin
 ```
 
+The image ships these scripts compiled, so inside a running API container (workdir
+`/app/backend`) the same steps are `node dist/cli/scripts/migrate.js`, `node
+dist/cli/scripts/seed.js` and `node dist/cli/scripts/set-admin.js owner@yourcompany.com
+superadmin`.
+
 Then sign in to the admin dashboard and set Settings (economy, features, app links). Enable
 games and set their hosted URLs. Create recharge packages that match your store product ids.
 
@@ -58,14 +65,15 @@ games and set their hosted URLs. Create recharge packages that match your store 
 ## Admin dashboard
 
 Static SPA (Vite). Build with `VITE_API_URL` and the `VITE_FIREBASE_*` web config, then deploy
-`admin/dist` to Vercel, Netlify, Cloudflare Pages or S3 + CDN. `admin/vercel.json` sets SPA
+`admin/dist` to Vercel, Netlify, Cloudflare Pages or S3 + CDN, or run `admin/Dockerfile` (nginx,
+build args for `VITE_*`). `admin/vercel.json` sets SPA
 rewrites and security headers. Add the dashboard origin to the API's `CORS_ORIGINS` and to
 Firebase Auth's authorised domains.
 
 ## Games
 
 `npm run build -w games` produces `games/dist` with `golden-wheel/`, `fortune-ferris/` and
-`teen-patti/`. Host it on a CDN and set each game's URL in **Admin → Games**. The app opens it in
+`teen-patti/`. Host it on a CDN (or run `games/Dockerfile`) and set each game's URL in **Admin → Games**. The app opens it in
 a WebView and passes the token in the URL fragment.
 
 ## Mobile apps

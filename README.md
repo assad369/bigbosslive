@@ -52,6 +52,7 @@ Docker build of the API and `npm audit`.
 
 - [Architecture](docs/ARCHITECTURE.md): components, data flow, invariants, realtime, jobs
 - [Deployment](docs/DEPLOYMENT.md): production setup, configuration, scaling, operations
+- [Coolify on a Hostinger VPS](docs/COOLIFY.md): step-by-step self-hosted deployment
 - [Design system](docs/DESIGN_SYSTEM.md): the Champagne palette, typography and usage rules
 - [Games & fairness](docs/GAMES.md): round engine, provably-fair RNG, RTP
 - [API reference](docs/openapi.yaml): served at `/docs` on non-production servers

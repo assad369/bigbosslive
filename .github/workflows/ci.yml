@@ -39,20 +39,23 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
 
   docker:
-    name: Backend image
+    name: ${{ matrix.image }} image
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      matrix:
+        image: [backend, admin, games]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: backend/Dockerfile
+          file: ${{ matrix.image }}/Dockerfile
           push: false
-          tags: bigboss-backend:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: bigboss-${{ matrix.image }}:ci
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   flutter:
     name: Flutter app

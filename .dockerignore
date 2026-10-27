@@ -1,0 +1,18 @@
+# Build context is the repository root for every image (backend, admin, games).
+.git
+.github
+.idea
+.vscode
+app
+docs
+infra
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/.env.*
+!**/.env.example
+backend/test
+*.rdb
+**/*.log
+**/.DS_Store
