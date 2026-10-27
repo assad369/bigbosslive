@@ -1,6 +1,7 @@
 import 'package:bigboss_live/core/theme/bb_colors.dart';
 import 'package:bigboss_live/core/widgets/widgets.dart';
 import 'package:bigboss_live/core/utils/json.dart';
+import 'package:bigboss_live/features/live/live_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -94,5 +95,26 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Nothing'), findsOneWidget);
+  });
+
+  testWidgets('LiveElapsed ticks every second', (tester) async {
+    final since = DateTime.now().subtract(const Duration(seconds: 5));
+    await tester.pumpWidget(_wrap(LiveElapsed(since: since)));
+    expect(find.text('00:05'), findsOneWidget);
+    // The display reads a real stopwatch; fake time only fires the tick.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1100)),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('00:06'), findsOneWidget);
+  });
+
+  testWidgets('LiveElapsed corrects for the server clock', (tester) async {
+    // A phone 10 minutes behind the server would otherwise show 00:00.
+    final since = DateTime.now().add(const Duration(minutes: 9));
+    await tester.pumpWidget(
+      _wrap(LiveElapsed(since: since, offset: const Duration(minutes: 10))),
+    );
+    expect(find.text('01:00'), findsOneWidget);
   });
 }

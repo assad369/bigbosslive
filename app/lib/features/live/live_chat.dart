@@ -104,6 +104,12 @@ class _LiveChatListState extends State<LiveChatList> {
                 title: const Text('Copy'),
                 onTap: () => ctx.pop('copy'),
               ),
+            if (line.user?.shortId.isNotEmpty ?? false)
+              ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: const Text('Copy user ID'),
+                onTap: () => ctx.pop('copy_id'),
+              ),
             if (!mine) ...[
               ListTile(
                 leading: const Icon(Icons.flag_outlined),
@@ -139,6 +145,9 @@ class _LiveChatListState extends State<LiveChatList> {
       case 'copy':
         await Clipboard.setData(ClipboardData(text: line.text));
         if (mounted) showMessage(context, 'Copied');
+      case 'copy_id':
+        await Clipboard.setData(ClipboardData(text: line.user!.shortId));
+        if (mounted) showMessage(context, 'User ID copied');
       case 'report':
         await ReportSheet.show(
           context,
@@ -261,6 +270,18 @@ class ChatBubble extends StatelessWidget {
               ),
             ),
           ),
+          // On the name line so a message is no taller for it.
+          if (user != null && user.shortId.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            Text(
+              'ID ${user.shortId}',
+              style: const TextStyle(
+                color: BBColors.champagne,
+                fontSize: 10,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -299,8 +320,9 @@ class ChatBubble extends StatelessWidget {
             child: BBAvatar(
               url: user?.avatarUrl,
               name: user?.displayName ?? '',
-              size: 26,
+              size: 30,
               vip: (user?.vipTier ?? 0) > 0,
+              frameUrl: user?.frameUrl,
             ),
           ),
           const SizedBox(width: 6),

@@ -280,6 +280,7 @@ class RoomDetail {
     this.moderators = const [],
     required this.seats,
     this.backgroundUrl,
+    this.clockOffset = Duration.zero,
   });
   final LiveRoom room;
   final String livekitRoom;
@@ -289,6 +290,9 @@ class RoomDetail {
   final List<UserBrief> moderators;
   final List<Seat> seats;
   final String? backgroundUrl;
+
+  /// Server − device clock, so the elapsed time is right on a phone whose clock is off.
+  final Duration clockOffset;
 
   RoomDetail copyWith({
     LiveRoom? room,
@@ -303,16 +307,23 @@ class RoomDetail {
     moderators: moderators ?? this.moderators,
     seats: seats ?? this.seats,
     backgroundUrl: backgroundUrl == null ? this.backgroundUrl : backgroundUrl(),
+    clockOffset: clockOffset,
   );
 
-  factory RoomDetail.fromJson(Json j) => RoomDetail(
-    room: LiveRoom.fromJson(j),
-    livekitRoom: j.str('livekitRoom'),
-    moderatorIds: j.strings('moderatorIds'),
-    moderators: j.list('moderators', UserBrief.fromJson),
-    seats: j.list('seats', Seat.fromJson),
-    backgroundUrl: j.strOrNull('backgroundUrl'),
-  );
+  factory RoomDetail.fromJson(Json j) {
+    final serverTime = j.date('serverTime');
+    return RoomDetail(
+      room: LiveRoom.fromJson(j),
+      livekitRoom: j.str('livekitRoom'),
+      moderatorIds: j.strings('moderatorIds'),
+      moderators: j.list('moderators', UserBrief.fromJson),
+      seats: j.list('seats', Seat.fromJson),
+      backgroundUrl: j.strOrNull('backgroundUrl'),
+      clockOffset: serverTime == null
+          ? Duration.zero
+          : serverTime.difference(DateTime.now()),
+    );
+  }
 }
 
 /// A viewer asking for a seat, as listed to the host and room admins.

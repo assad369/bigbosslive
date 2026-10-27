@@ -11,7 +11,8 @@ import '../../models/models.dart';
 import '../profile/profile_screens.dart';
 import 'live_room_controller.dart';
 
-/// Host pill (with follow), top viewers, viewer count and close.
+/// Host pill (with follow) on the left; top viewers, viewer count and close in the
+/// right-hand corner.
 class LiveTopBar extends ConsumerWidget {
   const LiveTopBar({
     super.key,
@@ -29,115 +30,230 @@ class LiveTopBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final host = c.detail!.room.host;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 6, 4, 0),
-      child: Row(
-        children: [
-          Flexible(
-            child: GestureDetector(
-              onTap: () => onTapUser(host),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      child: LayoutBuilder(
+        builder: (context, box) => Row(
+          children: [
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: GestureDetector(
+                  onTap: () => onTapUser(host),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(3, 3, 6, 3),
+                    decoration: BoxDecoration(
+                      color: BBColors.scrim,
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        BBAvatar(
+                          url: host.avatarUrl,
+                          name: host.displayName,
+                          size: 34,
+                          vip: host.vipTier > 0,
+                          frameUrl: host.frameUrl,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                host.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: BBColors.ivory,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              Text(
+                                'ID ${host.shortId}',
+                                style: const TextStyle(
+                                  color: BBColors.champagne,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (!c.isHost) ...[
+                          const SizedBox(width: 6),
+                          _FollowButton(uid: host.id),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // A share of the width, so a busy room never squeezes the host pill.
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: box.maxWidth * 0.3),
+              child: _TopViewers(
+                viewers: [
+                  for (final v in c.topViewers)
+                    if (v.id != host.id) v,
+                ],
+                onTapUser: onTapUser,
+              ),
+            ),
+            const SizedBox(width: 4),
+            InkWell(
+              onTap: onViewers,
+              borderRadius: BorderRadius.circular(16),
               child: Container(
-                padding: const EdgeInsets.fromLTRB(3, 3, 6, 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
                   color: BBColors.scrim,
-                  borderRadius: BorderRadius.circular(30),
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    BBAvatar(
-                      url: host.avatarUrl,
-                      name: host.displayName,
-                      size: 34,
-                      vip: host.vipTier > 0,
-                      frameUrl: host.frameUrl,
+                    const Icon(
+                      Icons.person_outline_rounded,
+                      size: 14,
+                      color: BBColors.champagne,
                     ),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            host.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: BBColors.ivory,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                          Text(
-                            'ID ${host.shortId}',
-                            style: const TextStyle(
-                              color: BBColors.champagne,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ],
+                    const SizedBox(width: 2),
+                    Text(
+                      Fmt.compact(c.viewerCount),
+                      style: const TextStyle(
+                        color: BBColors.ivory,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
                       ),
                     ),
-                    if (!c.isHost) ...[
-                      const SizedBox(width: 6),
-                      _FollowButton(uid: host.id),
-                    ],
                   ],
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          for (final v in c.topViewers)
-            Padding(
-              padding: const EdgeInsets.only(right: 2),
-              child: GestureDetector(
-                onTap: () => onTapUser(v),
-                child: BBAvatar(
-                  url: v.avatarUrl,
-                  name: v.displayName,
-                  size: 28,
-                  vip: v.vipTier > 0,
+            _CloseButton(
+              label: c.isHost ? 'End live' : 'Leave',
+              onTap: onClose,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The highest-ranked viewers (VIP tier, then level, as the server sorts them). Scrolls
+/// sideways when it is given less room than it needs.
+class _TopViewers extends StatelessWidget {
+  const _TopViewers({required this.viewers, required this.onTapUser});
+  final List<UserBrief> viewers;
+  final void Function(UserBrief user) onTapUser;
+
+  static const _size = 30.0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (viewers.isEmpty) return const SizedBox.shrink();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final v in viewers)
+            GestureDetector(
+              onTap: () => onTapUser(v),
+              child: Tooltip(
+                message: v.displayName,
+                // Room around the avatar for its frame and the VIP tag.
+                child: SizedBox(
+                  width: _size + 6,
+                  height: _size + 10,
+                  child: Stack(
+                    alignment: Alignment.topCenter,
+                    children: [
+                      Positioned(
+                        top: 4,
+                        child: BBAvatar(
+                          url: v.avatarUrl,
+                          name: v.displayName,
+                          size: _size,
+                          vip: v.vipTier > 0,
+                          frameUrl: v.frameUrl,
+                        ),
+                      ),
+                      if (v.vipTier > 0)
+                        Positioned(bottom: 0, child: _VipTag(v.vipTier)),
+                    ],
+                  ),
                 ),
               ),
             ),
-          const SizedBox(width: 2),
-          InkWell(
-            onTap: onViewers,
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              decoration: BoxDecoration(
-                color: BBColors.scrim,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.person_outline_rounded,
-                    size: 14,
-                    color: BBColors.champagne,
-                  ),
-                  const SizedBox(width: 2),
-                  Text(
-                    Fmt.compact(c.viewerCount),
-                    style: const TextStyle(
-                      color: BBColors.ivory,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Close',
-            onPressed: onClose,
-            icon: const Icon(Icons.close_rounded, color: BBColors.ivory),
-          ),
         ],
       ),
     );
   }
+}
+
+/// A compact VIP marker for small avatars; [VipBadge] is too wide here.
+class _VipTag extends StatelessWidget {
+  const _VipTag(this.tier);
+  final int tier;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 3),
+    decoration: BoxDecoration(
+      color: BBColors.ink,
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: BBColors.gold, width: 0.8),
+    ),
+    child: Text(
+      'VIP$tier',
+      style: const TextStyle(
+        color: BBColors.goldLight,
+        fontSize: 7,
+        fontWeight: FontWeight.w800,
+        height: 1.3,
+      ),
+    ),
+  );
+}
+
+/// Close in the top-right corner: a 30px disc with a full-size touch target.
+class _CloseButton extends StatelessWidget {
+  const _CloseButton({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: label,
+    child: InkResponse(
+      onTap: onTap,
+      radius: 22,
+      child: SizedBox(
+        width: 38,
+        height: 40,
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            width: 30,
+            height: 30,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: BBColors.scrim,
+            ),
+            child: const Icon(
+              Icons.close_rounded,
+              size: 18,
+              color: BBColors.ivory,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 /// Follow + for the host pill; hidden once following.
@@ -216,7 +332,13 @@ class LiveInfoRow extends StatelessWidget {
             ),
           ),
           if (room.startedAt != null)
-            chip(_Elapsed(since: room.startedAt!, style: label)),
+            chip(
+              LiveElapsed(
+                since: room.startedAt!,
+                offset: c.detail!.clockOffset,
+                style: label,
+              ),
+            ),
           if (room.locked)
             chip(
               Row(
@@ -259,29 +381,80 @@ class LiveInfoRow extends StatelessWidget {
   }
 }
 
-class _Elapsed extends StatefulWidget {
-  const _Elapsed({required this.since, required this.style});
+/// Time since [since] (a server instant), ticking on each whole second. It is anchored
+/// once and then counts on a monotonic stopwatch, so a device clock change mid-stream
+/// can't make it jump.
+class LiveElapsed extends StatefulWidget {
+  const LiveElapsed({
+    super.key,
+    required this.since,
+    this.offset = Duration.zero,
+    this.style,
+  });
   final DateTime since;
-  final TextStyle style;
+
+  /// Server − device clock (see [RoomDetail.clockOffset]).
+  final Duration offset;
+  final TextStyle? style;
+
   @override
-  State<_Elapsed> createState() => _ElapsedState();
+  State<LiveElapsed> createState() => _LiveElapsedState();
 }
 
-class _ElapsedState extends State<_Elapsed> {
-  late final Timer _t = Timer.periodic(
-    const Duration(seconds: 1),
-    (_) => setState(() {}),
-  );
+class _LiveElapsedState extends State<LiveElapsed> {
+  final _watch = Stopwatch();
+  Duration _base = Duration.zero;
+  Timer? _tick;
+
+  Duration get _elapsed => _base + _watch.elapsed;
+
+  @override
+  void initState() {
+    super.initState();
+    _anchor();
+  }
+
+  @override
+  void didUpdateWidget(LiveElapsed old) {
+    super.didUpdateWidget(old);
+    // Detail polls re-estimate the offset with fresh network jitter; only a real change
+    // (a new room, or a clock that moved) re-anchors.
+    if (old.since != widget.since ||
+        (old.offset - widget.offset).abs() > const Duration(seconds: 2)) {
+      _anchor();
+    }
+  }
+
+  void _anchor() {
+    _base = DateTime.now().add(widget.offset).difference(widget.since);
+    _watch
+      ..reset()
+      ..start();
+    _schedule();
+  }
+
+  /// One-shot timers aimed at the next second boundary don't drift the way a periodic
+  /// timer started mid-second would.
+  void _schedule() {
+    _tick?.cancel();
+    final ms = _elapsed.inMilliseconds;
+    _tick = Timer(Duration(milliseconds: 1000 - ms % 1000), () {
+      if (!mounted) return;
+      setState(() {});
+      _schedule();
+    });
+  }
+
   @override
   void dispose() {
-    _t.cancel();
+    _tick?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => Text(
-    Fmt.clock(DateTime.now().difference(widget.since).inSeconds),
-    style: widget.style.copyWith(
+    Fmt.clock(_elapsed.inSeconds),
+    style: (widget.style ?? const TextStyle()).copyWith(
       fontFeatures: const [FontFeature.tabularFigures()],
     ),
   );
@@ -356,7 +529,8 @@ class LiveRoundButton extends StatelessWidget {
   );
 }
 
-/// Right-hand column: PK (host), lock (host) and hearts (everyone).
+/// Right-hand column: PK (host), lock (host), flip camera (on stage, camera on) and hearts
+/// (everyone).
 class LiveSideRail extends ConsumerWidget {
   const LiveSideRail({
     super.key,
@@ -380,6 +554,7 @@ class LiveSideRail extends ConsumerWidget {
         pkEnabled &&
         c.pk == null &&
         c.pkOutgoing == null;
+    final canFlip = (c.isHost || c.onSeat) && c.isVideoRoom && c.cameraOn;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -400,6 +575,14 @@ class LiveSideRail extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
         ],
+        if (canFlip) ...[
+          LiveRoundButton(
+            icon: Icons.cameraswitch_rounded,
+            tooltip: 'Flip camera',
+            onTap: c.flipCamera,
+          ),
+          const SizedBox(height: 8),
+        ],
         LiveRoundButton(
           icon: Icons.favorite_rounded,
           tooltip: 'Send hearts',
@@ -410,7 +593,7 @@ class LiveSideRail extends ConsumerWidget {
   }
 }
 
-/// Chat entry plus the role-specific actions: media toggles on stage, stage request /
+/// Chat field plus the role-specific actions: media toggles on stage, stage request /
 /// leave for viewers and guests, the request inbox for the host and admins, and gifts.
 class LiveBottomBar extends StatelessWidget {
   const LiveBottomBar({
@@ -427,34 +610,31 @@ class LiveBottomBar extends StatelessWidget {
   final VoidCallback onRequests;
   final VoidCallback onStageAction;
 
-  @override
-  Widget build(BuildContext context) {
+  /// The chat field never gets narrower than this; a crowded bar shrinks its buttons.
+  static const _minField = 110.0;
+  static const _gap = 8.0;
+
+  List<Widget> _buttons(double size) {
     final staged = c.isHost || c.onSeat;
-    final compactChat = staged;
-    final buttons = <Widget>[
+    return [
       if (staged) ...[
         LiveRoundButton(
           icon: c.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
           tooltip: c.micOn ? 'Mute' : 'Unmute',
           danger: !c.micOn,
+          size: size,
           onTap: c.toggleMic,
         ),
-        if (c.isVideoRoom) ...[
+        if (c.isVideoRoom)
           LiveRoundButton(
             icon: c.cameraOn
                 ? Icons.videocam_rounded
                 : Icons.videocam_off_rounded,
             tooltip: c.cameraOn ? 'Camera off' : 'Camera on',
             danger: !c.cameraOn,
+            size: size,
             onTap: c.toggleCamera,
           ),
-          if (c.cameraOn)
-            LiveRoundButton(
-              icon: Icons.cameraswitch_rounded,
-              tooltip: 'Flip camera',
-              onTap: c.flipCamera,
-            ),
-        ],
       ],
       if (!c.isHost)
         LiveRoundButton(
@@ -469,6 +649,7 @@ class LiveBottomBar extends StatelessWidget {
                     ? 'Cancel request'
                     : 'Ask to join the stage'),
           danger: c.onSeat || c.seatRequestPending,
+          size: size,
           onTap: onStageAction,
         ),
       if (c.isModerator)
@@ -476,48 +657,78 @@ class LiveBottomBar extends StatelessWidget {
           icon: Icons.groups_rounded,
           tooltip: 'Stage requests',
           badge: c.seatRequests.length,
+          size: size,
           onTap: onRequests,
         ),
       LiveRoundButton(
         icon: Icons.card_giftcard_rounded,
         tooltip: 'Send a gift',
         gold: true,
+        size: size,
         onTap: onGift,
       ),
     ];
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
-      child: Row(
-        children: [
-          if (compactChat)
-            LiveRoundButton(
-              icon: Icons.chat_bubble_outline_rounded,
-              tooltip: 'Chat',
-              onTap: onCompose,
-            )
-          else
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+    child: LayoutBuilder(
+      builder: (context, box) {
+        final count = _buttons(40).length;
+        final size = box.maxWidth - count * (40 + _gap) >= _minField
+            ? 40.0
+            : 34.0;
+        return Row(
+          children: [
+            Expanded(child: _ChatField(onTap: onCompose)),
+            for (final b in _buttons(size)) ...[const SizedBox(width: _gap), b],
+          ],
+        );
+      },
+    ),
+  );
+}
+
+/// Looks like the composer's text field; tapping opens it with the keyboard up.
+class _ChatField extends StatelessWidget {
+  const _ChatField({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: 'Write a message',
+    excludeSemantics: true,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: BBColors.scrim,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Row(
+          children: [
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 16,
+              color: BBColors.inkSubtle,
+            ),
+            SizedBox(width: 6),
             Expanded(
-              child: GestureDetector(
-                onTap: onCompose,
-                child: Container(
-                  height: 40,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  alignment: Alignment.centerLeft,
-                  decoration: BoxDecoration(
-                    color: BBColors.scrim,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    'Say something…',
-                    style: TextStyle(color: BBColors.inkSubtle),
-                  ),
-                ),
+              child: Text(
+                'Say something…',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: BBColors.inkSubtle),
               ),
             ),
-          if (compactChat) const Spacer(),
-          for (final b in buttons) ...[const SizedBox(width: 8), b],
-        ],
+          ],
+        ),
       ),
-    );
-  }
+    ),
+  );
 }

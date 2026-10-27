@@ -172,6 +172,19 @@ void main() {
       });
       expect(d.moderators.single.displayName, 'Mod');
       expect(d.seats.single.videoMuted, isTrue);
+      expect(d.clockOffset, Duration.zero);
+    });
+
+    test('RoomDetail keeps the server clock offset through copyWith', () {
+      final serverNow = DateTime.now().toUtc().add(const Duration(minutes: 3));
+      final d = RoomDetail.fromJson({
+        'id': 'r1',
+        'host': {'id': 'h'},
+        'livekitRoom': 'lk',
+        'serverTime': serverNow.toIso8601String(),
+      });
+      expect(d.clockOffset.inMinutes, closeTo(3, 1));
+      expect(d.copyWith(seats: const []).clockOffset, d.clockOffset);
     });
 
     test('PkBattle parses rounds and corrects for server clock skew', () {

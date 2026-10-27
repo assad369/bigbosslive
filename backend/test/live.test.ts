@@ -67,6 +67,8 @@ describe('live rooms', () => {
     expect(res.status).toBe(200);
     expect(res.body.credentials.role).toBe('audience');
     expect(h.livekit.tokens.at(-1)).toMatchObject({ canPublish: false, identity: 'viewer' });
+    // Clients correct their clock with this for the elapsed-time display.
+    expect(res.body.room.serverTime).toBe(h.clock.now().toISOString());
   });
 
   it('lists live rooms with host briefs', async () => {
@@ -92,6 +94,10 @@ describe('live rooms', () => {
       .filter((p) => p.kind === 'viewers');
     expect(joins.map((p) => p.joined?.id ?? null)).toEqual(['viewer', null, 'mod']);
     expect(joins.at(-1)!.count).toBe(2);
+    // The host has its own pill, so the avatar strip lists viewers only.
+    const top = (joins.at(-1) as unknown as { top: { id: string }[] }).top.map((u) => u.id);
+    expect(top).toHaveLength(2);
+    expect(top).not.toContain('host');
     await webhook('participant_left', livekitRoom, 'mod');
     await webhook('participant_left', livekitRoom, 'mod');
     room = await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) });

@@ -34,6 +34,7 @@ export function toRoomDetail(
   r: LiveRoomDoc,
   host: UserBrief | undefined,
   users: Map<string, UserBrief>,
+  now: Date,
 ) {
   return {
     ...toLiveRoom(r, host),
@@ -50,5 +51,7 @@ export function toRoomDetail(
       locked: s.locked,
       user: s.userId ? (users.get(s.userId) ?? null) : null,
     })),
+    /** Lets clients correct their clock for the elapsed-time display. */
+    serverTime: now.toISOString(),
   };
 }

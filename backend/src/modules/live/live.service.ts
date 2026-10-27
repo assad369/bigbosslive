@@ -51,8 +51,8 @@ export type LiveRole = 'host' | 'moderator' | 'guest' | 'audience';
 export type SeatAction =
   'remove' | 'mute' | 'unmute' | 'camera_off' | 'camera_on' | 'lock' | 'unlock';
 
-/** Viewers shown as avatars in the room's top bar. */
-const TOP_VIEWERS = 3;
+/** Viewers shown as avatars in the room's top bar (the host has its own pill). */
+const TOP_VIEWERS = 4;
 
 /** Upload folder for in-room voice messages; a sent voice URL must point into the sender's. */
 export const VOICE_FOLDER = 'voice';
@@ -85,7 +85,7 @@ export class LiveService {
       ...room.moderatorIds,
       ...room.seats.map((s) => s.userId).filter((u): u is string => Boolean(u)),
     ]);
-    return toRoomDetail(room, briefs.get(room.hostId), briefs);
+    return toRoomDetail(room, briefs.get(room.hostId), briefs, this.ctx.clock.now());
   }
 
   roleOf(room: LiveRoomDoc, uid: string): LiveRole {

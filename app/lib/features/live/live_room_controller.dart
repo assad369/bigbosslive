@@ -129,6 +129,9 @@ class LiveRoomController extends ChangeNotifier {
   static const _maxChat = 120;
   static const _maxRecoveries = 5;
 
+  /// Avatars in the top bar; matches the server's `TOP_VIEWERS`.
+  static const _topViewers = 4;
+
   final room = Room(
     roomOptions: const RoomOptions(
       adaptiveStream: true,
@@ -291,7 +294,7 @@ class LiveRoomController extends ChangeNotifier {
         const Duration(seconds: 30),
         (_) => _refreshDetail(),
       );
-      await Future.wait([_loadPk(), _loadSeatRequests()]);
+      await Future.wait([_loadPk(), _loadSeatRequests(), _loadTopViewers()]);
     } on ApiException catch (e) {
       status = e.status == 410 ? LiveStatus.ended : LiveStatus.failed;
       error = e.message;
@@ -722,6 +725,16 @@ class LiveRoomController extends ChangeNotifier {
       seatRequests
         ..clear()
         ..addAll(rows);
+      _notify();
+    } catch (_) {}
+  }
+
+  /// Fills the avatar strip on entry; `viewers` events keep it current after that.
+  Future<void> _loadTopViewers() async {
+    try {
+      final rows = await _repo.viewers(roomId);
+      if (topViewers.isNotEmpty) return;
+      topViewers = rows.take(_topViewers).toList();
       _notify();
     } catch (_) {}
   }
