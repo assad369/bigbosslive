@@ -65,6 +65,7 @@ export function createApp(ctx: Ctx): Express {
         'X-Platform',
         'X-App-Build',
         'X-Request-Id',
+        'X-Admin-Passcode',
       ],
       maxAge: 600,
     }),

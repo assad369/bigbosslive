@@ -34,6 +34,16 @@ describe('storage settings', () => {
     expect(fin.status).toBe(403);
   });
 
+  it('allows the passcode header in CORS preflight', async () => {
+    const res = await h.api.options('/v1/admin/storage').set({
+      Origin: 'https://admin.example.com',
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'authorization,x-admin-passcode',
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-headers']).toMatch(/X-Admin-Passcode/i);
+  });
+
   it('falls back to env until settings are saved', async () => {
     const res = await h.api.get('/v1/admin/storage').set({ ...h.as('boss', 'admin'), ...PASSCODE });
     expect(res.status).toBe(200);
