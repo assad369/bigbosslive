@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  HeadBucketCommand,
+  PutBucketCorsCommand,
+  PutObjectCommand,
+  S3Client,
+  type CORSRule,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Env } from '../config/env.js';
 import { serviceUnavailable } from '../lib/errors.js';
@@ -29,6 +35,21 @@ export interface StorageGateway {
   isOwnUpload(url: string, folder: string, ownerId: string): Promise<boolean>;
   /** Throws when the bucket is unreachable with the current credentials. */
   verify(): Promise<void>;
+  /** Replaces the bucket's CORS config with `bucketCorsRules(origins)`. */
+  applyCors(origins: string[]): Promise<void>;
+}
+
+/** Browsers PUT straight to the bucket, so their origins must pass its CORS rule. */
+export function bucketCorsRules(origins: string[]): CORSRule[] {
+  return [
+    {
+      AllowedOrigins: origins,
+      AllowedMethods: ['PUT', 'GET'],
+      AllowedHeaders: ['Content-Type', 'Cache-Control'],
+      ExposeHeaders: ['ETag'],
+      MaxAgeSeconds: 3600,
+    },
+  ];
 }
 
 /** Resolved bucket settings: from the admin dashboard (`app_config.storage`) or env `S3_*`. */
@@ -94,6 +115,10 @@ export function createS3Storage(settings: () => Promise<S3Settings | null>): Sto
           region: cfg.region,
           ...(cfg.endpoint ? { endpoint: cfg.endpoint } : {}),
           credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
+          // Otherwise the SDK signs the CRC32 of the empty presign-time body into the URL
+          // (`x-amz-checksum-crc32=AAAAAA==`), and the bucket rejects the real bytes.
+          requestChecksumCalculation: 'WHEN_REQUIRED',
+          responseChecksumValidation: 'WHEN_REQUIRED',
         }),
       };
     }
@@ -136,6 +161,15 @@ export function createS3Storage(settings: () => Promise<S3Settings | null>): Sto
     async verify() {
       const { cfg, client } = await resolve();
       await client.send(new HeadBucketCommand({ Bucket: cfg.bucket }));
+    },
+    async applyCors(origins) {
+      const { cfg, client } = await resolve();
+      await client.send(
+        new PutBucketCorsCommand({
+          Bucket: cfg.bucket,
+          CORSConfiguration: { CORSRules: bucketCorsRules(origins) },
+        }),
+      );
     },
   };
 }

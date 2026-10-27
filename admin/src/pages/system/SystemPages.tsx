@@ -221,6 +221,12 @@ function StorageSettings() {
     onSuccess: () => message.success('Connected — the bucket is reachable'),
     onError,
   });
+  const cors = useMutation({
+    mutationFn: () =>
+      send<{ origins: string[] }>('post', '/admin/storage/cors', undefined, headers),
+    onSuccess: ({ origins }) => message.success(`CORS rule applied for ${origins.join(', ')}`),
+    onError,
+  });
   const revert = () =>
     send<StorageSettingsView>('delete', '/admin/storage', undefined, headers).then((view) =>
       show(unlocked!.code, view),
@@ -320,6 +326,13 @@ function StorageSettings() {
           onClick={() => test.mutate()}
         >
           Test saved connection
+        </Button>
+        <Button
+          loading={cors.isPending}
+          disabled={view.source === 'none'}
+          onClick={() => cors.mutate()}
+        >
+          Apply CORS rule
         </Button>
         {view.source === 'database' && (
           <ActionButton

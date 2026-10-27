@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, type Harness } from './helpers/harness.js';
+import { bucketCorsRules } from '../src/infra/storage.js';
+import { createHarness, fakeStorage, type Harness } from './helpers/harness.js';
 
 let h: Harness;
 beforeAll(async () => {
@@ -7,6 +8,7 @@ beforeAll(async () => {
   await h.user('boss', { adminRole: 'admin' });
   await h.user('fin', { adminRole: 'finance' });
   await h.user('guesser', { adminRole: 'admin' });
+  await h.user('ops', { adminRole: 'admin' });
 });
 afterAll(async () => h.close());
 
@@ -105,6 +107,41 @@ describe('storage settings', () => {
       .set(as)
       .send({ ...settings, accountId: 'nope' });
     expect(res.status).toBe(400);
+  });
+
+  it('applies the bucket CORS rule for the configured origins', async () => {
+    // Its own admin: the rejected calls below count toward the passcode lockout.
+    const path = '/v1/admin/storage/cors';
+    expect((await h.api.post(path).set(h.as('ops', 'admin'))).status).toBe(403);
+    expect((await h.api.post(path).set({ ...h.as('fin', 'finance'), ...PASSCODE })).status).toBe(
+      403,
+    );
+
+    const as = { ...h.as('ops', 'admin'), ...PASSCODE };
+    const original = h.ctx.env.CORS_ORIGINS;
+    try {
+      h.ctx.env.CORS_ORIGINS = [];
+      expect((await h.api.post(path).set(as)).status).toBe(400);
+
+      h.ctx.env.CORS_ORIGINS = ['https://admin.example.com'];
+      const res = await h.api.post(path).set(as);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ ok: true, origins: ['https://admin.example.com'] });
+      expect(fakeStorage.corsOrigins).toEqual(['https://admin.example.com']);
+      expect(await h.ctx.col.auditLogs.findOne({ action: 'storage.cors' })).toBeTruthy();
+    } finally {
+      h.ctx.env.CORS_ORIGINS = original;
+    }
+  });
+
+  it('builds a CORS rule that admits the signed upload headers', () => {
+    expect(bucketCorsRules(['https://a.example'])).toEqual([
+      expect.objectContaining({
+        AllowedOrigins: ['https://a.example'],
+        AllowedMethods: ['PUT', 'GET'],
+        AllowedHeaders: ['Content-Type', 'Cache-Control'],
+      }),
+    ]);
   });
 
   it('tests the connection and reverts to env', async () => {

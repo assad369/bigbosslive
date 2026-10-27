@@ -104,8 +104,13 @@ header must be allowed:
 ]
 ```
 
+*Settings → Storage (R2) → Apply CORS rule* writes exactly this rule for the origins in the API's
+`CORS_ORIGINS`. That needs an R2 token with *Admin Read & Write*; with an object-only token, paste
+the JSON under R2 → bucket → *Settings → CORS policy* instead.
+
 The mobile app is not a browser and needs no CORS entry. If an admin upload fails with *Could not
-reach file storage*, this rule is the first thing to check.
+reach file storage* (the browser's `OPTIONS` preflight gets a 403 from R2), this rule is the first
+thing to check.
 
 ## 4. Coolify project and Git source
 

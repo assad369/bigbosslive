@@ -100,7 +100,8 @@ export async function uploadAsset(
     if (isCancel(err)) throw err;
     if (isAxiosError(err) && !err.response)
       throw new UploadError(
-        'Could not reach file storage. Check the bucket CORS rule allows PUT from this dashboard.',
+        'Could not reach file storage. The bucket CORS rule must allow PUT from this dashboard: ' +
+          'use "Apply CORS rule" in Settings → Storage (R2).',
       );
     throw new UploadError(
       `File storage rejected the upload (${isAxiosError(err) ? err.response?.status : 'error'}).`,

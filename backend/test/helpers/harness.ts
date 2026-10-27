@@ -139,7 +139,10 @@ export class FakePush implements PushGateway {
   }
 }
 
-export const fakeStorage: StorageGateway & { last?: PresignUploadOptions } = {
+export const fakeStorage: StorageGateway & {
+  last?: PresignUploadOptions;
+  corsOrigins?: string[];
+} = {
   async presignUpload(opts) {
     fakeStorage.last = opts;
     const key = `${opts.folder}/${opts.ownerId}/${randomUUID()}.${opts.ext}`;
@@ -154,6 +157,9 @@ export const fakeStorage: StorageGateway & { last?: PresignUploadOptions } = {
   isOwnUpload: async (url, folder, ownerId) =>
     isOwnUploadUrl('https://cdn.test', url, folder, ownerId),
   verify: async () => undefined,
+  async applyCors(origins) {
+    fakeStorage.corsOrigins = origins;
+  },
 };
 
 export class FakeIap implements IapGateway {

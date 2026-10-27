@@ -906,6 +906,26 @@ export function adminRoutes(ctx: Ctx): Router {
     res.json({ ok: true });
   });
 
+  // Admin uploads PUT straight from the browser, so the bucket must allow the dashboard origins.
+  r.post('/storage/cors', ...storageGuard, async (req, res) => {
+    const origins = ctx.env.CORS_ORIGINS;
+    if (!origins.length)
+      throw badRequest('Set CORS_ORIGINS on the API to the dashboard origin(s) first');
+    try {
+      await ctx.storage.applyCors(origins);
+    } catch (err) {
+      if (err instanceof AppError || !(err instanceof Error)) throw err;
+      if (err.name === 'AccessDenied')
+        throw badRequest(
+          'The R2 token may not edit CORS: give it Admin Read & Write, or paste the rule under ' +
+            'R2 → bucket → Settings → CORS policy',
+        );
+      throw badRequest(`CORS update failed: ${err.name}${err.message ? ` — ${err.message}` : ''}`);
+    }
+    await audit(req, 'storage.cors', 'config', 'storage', { origins });
+    res.json({ ok: true, origins });
+  });
+
   r.delete('/storage', ...storageGuard, async (req, res) => {
     await s.storageSettings.clear();
     await audit(req, 'storage.reset', 'config', 'storage');

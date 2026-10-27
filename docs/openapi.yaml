@@ -1780,6 +1780,19 @@ paths:
           [{ name: X-Admin-Passcode, in: header, required: true, schema: { type: string } }],
         responses: { '200': { description: OK }, '400': { description: Bucket unreachable } },
       }
+  /v1/admin/storage/cors:
+    post:
+      {
+        tags: [Admin],
+        summary: Write the bucket CORS rule for CORS_ORIGINS (config.manage + passcode),
+        parameters:
+          [{ name: X-Admin-Passcode, in: header, required: true, schema: { type: string } }],
+        responses:
+          {
+            '200': { description: OK },
+            '400': { description: CORS_ORIGINS empty, or the bucket refused the update },
+          },
+      }
   /v1/admin/audit:
     get:
       { tags: [Admin], summary: Audit log (audit.read), responses: { '200': { description: OK } } }

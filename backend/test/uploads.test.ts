@@ -120,6 +120,9 @@ describe('S3 presigning', () => {
     expect(signed).toEqual(
       expect.arrayContaining(['cache-control', 'content-length', 'content-type', 'host']),
     );
+    // A presign-time checksum covers an empty body, so the bucket would reject the real upload.
+    const params = [...new URL(p.uploadUrl).searchParams.keys()].map((k) => k.toLowerCase());
+    expect(params.filter((k) => k.includes('checksum'))).toEqual([]);
     expect(p.publicUrl).toBe(`https://cdn.example.com/${p.key}`);
     expect(p.headers).toEqual({
       'Content-Type': 'image/png',
