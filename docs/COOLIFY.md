@@ -249,6 +249,7 @@ That exercises LiveKit tokens and the webhook end to end.
 | Symptom | Likely cause |
 |---|---|
 | Build fails with `sh: tsc: not found` | The image predates the fix that declares `typescript` in each workspace. Pull the latest `main` and redeploy. Also uncheck *Available at Buildtime* on the backend variables. |
+| Container exits with `unable to determine transport target for "pino-pretty"`, or the API accepts any CORS origin | `NODE_ENV` isn't `production` at runtime. Set `NODE_ENV=production` as a runtime-only variable. Don't use `development` to silence Coolify's build warning: the Dockerfiles already install dev dependencies. |
 | `Docker Compose file must contain a "services" section` | The Build Pack is set to *Docker Compose*. Switch it to **Dockerfile** (or recreate the app and pick Dockerfile). |
 | Deploy fails with `Invalid environment configuration` or `Missing required production configuration` | A required variable is missing or malformed. The log lists each one. |
 | Boot hangs ~30 s, then `MongoServerSelectionError` | The VPS IP isn't in Atlas *Network Access*, or the URI or password is wrong (URL-encode it). |
