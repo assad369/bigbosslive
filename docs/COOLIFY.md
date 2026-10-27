@@ -128,7 +128,10 @@ the new container to be healthy before it switches traffic (rolling update). Don
 here: a brief Atlas or Redis blip would mark the container unhealthy and take the API out of the
 proxy.
 
-**Environment variables** (runtime only; none of these need *Build Variable*):
+**Environment variables:** set every one to runtime only, with *Available at Buildtime*
+**unchecked**. The image doesn't read them during the build, and a build-time
+`NODE_ENV=production` is what Coolify warns about. The Dockerfiles install dev dependencies
+regardless (`npm ci --include=dev`).
 
 | Variable | Value |
 |---|---|
@@ -245,6 +248,8 @@ That exercises LiveKit tokens and the webhook end to end.
 
 | Symptom | Likely cause |
 |---|---|
+| Build fails with `sh: tsc: not found` | The image predates the fix that declares `typescript` in each workspace. Pull the latest `main` and redeploy. Also uncheck *Available at Buildtime* on the backend variables. |
+| `Docker Compose file must contain a "services" section` | The Build Pack is set to *Docker Compose*. Switch it to **Dockerfile** (or recreate the app and pick Dockerfile). |
 | Deploy fails with `Invalid environment configuration` or `Missing required production configuration` | A required variable is missing or malformed. The log lists each one. |
 | Boot hangs ~30 s, then `MongoServerSelectionError` | The VPS IP isn't in Atlas *Network Access*, or the URI or password is wrong (URL-encode it). |
 | `/readyz` shows `"redis": false` | `REDIS_URL` isn't the **internal** URL, or the password is wrong. |

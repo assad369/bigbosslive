@@ -8,7 +8,7 @@ WORKDIR /repo
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY games/package.json games/
-RUN npm ci --workspace games --workspace @bigboss/shared --include-workspace-root=false
+RUN npm ci --workspace games --workspace @bigboss/shared --include-workspace-root=false --include=dev
 COPY packages/shared packages/shared
 COPY games games
 ARG VITE_API_URL

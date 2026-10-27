@@ -8,7 +8,7 @@ WORKDIR /repo
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY admin/package.json admin/
-RUN npm ci --workspace admin --workspace @bigboss/shared --include-workspace-root=false
+RUN npm ci --workspace admin --workspace @bigboss/shared --include-workspace-root=false --include=dev
 COPY packages/shared packages/shared
 COPY admin admin
 ARG VITE_API_URL

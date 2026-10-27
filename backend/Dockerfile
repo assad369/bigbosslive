@@ -6,7 +6,7 @@ WORKDIR /repo
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY backend/package.json backend/
-RUN npm ci --workspace backend --workspace @bigboss/shared --include-workspace-root=false
+RUN npm ci --workspace backend --workspace @bigboss/shared --include-workspace-root=false --include=dev
 COPY packages/shared packages/shared
 COPY backend backend
 RUN npm run build -w @bigboss/shared && npm run build -w backend \
