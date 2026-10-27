@@ -3,6 +3,8 @@ import type { Filter } from 'mongodb';
 import { z } from 'zod';
 import {
   ADMIN_ROLES,
+  ADMIN_UPLOAD_KIND_NAMES,
+  ADMIN_UPLOAD_KINDS,
   CURRENCIES,
   GAME_KEYS,
   REPORT_STATUSES,
@@ -11,11 +13,20 @@ import {
   ROOM_TYPES,
   USER_STATUSES,
   WITHDRAWAL_STATUSES,
+  MEDIA_TYPES,
+  type AdminUploadKind,
+  type MediaType,
 } from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 import type { LiveRoomDoc, UserDoc } from '../db/schema.js';
 import { requireAuth } from '../middleware/auth.js';
-import { permissionsFor, requireAnyAdmin, requirePermission as can } from '../middleware/rbac.js';
+import {
+  hasPermission,
+  permissionsFor,
+  requireAnyAdmin,
+  requirePermission as can,
+  type Permission,
+} from '../middleware/rbac.js';
 import {
   currentUser,
   idempotencyKey,
@@ -23,11 +34,12 @@ import {
   pageQuery,
   parseBody,
   parseParams,
+  parsePatch,
   parseQuery,
   toObjectId,
   uidParam,
 } from '../lib/http.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import { badRequest, forbidden, notFound } from '../lib/errors.js';
 import { addDays } from '../lib/time.js';
 import { CONFIG_SCHEMAS, type ConfigKey } from '../modules/config/config.service.js';
 import { giftInput } from '../modules/gifts/gifts.service.js';
@@ -44,6 +56,27 @@ const idParams = z.object({ id: objectIdString });
 const gameParam = z.object({ key: z.enum(GAME_KEYS) });
 const dateRange = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() });
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Where each admin upload lands and who may make it: the permission that guards the
+ * entity the file belongs to, so uploading is never broader than saving.
+ */
+const ADMIN_UPLOAD_TARGETS: Record<AdminUploadKind, { folder: string; permission: Permission }> = {
+  'gift-icon': { folder: 'admin/gifts/icons', permission: 'catalog.manage' },
+  'gift-animation': { folder: 'admin/gifts/animations', permission: 'catalog.manage' },
+  'vip-badge': { folder: 'admin/vip/badges', permission: 'catalog.manage' },
+  'vip-frame': { folder: 'admin/vip/frames', permission: 'catalog.manage' },
+  'cosmetic-asset': { folder: 'admin/cosmetics/assets', permission: 'catalog.manage' },
+  'cosmetic-preview': { folder: 'admin/cosmetics/previews', permission: 'catalog.manage' },
+  'level-icon': { folder: 'admin/levels', permission: 'catalog.manage' },
+  'game-icon': { folder: 'admin/games', permission: 'games.manage' },
+  'agency-logo': { folder: 'admin/agencies', permission: 'agencies.manage' },
+  banner: { folder: 'admin/banners', permission: 'config.manage' },
+  announcement: { folder: 'admin/announcements', permission: 'notifications.send' },
+};
+
+/** Keys are random UUIDs, so an object never changes and the CDN may cache it forever. */
+const IMMUTABLE = 'public, max-age=31536000, immutable';
 
 /** Admin API for the dashboard. Every route is permission-gated; every write is audited. */
 export function adminRoutes(ctx: Ctx): Router {
@@ -68,6 +101,35 @@ export function adminRoutes(ctx: Ctx): Router {
       role: me.adminRole,
       permissions: permissionsFor(me.adminRole),
     });
+  });
+
+  /** Presigned direct-to-bucket upload for catalog/engagement media; the client PUTs bytes. */
+  r.post('/uploads/presign', async (req, res) => {
+    const { kind, contentType, size } = parseBody(
+      req,
+      z.object({
+        kind: z.enum(ADMIN_UPLOAD_KIND_NAMES),
+        contentType: z.string().trim().toLowerCase(),
+        size: z.number().int().positive(),
+      }),
+    );
+    const target = ADMIN_UPLOAD_TARGETS[kind];
+    if (!hasPermission(currentUser(req).adminRole, target.permission)) throw forbidden();
+    const spec = ADMIN_UPLOAD_KINDS[kind];
+    if (!(spec.types as readonly string[]).includes(contentType))
+      throw badRequest(`Unsupported file type for ${kind}`);
+    if (size > spec.maxBytes)
+      throw badRequest(`File is too large (max ${Math.round(spec.maxBytes / 1024 / 1024)} MB)`);
+    res.json(
+      await ctx.storage.presignUpload({
+        folder: target.folder,
+        ownerId: currentUser(req).uid,
+        contentType,
+        ext: MEDIA_TYPES[contentType as MediaType].ext,
+        contentLength: size,
+        cacheControl: IMMUTABLE,
+      }),
+    );
   });
 
   // ── Dashboard ────────────────────────────────────────────────────────────────
@@ -383,7 +445,7 @@ export function adminRoutes(ctx: Ctx): Router {
   });
 
   r.patch('/gifts/:id', can('catalog.manage'), async (req, res) => {
-    const patch = parseBody(req, giftInput.partial());
+    const patch = parsePatch(req, giftInput);
     const gift = await s.gifts.update(oid(req), patch);
     await audit(req, 'gift.update', 'gift', gift.id, patch);
     res.json({ gift });
@@ -508,12 +570,9 @@ export function adminRoutes(ctx: Ctx): Router {
   });
 
   r.patch('/agencies/:id', can('agencies.manage'), async (req, res) => {
-    const patch = parseBody(
+    const patch = parsePatch(
       req,
-      agencyInput
-        .omit({ ownerId: true })
-        .partial()
-        .extend({ status: z.enum(['active', 'suspended']).optional() }),
+      agencyInput.omit({ ownerId: true }).extend({ status: z.enum(['active', 'suspended']) }),
     );
     const agency = await s.agencies.update(oid(req), patch);
     await audit(req, 'agency.update', 'agency', String(agency._id), patch);

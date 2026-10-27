@@ -13,7 +13,11 @@ import type { UserDoc } from '../../src/db/schema.js';
 import type { AuthProvider, PushGateway, PushMessage } from '../../src/infra/firebase.js';
 import type { IapGateway } from '../../src/infra/iap.js';
 import type { LiveKitGateway, TokenRequest } from '../../src/infra/livekit.js';
-import type { StorageGateway } from '../../src/infra/storage.js';
+import {
+  uploadHeaders,
+  type PresignUploadOptions,
+  type StorageGateway,
+} from '../../src/infra/storage.js';
 import { InlineJobQueue } from '../../src/jobs/queue.js';
 import { jobHandlers } from '../../src/jobs/scheduler.js';
 import { createLogger } from '../../src/lib/logger.js';
@@ -121,15 +125,16 @@ export class FakePush implements PushGateway {
   }
 }
 
-export const fakeStorage: StorageGateway = {
-  async presignUpload({ folder, ownerId, contentType, ext }) {
-    const key = `${folder}/${ownerId}/${randomUUID()}.${ext}`;
+export const fakeStorage: StorageGateway & { last?: PresignUploadOptions } = {
+  async presignUpload(opts) {
+    fakeStorage.last = opts;
+    const key = `${opts.folder}/${opts.ownerId}/${randomUUID()}.${opts.ext}`;
     return {
       uploadUrl: `https://s3.test/${key}?sig=1`,
       publicUrl: `https://cdn.test/${key}`,
       key,
       expiresIn: 300,
-      headers: { 'Content-Type': contentType },
+      headers: uploadHeaders(opts),
     };
   },
 };

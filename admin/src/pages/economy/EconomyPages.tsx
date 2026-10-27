@@ -34,6 +34,7 @@ import {
 } from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
 import { FormModal } from '../../components/FormModal';
+import { MediaUpload } from '../../components/MediaUpload';
 import { useAuth } from '../../auth/useAuth';
 
 const rangeParams = (r: [Dayjs | null, Dayjs | null] | null) => ({
@@ -479,18 +480,21 @@ export function AgenciesPage() {
           { title: 'Created', dataIndex: 'createdAt', render: dateTime },
         ]}
       />
-      <FormModal<{ name: string; ownerId: string; commissionRate: number }>
+      <FormModal<{ name: string; ownerId: string; commissionRate: number; logoUrl: string | null }>
         open={open}
         title="Create agency"
         onClose={() => setOpen(false)}
-        initialValues={{ commissionRate: 0.05 }}
+        initialValues={{ commissionRate: 0.05, logoUrl: null }}
         invalidate={[['agencies']]}
-        submit={(v) => send('post', '/admin/agencies', { ...v, logoUrl: null })}
+        submit={(v) => send('post', '/admin/agencies', { ...v, logoUrl: v.logoUrl ?? null })}
       >
         {() => (
           <>
             <Form.Item name="name" label="Name" rules={[{ required: true, min: 2, max: 40 }]}>
               <Input />
+            </Form.Item>
+            <Form.Item name="logoUrl" label="Logo (optional)" rules={[{ type: 'url' }]}>
+              <MediaUpload kind="agency-logo" />
             </Form.Item>
             <Form.Item name="ownerId" label="Owner uid" rules={[{ required: true }]}>
               <Input />
@@ -645,18 +649,25 @@ export function AgencyDetailPage() {
           </Form.Item>
         )}
       </FormModal>
-      <FormModal<{ name: string; commissionRate: number }>
+      <FormModal<{ name: string; commissionRate: number; logoUrl: string | null }>
         open={editOpen}
         title="Edit agency"
         onClose={() => setEditOpen(false)}
-        initialValues={{ name: agency.name, commissionRate: agency.commissionRate }}
+        initialValues={{
+          name: agency.name,
+          commissionRate: agency.commissionRate,
+          logoUrl: agency.logoUrl,
+        }}
         invalidate={inv}
-        submit={(v) => send('patch', `/admin/agencies/${id}`, v)}
+        submit={(v) => send('patch', `/admin/agencies/${id}`, { ...v, logoUrl: v.logoUrl ?? null })}
       >
         {() => (
           <>
             <Form.Item name="name" label="Name" rules={[{ required: true }]}>
               <Input />
+            </Form.Item>
+            <Form.Item name="logoUrl" label="Logo" rules={[{ type: 'url' }]}>
+              <MediaUpload kind="agency-logo" />
             </Form.Item>
             <Form.Item name="commissionRate" label="Commission rate" rules={[{ required: true }]}>
               <InputNumber min={0} max={0.5} step={0.01} style={{ width: '100%' }} />

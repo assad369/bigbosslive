@@ -41,6 +41,7 @@ import {
   ToggleSwitch,
 } from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
+import { MediaUpload } from '../../components/MediaUpload';
 import { useAuth } from '../../auth/useAuth';
 import { brand } from '../../theme';
 
@@ -371,6 +372,13 @@ export function GamesPage() {
                           invalidate={[['games']]}
                         />
                       </Descriptions.Item>
+                      <Descriptions.Item label="Icon">
+                        <GameIconEditor
+                          game={open}
+                          disabled={!can('games.manage')}
+                          onSaved={() => void q.refetch()}
+                        />
+                      </Descriptions.Item>
                       <Descriptions.Item label="Hosted URL">
                         <Form
                           layout="inline"
@@ -468,5 +476,35 @@ export function GamesPage() {
         />
       )}
     </>
+  );
+}
+
+/** Game tile icon; saves as soon as a file is uploaded or removed. */
+function GameIconEditor({
+  game,
+  disabled,
+  onSaved,
+}: {
+  game: GameRow;
+  disabled: boolean;
+  onSaved: () => void;
+}) {
+  const { message } = App.useApp();
+  const save = useMutation({
+    mutationFn: (iconUrl: string | null) => send('patch', `/admin/games/${game._id}`, { iconUrl }),
+    onSuccess: () => {
+      message.success('Icon saved');
+      onSaved();
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
+  return (
+    <MediaUpload
+      compact
+      kind="game-icon"
+      value={save.isPending ? save.variables : game.iconUrl}
+      onChange={(url) => save.mutate(url)}
+      disabled={disabled || save.isPending}
+    />
   );
 }

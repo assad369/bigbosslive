@@ -9,11 +9,12 @@ import 'package:livekit_client/livekit_client.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
-import '../../core/utils/json.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../profile/profile_screens.dart';
+import 'active_live.dart';
 import 'gift_panel.dart';
+import 'live_dialogs.dart';
 import 'live_room_controller.dart';
 import 'pk_widgets.dart';
 
@@ -27,117 +28,61 @@ class LiveRoomScreen extends ConsumerStatefulWidget {
 }
 
 class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
-  late final LiveRoomController c;
+  late final ActiveLiveNotifier _active;
+
+  /// Null when the user is hosting another live and can't join this one.
+  late final LiveRoomController? _c;
+  LiveRoomController get c => _c!;
   final _chat = TextEditingController();
-  StreamSubscription<PkBattle>? _invites;
 
   @override
   void initState() {
     super.initState();
-    c = LiveRoomController(
-      roomId: widget.roomId,
-      myUid: ref.read(meProvider).id,
-      repo: ref.read(liveRepo),
-      hostSession: widget.hostSession,
-    );
+    _active = ref.read(activeLiveProvider.notifier);
+    _c = _active.attach(widget.roomId, hostSession: widget.hostSession);
+    if (_c == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        showMessage(context, 'End your live before watching another');
+        context.pop();
+      });
+      return;
+    }
     c.addListener(_onChange);
-    _invites = c.pkInvites.listen(_onPkInvite);
-    unawaited(c.start());
   }
 
   void _onChange() {
     if (!mounted) return;
     setState(() {});
-    if (c.status == LiveStatus.kicked) {
+    if (c.status == LiveStatus.kicked &&
+        (ModalRoute.of(context)?.isCurrent ?? false)) {
       showMessage(context, 'You were removed from this live');
       context.pop();
     }
   }
 
-  Future<void> _onPkInvite(PkBattle battle) async {
-    final from = battle.hosts.first;
-    final accept = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('PK challenge!'),
-        content: Text(
-          '${from.displayName} challenges you to a ${battle.durationSec ~/ 60}-minute PK.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => ctx.pop(false),
-            child: const Text('Decline'),
-          ),
-          FilledButton(
-            onPressed: () => ctx.pop(true),
-            child: const Text('Accept'),
-          ),
-        ],
-      ),
-    );
-    try {
-      await ref.read(liveRepo).pkRespond(battle.id, accept ?? false);
-    } catch (e) {
-      if (mounted) showError(context, e);
-    }
-  }
-
   @override
   void dispose() {
-    _invites?.cancel();
-    c.removeListener(_onChange);
-    c.dispose();
+    if (_c != null) {
+      c.removeListener(_onChange);
+      _active.detach(c);
+    }
     _chat.dispose();
     super.dispose();
   }
 
+  /// Leaving for good (the X), unlike back, which minimizes. Hosts confirm and end.
   Future<void> _leave() async {
-    if (c.isHost) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('End your live?'),
-          actions: [
-            TextButton(
-              onPressed: () => ctx.pop(false),
-              child: const Text('Keep going'),
-            ),
-            FilledButton(
-              onPressed: () => ctx.pop(true),
-              child: const Text('End live'),
-            ),
-          ],
-        ),
-      );
-      if (ok != true) return;
-      final summary = await c.end();
+    if (c.isHost && c.status != LiveStatus.ended) {
+      if (!await confirmEndLive(context)) return;
+      final summary = await _active.endHosting();
       if (!mounted) return;
-      await _showSummary(summary);
+      await showLiveSummary(context, summary);
+    } else {
+      _active.close();
     }
     if (mounted) context.pop();
   }
-
-  Future<void> _showSummary(Json? s) => showDialog<void>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Live ended'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _SummaryRow('Duration', Fmt.duration(s?.integer('durationSec') ?? 0)),
-          _SummaryRow('Peak viewers', Fmt.full(s?.integer('peakViewers') ?? 0)),
-          _SummaryRow('Gifts', Fmt.full(s?.integer('giftCount') ?? 0)),
-          _SummaryRow(
-            'Beans earned',
-            '🫘 ${Fmt.full(s?.integer('giftBeans') ?? 0)}',
-          ),
-        ],
-      ),
-      actions: [
-        FilledButton(onPressed: () => ctx.pop(), child: const Text('Done')),
-      ],
-    ),
-  );
 
   void _openGifts() {
     final d = c.detail;
@@ -309,11 +254,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_c == null) {
+      return const Scaffold(backgroundColor: BBColors.espresso);
+    }
     final d = c.detail;
+    // Back (button, gesture, predictive back) keeps the live going in the mini-player.
     return PopScope(
-      canPop: !c.isHost || c.status != LiveStatus.live,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) unawaited(_leave());
+        if (didPop) _active.minimizeOrClose(c);
       },
       child: Scaffold(
         backgroundColor: BBColors.espresso,
@@ -401,23 +349,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
       ),
     );
   }
-}
-
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow(this.label, this.value);
-  final String label;
-  final String value;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(
-      children: [
-        Text(label, style: const TextStyle(color: BBColors.inkMuted)),
-        const Spacer(),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
-      ],
-    ),
-  );
 }
 
 class _Ended extends StatelessWidget {

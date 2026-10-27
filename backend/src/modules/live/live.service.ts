@@ -16,7 +16,14 @@ import { toLiveRoom, toRoomDetail } from './live.presenter.js';
 
 export const startLiveInput = z.object({
   type: z.enum(ROOM_TYPES).default('video'),
-  title: z.string().trim().min(1).max(60),
+  /** Optional: an empty or missing title defaults to the host's display name. */
+  title: z
+    .string()
+    .trim()
+    .max(60)
+    .optional()
+    .transform((t) => t || undefined),
+  /** Optional: defaults to the host's avatar. */
   coverUrl: z.url().nullable().default(null),
   tags: z.array(z.string().trim().min(1).max(20)).max(5).default([]),
 });
@@ -106,8 +113,11 @@ export class LiveService {
     const existing = await this.ctx.col.liveRooms.findOne({ hostId, status: 'live' });
     if (existing) return this.resume(existing);
 
-    const title = await this.ctx.services.moderation.assertClean(input.title, 'title');
     const host = await this.ctx.services.users.get(hostId);
+    // Display names are moderated when set, so only a user-typed title needs checking here.
+    const title = input.title
+      ? await this.ctx.services.moderation.assertClean(input.title, 'title')
+      : host.displayName.slice(0, 60);
     const liveCfg = await this.ctx.services.config.get('live');
     const seatCount = input.type === 'audio' ? liveCfg.audioSeatCount : VIDEO_SEATS;
     const seats: SeatDoc[] = Array.from({ length: seatCount }, (_, index) => ({
@@ -123,7 +133,8 @@ export class LiveService {
       type: input.type,
       status: 'live',
       title,
-      coverUrl: input.coverUrl,
+      // Snapshot the avatar so lists stay stable if the host changes it mid-live.
+      coverUrl: input.coverUrl ?? host.avatarUrl ?? null,
       tags: input.tags,
       country: host.country,
       livekitRoom: `bb_${hostId}_${now.getTime()}`,

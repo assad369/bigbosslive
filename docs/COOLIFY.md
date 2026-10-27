@@ -5,15 +5,16 @@ managed by [Coolify](https://coolify.io) v4. MongoDB runs on **MongoDB Atlas** a
 **LiveKit Cloud**. Everything else in [DEPLOYMENT.md](DEPLOYMENT.md) still applies; this page covers
 only the Coolify-specific setup.
 
-Replace `example.com` with your domain throughout.
+The API is `bigbossapi.asadsoft.cloud` and the admin dashboard is `bigbosslive.asadsoft.cloud`.
+Replace the remaining `example.com` placeholders (games, Coolify panel) with your own domains.
 
 ## 1. What runs where
 
 | Component | Where | Coolify resource | Public URL | Container port |
 |---|---|---|---|---|
-| API (Express, Socket.IO, BullMQ workers) | VPS | Application, Dockerfile `backend/Dockerfile` | `https://api.example.com` | 3000 |
+| API (Express, Socket.IO, BullMQ workers) | VPS | Application, Dockerfile `backend/Dockerfile` | `https://bigbossapi.asadsoft.cloud` | 3000 |
 | Redis 7 | VPS | Database, Redis | none (internal only) | 6379 |
-| Admin dashboard | VPS | Application, Dockerfile `admin/Dockerfile` | `https://admin.example.com` | 80 |
+| Admin dashboard | VPS | Application, Dockerfile `admin/Dockerfile` | `https://bigbosslive.asadsoft.cloud` | 80 |
 | Mini-games | VPS | Application, Dockerfile `games/Dockerfile` | `https://games.example.com` | 80 |
 | MongoDB (replica set) | MongoDB Atlas | none | none | n/a |
 | LiveKit SFU | LiveKit Cloud | none | `wss://<project>.livekit.cloud` | n/a |
@@ -66,7 +67,7 @@ The API uses multi-document transactions, so it needs a replica set. Every Atlas
 ### LiveKit Cloud
 
 1. Create a project and an API key/secret (*Settings → Keys*).
-2. *Settings → Webhooks:* add `https://api.example.com/v1/webhooks/livekit`, signed with the
+2. *Settings → Webhooks:* add `https://bigbossapi.asadsoft.cloud/v1/webhooks/livekit`, signed with the
    **same API key** the backend uses. Viewer counts and room presence depend on this webhook.
 
 ### Firebase
@@ -76,14 +77,31 @@ The API uses multi-document transactions, so it needs a replica set. Every Atlas
    base64 -i service-account.json | tr -d '\n'
    ```
    The result goes into `FIREBASE_SERVICE_ACCOUNT_BASE64`. Don't commit the JSON.
-2. *Authentication → Settings → Authorised domains:* add `admin.example.com`.
+2. *Authentication → Settings → Authorised domains:* add `bigbosslive.asadsoft.cloud`.
 3. For Play purchases, give the same service account *View financial data* and *Manage orders*
    in Play Console.
 
 ### Object storage (R2 / S3)
 
 Create the bucket, a public CDN domain (`S3_PUBLIC_BASE_URL`), and a CORS rule that allows `PUT`
-and `GET` (uploads go straight from the apps by presigned URL).
+and `GET` (uploads go straight from the apps and the admin dashboard by presigned URL). The admin
+dashboard uploads from the browser, so its origin must be listed, and the signed `Cache-Control`
+header must be allowed:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://bigbosslive.asadsoft.cloud"],
+    "AllowedMethods": ["PUT", "GET"],
+    "AllowedHeaders": ["Content-Type", "Cache-Control"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+The mobile app is not a browser and needs no CORS entry. If an admin upload fails with *Could not
+reach file storage*, this rule is the first thing to check.
 
 ## 4. Coolify project and Git source
 
@@ -120,7 +138,7 @@ and `GET` (uploads go straight from the apps by presigned URL).
 | Dockerfile Location | `/backend/Dockerfile` |
 | Ports Exposes | `3000` |
 | Ports Mappings | *(leave empty: Traefik routes by domain, and a host port blocks rolling updates)* |
-| Domains | `https://api.example.com` |
+| Domains | `https://bigbossapi.asadsoft.cloud` |
 | Post-deployment Command | `node dist/cli/scripts/migrate.js` |
 
 **Health check** (*Health Checks* tab): enabled, path `/healthz`, port `3000`. Coolify waits for
@@ -139,8 +157,8 @@ regardless (`npm ci --include=dev`).
 | `PORT` | `3000` |
 | `LOG_LEVEL` | `info` |
 | `TRUST_PROXY` | `1` (Traefik). Use `2` if Cloudflare's orange-cloud proxy sits in front. |
-| `PUBLIC_BASE_URL` | `https://api.example.com` |
-| `CORS_ORIGINS` | `https://admin.example.com,https://games.example.com` |
+| `PUBLIC_BASE_URL` | `https://bigbossapi.asadsoft.cloud` |
+| `CORS_ORIGINS` | `https://bigbosslive.asadsoft.cloud,https://games.example.com` |
 | `MONGODB_URI` | Atlas SRV string from §3 |
 | `MONGODB_DB` | `bigbosslive` |
 | `REDIS_URL` | internal Redis URL from §5 |
@@ -172,7 +190,7 @@ Create two more applications from the same repository:
 | Base Directory | `/` | `/` |
 | Dockerfile Location | `/admin/Dockerfile` | `/games/Dockerfile` |
 | Ports Exposes | `80` | `80` |
-| Domains | `https://admin.example.com` | `https://games.example.com` |
+| Domains | `https://bigbosslive.asadsoft.cloud` | `https://games.example.com` |
 
 Vite bakes `VITE_*` values into the bundle **at build time**. Add them as environment variables
 with **Build Variable** (*Available at Buildtime*) checked. After changing one, **redeploy**:
@@ -180,7 +198,7 @@ a restart isn't enough.
 
 | Variable | Admin | Games |
 |---|---|---|
-| `VITE_API_URL` | `https://api.example.com` | `https://api.example.com` |
+| `VITE_API_URL` | `https://bigbossapi.asadsoft.cloud` | `https://bigbossapi.asadsoft.cloud` |
 | `VITE_FIREBASE_API_KEY` | Firebase web config | n/a |
 | `VITE_FIREBASE_AUTH_DOMAIN` | Firebase web config | n/a |
 | `VITE_FIREBASE_PROJECT_ID` | Firebase web config | n/a |
@@ -203,23 +221,23 @@ redeploy takes effect right away.
    The owner account must already exist in Firebase Auth (sign in once from the app or console).
    Never run `demo-data.js` in production.
 3. Deploy **admin** and **games**.
-4. Sign in at `https://admin.example.com`, then:
+4. Sign in at `https://bigbosslive.asadsoft.cloud`, then:
    - set *Settings* (economy, features, app links)
    - in *Games*, enable each game and set its URL: `https://games.example.com/golden-wheel/`,
      `https://games.example.com/fortune-ferris/`, `https://games.example.com/teen-patti/`
    - create recharge packages whose ids match your store product ids
 5. Build the mobile apps against the API:
-   `flutter build appbundle --dart-define=API_URL=https://api.example.com` (see
+   `flutter build appbundle --dart-define=API_URL=https://bigbossapi.asadsoft.cloud` (see
    [app/README.md](../app/README.md)).
 
 ## 9. Verify
 
 ```bash
-curl -s https://api.example.com/healthz        # {"status":"ok"}
-curl -s https://api.example.com/readyz         # {"mongo":true,"redis":true}
-curl -si https://api.example.com/metrics | head -1   # 404: blocked for proxied traffic
-curl -si "https://api.example.com/socket.io/?EIO=4&transport=polling" | head -1   # 200
-curl -sI https://admin.example.com/some/deep/link | grep -i x-frame-options   # DENY (SPA fallback)
+curl -s https://bigbossapi.asadsoft.cloud/healthz        # {"status":"ok"}
+curl -s https://bigbossapi.asadsoft.cloud/readyz         # {"mongo":true,"redis":true}
+curl -si https://bigbossapi.asadsoft.cloud/metrics | head -1   # 404: blocked for proxied traffic
+curl -si "https://bigbossapi.asadsoft.cloud/socket.io/?EIO=4&transport=polling" | head -1   # 200
+curl -sI https://bigbosslive.asadsoft.cloud/some/deep/link | grep -i x-frame-options   # DENY (SPA fallback)
 curl -sI https://games.example.com/golden-wheel/ | head -1                    # 200
 ```
 
@@ -258,7 +276,7 @@ That exercises LiveKit tokens and the webhook end to end.
 | 502 / *no available server* | *Ports Exposes* doesn't match the container (3000 for the API, 80 for admin and games), or the health check is failing. |
 | Admin calls `localhost:3000` | `VITE_API_URL` wasn't a build variable, or you restarted instead of redeploying. |
 | Browser CORS error from admin or games | The origin, with exact scheme and no trailing slash, is missing from `CORS_ORIGINS`. |
-| Firebase `auth/unauthorized-domain` on admin sign-in | Add `admin.example.com` to Firebase authorised domains. |
+| Firebase `auth/unauthorized-domain` on admin sign-in | Add `bigbosslive.asadsoft.cloud` to Firebase authorised domains. |
 | Rate limits hit everyone at once or client IPs look wrong | `TRUST_PROXY` doesn't match the number of proxies (1 for Traefik, 2 with the Cloudflare proxy). |
 | Viewer counts stay at 0 | The LiveKit webhook URL is wrong or signed with a different API key. |
 | Build killed (exit 137) | The VPS ran out of memory. Add swap (§2) or a larger plan. |

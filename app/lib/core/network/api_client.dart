@@ -155,23 +155,27 @@ class ApiClient {
       _send('DELETE', path, body: body);
 
   /// Upload a file straight to object storage with a presigned URL; returns its public URL.
+  /// The size is signed into the URL, so the server can cap it per kind.
   Future<String> upload({
     required String kind,
     required File file,
     required String contentType,
   }) async {
+    final size = await file.length();
     final presign = await post(
       '/uploads/presign',
-      body: {'kind': kind, 'contentType': contentType},
+      body: {'kind': kind, 'contentType': contentType, 'size': size},
     );
+    final signed = (presign['headers'] as Map?)?.cast<String, Object?>() ?? {};
     try {
       await Dio().put<void>(
         presign['uploadUrl'] as String,
         data: file.openRead(),
         options: Options(
           headers: {
+            ...signed,
             'Content-Type': contentType,
-            Headers.contentLengthHeader: await file.length(),
+            Headers.contentLengthHeader: size,
           },
         ),
       );

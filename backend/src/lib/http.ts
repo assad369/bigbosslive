@@ -17,6 +17,17 @@ function parseWith<S extends z.ZodType>(schema: S, value: unknown): z.output<S> 
 /** Validate `req.body`. Express 5 makes `req.query` read-only, so we parse rather than mutate. */
 export const parseBody = <S extends z.ZodType>(req: Request, schema: S) =>
   parseWith(schema, req.body);
+/**
+ * Validate a partial update. `schema.partial()` still applies field defaults, so a PATCH of
+ * `{ active }` would reset every defaulted field; keep only the keys the client sent.
+ */
+export function parsePatch<S extends z.ZodObject>(req: Request, schema: S): Partial<z.infer<S>> {
+  const parsed = parseWith(schema.partial(), req.body) as Record<string, unknown>;
+  const sent = new Set(Object.keys((req.body ?? {}) as object));
+  return Object.fromEntries(Object.entries(parsed).filter(([k]) => sent.has(k))) as Partial<
+    z.infer<S>
+  >;
+}
 export const parseQuery = <S extends z.ZodType>(req: Request, schema: S) =>
   parseWith(schema, req.query);
 export const parseParams = <S extends z.ZodType>(req: Request, schema: S) =>

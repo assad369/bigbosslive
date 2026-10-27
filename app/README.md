@@ -51,12 +51,14 @@ lib/
 ```bash
 flutter pub get
 flutter run \
-  --dart-define=API_URL=https://api.bigbosslive.app \
+  --dart-define=API_URL=https://bigbossapi.asadsoft.cloud \
   --dart-define=GOOGLE_SERVER_CLIENT_ID=<web-client-id>.apps.googleusercontent.com
 ```
 
-Local backend from the Android emulator: `--dart-define=API_URL=http://10.0.2.2:3000`
-(the default). Firebase Auth emulator: `--dart-define=AUTH_EMULATOR=10.0.2.2:9099`.
+Without `API_URL`, every build (debug, profile and release) uses
+`https://bigbossapi.asadsoft.cloud`. For a local backend from the Android emulator, pass
+`--dart-define=API_URL=http://10.0.2.2:3000`. Firebase Auth emulator:
+`--dart-define=AUTH_EMULATOR=10.0.2.2:9099`.
 
 ## Quality
 
@@ -69,8 +71,8 @@ flutter test
 ## Release
 
 ```bash
-flutter build appbundle --release --obfuscate --split-debug-info=build/symbols --dart-define=API_URL=…
-flutter build ipa --release --obfuscate --split-debug-info=build/symbols --dart-define=API_URL=…
+flutter build appbundle --release --obfuscate --split-debug-info=build/symbols --dart-define=API_URL=https://bigbossapi.asadsoft.cloud
+flutter build ipa --release --obfuscate --split-debug-info=build/symbols --dart-define=API_URL=https://bigbossapi.asadsoft.cloud
 ```
 
 Upload `build/symbols` to Crashlytics so obfuscated stack traces are readable.

@@ -5,12 +5,14 @@ import { requireAuth } from '../middleware/auth.js';
 import { currentUser, parseBody, parseQuery } from '../lib/http.js';
 import { badRequest } from '../lib/errors.js';
 
+const MB = 1024 * 1024;
+const IMAGES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 const UPLOAD_KINDS = {
-  avatar: { folder: 'avatars', types: ['image/jpeg', 'image/png', 'image/webp'] },
-  cover: { folder: 'covers', types: ['image/jpeg', 'image/png', 'image/webp'] },
-  post: { folder: 'posts', types: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4'] },
-  chat: { folder: 'chat', types: ['image/jpeg', 'image/png', 'image/webp'] },
-  report: { folder: 'reports', types: ['image/jpeg', 'image/png', 'image/webp'] },
+  avatar: { folder: 'avatars', types: IMAGES, maxBytes: 5 * MB },
+  cover: { folder: 'covers', types: IMAGES, maxBytes: 5 * MB },
+  post: { folder: 'posts', types: [...IMAGES, 'video/mp4'], maxBytes: 50 * MB },
+  chat: { folder: 'chat', types: IMAGES, maxBytes: 10 * MB },
+  report: { folder: 'reports', types: IMAGES, maxBytes: 10 * MB },
 } as const;
 
 const EXT: Record<string, string> = {
@@ -63,22 +65,27 @@ export function contentRoutes(ctx: Ctx): Router {
   });
 
   r.post('/uploads/presign', auth, async (req, res) => {
-    const { kind, contentType } = parseBody(
+    const { kind, contentType, size } = parseBody(
       req,
       z.object({
         kind: z.enum(Object.keys(UPLOAD_KINDS) as [keyof typeof UPLOAD_KINDS]),
         contentType: z.string(),
+        /** Optional for older app builds; when sent, the size is capped and signed. */
+        size: z.number().int().positive().optional(),
       }),
     );
     const spec = UPLOAD_KINDS[kind];
     if (!(spec.types as readonly string[]).includes(contentType))
       throw badRequest(`Unsupported content type for ${kind}`);
+    if (size !== undefined && size > spec.maxBytes)
+      throw badRequest(`File is too large (max ${spec.maxBytes / MB} MB)`);
     res.json(
       await ctx.storage.presignUpload({
         folder: spec.folder,
         ownerId: currentUser(req).uid,
         contentType,
         ext: EXT[contentType]!,
+        ...(size !== undefined ? { contentLength: size } : {}),
       }),
     );
   });

@@ -10,7 +10,7 @@ Deploying on a single VPS with Coolify? Follow [COOLIFY.md](COOLIFY.md).
 | Redis | Managed Redis 7 (rate limits, Socket.IO adapter, BullMQ). `noeviction` policy. |
 | LiveKit | LiveKit Cloud or a self-hosted cluster with TURN. Webhook → `https://api…/v1/webhooks/livekit`. |
 | Firebase | Auth providers (Google, Apple, Phone), service account for the API, FCM, Crashlytics. |
-| Storage | Cloudflare R2 / S3 bucket with a public CDN domain (`S3_PUBLIC_BASE_URL`). CORS must allow `PUT` from the apps. |
+| Storage | Cloudflare R2 / S3 bucket with a public CDN domain (`S3_PUBLIC_BASE_URL`). CORS must allow `PUT` (headers `Content-Type`, `Cache-Control`) from the admin dashboard's origin. |
 | Stores | Google Play service account access (financial data + orders). App Store Connect API key for the In-App Purchase API. |
 | TLS | Terminate at the load balancer or nginx (`infra/nginx.conf.example`). Forward WebSocket upgrades. |
 
@@ -67,8 +67,9 @@ games and set their hosted URLs. Create recharge packages that match your store 
 Static SPA (Vite). Build with `VITE_API_URL` and the `VITE_FIREBASE_*` web config, then deploy
 `admin/dist` to Vercel, Netlify, Cloudflare Pages or S3 + CDN, or run `admin/Dockerfile` (nginx,
 build args for `VITE_*`). `admin/vercel.json` sets SPA
-rewrites and security headers. Add the dashboard origin to the API's `CORS_ORIGINS` and to
-Firebase Auth's authorised domains.
+rewrites and security headers. Add the dashboard origin to the API's `CORS_ORIGINS`, to the
+bucket's CORS rule (media uploads go straight from the browser), and to Firebase Auth's
+authorised domains.
 
 ## Games
 

@@ -136,14 +136,16 @@ class LiveRepository {
     LiveRoom.fromJson,
   );
 
+  /// A null [title] or [coverUrl] lets the server default them to the host's
+  /// display name and avatar.
   Future<LiveSession> start({
-    required String title,
+    String? title,
     required String type,
     String? coverUrl,
   }) async => LiveSession.fromJson(
     await _api.post(
       '/live',
-      body: {'title': title, 'type': type, 'coverUrl': coverUrl},
+      body: {'title': ?title, 'type': type, 'coverUrl': coverUrl},
     ),
   );
 

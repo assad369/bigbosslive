@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,9 +12,14 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/widgets.dart';
+import 'active_live.dart';
 
 /// Pre-live: camera preview, title, cover, video/party choice. Asks for camera and
 /// microphone permission with an explanation first (store review requirement).
+///
+/// The title starts as the host's display name and the cover as their avatar; both
+/// can be changed. Untouched defaults are left to the server, which applies the same
+/// rule, so a profile edited elsewhere is never sent stale.
 class GoLiveScreen extends ConsumerStatefulWidget {
   const GoLiveScreen({super.key});
 
@@ -32,7 +38,33 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
   @override
   void initState() {
     super.initState();
+    _title.text = _defaultTitle;
+    // One session at a time: a minimized viewer room gives up the camera and mic, and a
+    // host who is already live is sent back to their room.
+    final active = ref.read(activeLiveProvider.notifier);
+    final current = active.current;
+    if (current != null && current.controller.isHost) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.pushReplacement('/live/${current.roomId}');
+      });
+      return;
+    }
+    active.close();
     unawaited(_initPreview());
+  }
+
+  String get _defaultTitle {
+    final name = ref.read(meProvider).brief.displayName.trim();
+    return name.length > 60 ? name.substring(0, 60) : name;
+  }
+
+  Future<void> _pickCover() async {
+    final x = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1080,
+      imageQuality: 85,
+    );
+    if (x != null && mounted) setState(() => _cover = File(x.path));
   }
 
   Future<void> _initPreview() async {
@@ -61,8 +93,9 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
   }
 
   Future<void> _start() async {
-    final title = _title.text.trim();
-    if (title.isEmpty) return showMessage(context, 'Give your live a title');
+    final typed = _title.text.trim();
+    // Sending no title lets the server use the display name.
+    final title = typed.isEmpty || typed == _defaultTitle ? null : typed;
     setState(() => _starting = true);
     try {
       String? coverUrl;
@@ -164,29 +197,11 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
                   ),
                   child: Row(
                     children: [
-                      GestureDetector(
-                        onTap: () async {
-                          final x = await ImagePicker().pickImage(
-                            source: ImageSource.gallery,
-                            maxWidth: 1080,
-                            imageQuality: 85,
-                          );
-                          if (x != null) setState(() => _cover = File(x.path));
-                        },
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            width: 72,
-                            height: 96,
-                            color: const Color(0x33F3E5C3),
-                            child: _cover != null
-                                ? Image.file(_cover!, fit: BoxFit.cover)
-                                : const Icon(
-                                    Icons.add_photo_alternate_outlined,
-                                    color: BBColors.champagne,
-                                  ),
-                          ),
-                        ),
+                      _CoverTile(
+                        file: _cover,
+                        avatarUrl: ref.watch(meProvider).brief.avatarUrl,
+                        onPick: _pickCover,
+                        onReset: () => setState(() => _cover = null),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -248,6 +263,89 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
           ),
         ),
       ],
+    ),
+  );
+}
+
+/// Cover picker. Shows the picked image, else the avatar used by default, else a
+/// placeholder. A picked image can be reset back to the default.
+class _CoverTile extends StatelessWidget {
+  const _CoverTile({
+    required this.file,
+    required this.avatarUrl,
+    required this.onPick,
+    required this.onReset,
+  });
+
+  final File? file;
+  final String? avatarUrl;
+  final VoidCallback onPick;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    const placeholder = Icon(
+      Icons.add_photo_alternate_outlined,
+      color: BBColors.champagne,
+    );
+    final image = file != null
+        ? Image.file(file!, fit: BoxFit.cover)
+        : avatarUrl != null
+        ? CachedNetworkImage(
+            imageUrl: avatarUrl!,
+            fit: BoxFit.cover,
+            errorWidget: (_, _, _) => placeholder,
+          )
+        : placeholder;
+    return Semantics(
+      button: true,
+      label: 'Change cover',
+      child: GestureDetector(
+        onTap: onPick,
+        child: SizedBox(
+          width: 72,
+          height: 96,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: ColoredBox(color: const Color(0x33F3E5C3), child: image),
+              ),
+              if (file != null || avatarUrl != null)
+                Positioned(
+                  right: 4,
+                  bottom: 4,
+                  child: _TileBadge(
+                    icon: file != null
+                        ? Icons.close_rounded
+                        : Icons.edit_rounded,
+                    onTap: file != null ? onReset : onPick,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TileBadge extends StatelessWidget {
+  const _TileBadge({required this.icon, required this.onTap});
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.all(4),
+      decoration: const BoxDecoration(
+        color: BBColors.scrim,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, size: 14, color: BBColors.ivory),
     ),
   );
 }

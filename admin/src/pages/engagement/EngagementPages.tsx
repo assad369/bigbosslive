@@ -22,6 +22,7 @@ import { dateTime, num } from '../../lib/format';
 import { ActionButton, PageHeader, StatusTag } from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
 import { FormModal } from '../../components/FormModal';
+import { MediaUpload } from '../../components/MediaUpload';
 
 // ── Announcements ──────────────────────────────────────────────────────────────────
 
@@ -82,7 +83,7 @@ export function AnnouncementsPage() {
           },
         ]}
       />
-      <FormModal<{ title: string; body: string; imageUrl?: string; audience: string }>
+      <FormModal<{ title: string; body: string; imageUrl?: string | null; audience: string }>
         open={open}
         title="New announcement"
         okText="Send"
@@ -99,8 +100,13 @@ export function AnnouncementsPage() {
             <Form.Item name="body" label="Message" rules={[{ required: true, max: 500 }]}>
               <Input.TextArea rows={4} showCount maxLength={500} />
             </Form.Item>
-            <Form.Item name="imageUrl" label="Image URL (optional)" rules={[{ type: 'url' }]}>
-              <Input />
+            <Form.Item
+              name="imageUrl"
+              label="Image (optional)"
+              rules={[{ type: 'url' }]}
+              extra="Shown in the push notification and inbox."
+            >
+              <MediaUpload kind="announcement" />
             </Form.Item>
             <Form.Item name="audience" label="Audience">
               <Select
@@ -249,8 +255,12 @@ export function BannersPage() {
             <Form.Item name="title" label="Title" rules={[{ required: true }]}>
               <Input />
             </Form.Item>
-            <Form.Item name="imageUrl" label="Image URL" rules={[{ required: true, type: 'url' }]}>
-              <Input />
+            <Form.Item
+              name="imageUrl"
+              label="Image"
+              rules={[{ required: true, message: 'Upload a banner image' }, { type: 'url' }]}
+            >
+              <MediaUpload kind="banner" />
             </Form.Item>
             <Form.Item name="linkUrl" label="Link (deep link or URL)">
               <Input placeholder="bigboss://live/… or https://…" />

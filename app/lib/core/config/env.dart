@@ -1,9 +1,10 @@
 /// Build-time configuration, passed with `--dart-define` (see app/README.md).
 abstract final class Env {
-  /// API origin, e.g. https://api.bigbosslive.app (no trailing slash).
+  /// API origin (no trailing slash). Every build mode uses production unless `API_URL`
+  /// overrides it, e.g. `--dart-define=API_URL=http://10.0.2.2:3000` for a local backend.
   static const apiUrl = String.fromEnvironment(
     'API_URL',
-    defaultValue: 'http://10.0.2.2:3000',
+    defaultValue: 'https://bigbossapi.asadsoft.cloud',
   );
 
   /// Google OAuth web client id (server client id) for Google Sign-In.

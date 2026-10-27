@@ -7,6 +7,8 @@ import 'core/providers.dart';
 import 'core/push/push_service.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/bb_theme.dart';
+import 'features/live/active_live.dart';
+import 'features/live/mini_live_player.dart';
 
 final pushProvider = Provider<PushService>(
   (ref) => PushService(ref.watch(accountRepo)),
@@ -59,6 +61,9 @@ class _BigBossAppState extends ConsumerState<BigBossApp> {
       theme: BBTheme.light(),
       themeMode: ThemeMode.light,
       routerConfig: ref.watch(routerProvider),
+      scaffoldMessengerKey: liveMessengerKey,
+      // Above the Navigator so a minimized live floats over every route.
+      builder: (context, child) => LiveOverlayHost(child: child!),
     );
   }
 }

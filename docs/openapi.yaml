@@ -22,7 +22,10 @@ info:
     `game:subscribe <key>` (ack returns the state), then receive `game:round`, `game:totals`, `game:settled`.
     In-room events arrive on the LiveKit data channel as `{ topic, payload, ts }` with `bb.*` topics.
 servers:
+  - url: https://bigbossapi.asadsoft.cloud
+    description: Production
   - url: http://localhost:3000
+    description: Local development
 security:
   - firebase: []
 tags:
@@ -502,12 +505,24 @@ paths:
                         {
                           kind: { type: string, enum: [avatar, cover, post, chat, report] },
                           contentType: { type: string },
+                          size:
+                            {
+                              type: integer,
+                              description: 'Optional byte size. When sent it is capped per kind and signed, so the PUT must match it.',
+                            },
                         },
                     },
                 },
             },
         }
-      responses: { '200': { description: '{ uploadUrl, publicUrl, key, expiresIn, headers }' } }
+      responses:
+        {
+          '200':
+            {
+              description: '{ uploadUrl, publicUrl, key, expiresIn, headers }. PUT the file to uploadUrl sending exactly `headers`.',
+            },
+          '400': { $ref: '#/components/responses/Error' },
+        }
   /v1/banners:
     get:
       {
@@ -562,12 +577,20 @@ paths:
                   schema:
                     {
                       type: object,
-                      required: [title],
                       properties:
                         {
-                          title: { type: string, maxLength: 60 },
+                          title:
+                            {
+                              type: string,
+                              maxLength: 60,
+                              description: "Optional. Empty or missing defaults to the host's display name.",
+                            },
                           type: { type: string, enum: [video, audio] },
-                          coverUrl: { type: [string, 'null'] },
+                          coverUrl:
+                            {
+                              type: [string, 'null'],
+                              description: "Optional. Null defaults to the host's avatar.",
+                            },
                           tags: { type: array, items: { type: string } },
                         },
                     },
@@ -1523,6 +1546,63 @@ paths:
         parameters: [{ $ref: '#/components/parameters/Id' }],
         responses: { '204': { $ref: '#/components/responses/NoContent' } },
       }
+  /v1/admin/uploads/presign:
+    post:
+      tags: [Admin]
+      summary: Presigned PUT URL for catalog and engagement media
+      description: >-
+        Each kind needs the permission of the entity it belongs to: catalog.manage (gift-icon,
+        gift-animation, vip-badge, vip-frame, cosmetic-asset, cosmetic-preview, level-icon),
+        games.manage (game-icon), agencies.manage (agency-logo), config.manage (banner),
+        notifications.send (announcement). Types and size limits are ADMIN_UPLOAD_KINDS in
+        packages/shared. SVGA uploads as application/octet-stream, Lottie as application/json.
+      requestBody:
+        {
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      type: object,
+                      required: [kind, contentType, size],
+                      properties:
+                        {
+                          kind:
+                            {
+                              type: string,
+                              enum:
+                                [
+                                  gift-icon,
+                                  gift-animation,
+                                  vip-badge,
+                                  vip-frame,
+                                  cosmetic-asset,
+                                  cosmetic-preview,
+                                  level-icon,
+                                  game-icon,
+                                  agency-logo,
+                                  banner,
+                                  announcement,
+                                ],
+                            },
+                          contentType: { type: string },
+                          size:
+                            { type: integer, description: Exact byte size; signed into the URL },
+                        },
+                    },
+                },
+            },
+        }
+      responses:
+        {
+          '200':
+            {
+              description: '{ uploadUrl, publicUrl, key, expiresIn, headers }. Objects are immutable (Cache-Control is signed).',
+            },
+          '400': { $ref: '#/components/responses/Error' },
+          '403': { $ref: '#/components/responses/Error' },
+        }
   /v1/admin/gifts:
     get:
       {

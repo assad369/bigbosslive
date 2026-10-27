@@ -197,3 +197,54 @@ describe('live rooms', () => {
     );
   });
 });
+
+describe('go-live defaults', () => {
+  // The clock is frozen; advance it so a host's next room gets a distinct LiveKit name.
+  const endLive = async (uid: string, id: string) => {
+    await h.api.post(`/v1/live/${id}/end`).set(h.as(uid)).expect(200);
+    h.clock.advance(1);
+  };
+
+  it("defaults the title to the host's name and the cover to their avatar", async () => {
+    await h.user('fresh', { displayName: 'Fresh Face' });
+    await h.ctx.col.users.updateOne(
+      { _id: 'fresh' },
+      { $set: { avatarUrl: 'https://cdn.test/avatars/fresh.jpg' } },
+    );
+    const res = await h.api.post('/v1/live').set(h.as('fresh')).send({ title: '  ' });
+    expect(res.status).toBe(201);
+    expect(res.body.room).toMatchObject({
+      title: 'Fresh Face',
+      coverUrl: 'https://cdn.test/avatars/fresh.jpg',
+    });
+    const stored = await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(res.body.room.id) });
+    expect(stored).toMatchObject({
+      title: 'Fresh Face',
+      coverUrl: 'https://cdn.test/avatars/fresh.jpg',
+    });
+    await endLive('fresh', res.body.room.id);
+  });
+
+  it('keeps an explicit title and cover', async () => {
+    const res = await h.api
+      .post('/v1/live')
+      .set(h.as('fresh'))
+      .send({ title: 'My show', coverUrl: 'https://cdn.test/covers/x.jpg' });
+    expect(res.body.room).toMatchObject({
+      title: 'My show',
+      coverUrl: 'https://cdn.test/covers/x.jpg',
+    });
+    await endLive('fresh', res.body.room.id);
+  });
+
+  it('leaves the cover empty when the host has no avatar', async () => {
+    await h.user('plain', { displayName: 'Plain Jane' });
+    const res = await h.api.post('/v1/live').set(h.as('plain')).send({});
+    expect(res.status).toBe(201);
+    expect(res.body.room).toMatchObject({ title: 'Plain Jane', coverUrl: null });
+    expect(
+      (await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(res.body.room.id) }))!.coverUrl,
+    ).toBeNull();
+    await endLive('plain', res.body.room.id);
+  });
+});

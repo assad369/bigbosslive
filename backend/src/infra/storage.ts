@@ -12,19 +12,34 @@ export interface PresignedUpload {
   headers: Record<string, string>;
 }
 
+export interface PresignUploadOptions {
+  folder: string;
+  ownerId: string;
+  contentType: string;
+  ext: string;
+  /** Exact byte size. When set it is signed, so the bucket rejects any other size. */
+  contentLength?: number;
+  /** Stored on the object and served by the CDN. Signed, so the client must send it. */
+  cacheControl?: string;
+}
+
 export interface StorageGateway {
-  presignUpload(opts: {
-    folder: string;
-    ownerId: string;
-    contentType: string;
-    ext: string;
-  }): Promise<PresignedUpload>;
+  presignUpload(opts: PresignUploadOptions): Promise<PresignedUpload>;
+}
+
+/** Headers the client must send with the PUT, exactly as signed. */
+export function uploadHeaders(o: PresignUploadOptions): Record<string, string> {
+  return {
+    'Content-Type': o.contentType,
+    ...(o.cacheControl ? { 'Cache-Control': o.cacheControl } : {}),
+  };
 }
 
 /**
  * Clients upload straight to R2/S3 with a short-lived presigned PUT; the API never proxies bytes.
  * Object keys are server-generated (`<folder>/<owner>/<uuid>.<ext>`), so a client cannot
- * overwrite someone else's object.
+ * overwrite someone else's object. Content type, length and cache control are signed headers:
+ * presigned POST policies would be the usual way to cap size, but R2 doesn't support them.
  */
 export function createS3Storage(env: Env): StorageGateway {
   const configured = env.S3_BUCKET && env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY;
@@ -40,14 +55,24 @@ export function createS3Storage(env: Env): StorageGateway {
     : null;
 
   return {
-    async presignUpload({ folder, ownerId, contentType, ext }) {
+    async presignUpload(opts) {
       if (!client || !env.S3_BUCKET) throw serviceUnavailable('Object storage is not configured');
+      const { folder, ownerId, contentType, ext, contentLength, cacheControl } = opts;
       const key = `${folder}/${ownerId}/${randomUUID()}.${ext}`;
       const expiresIn = 300;
       const uploadUrl = await getSignedUrl(
         client,
-        new PutObjectCommand({ Bucket: env.S3_BUCKET, Key: key, ContentType: contentType }),
-        { expiresIn },
+        new PutObjectCommand({
+          Bucket: env.S3_BUCKET,
+          Key: key,
+          ContentType: contentType,
+          ...(contentLength !== undefined ? { ContentLength: contentLength } : {}),
+          ...(cacheControl ? { CacheControl: cacheControl } : {}),
+        }),
+        {
+          expiresIn,
+          signableHeaders: new Set(['content-type', 'content-length', 'cache-control']),
+        },
       );
       const base = (env.S3_PUBLIC_BASE_URL ?? '').replace(/\/$/, '');
       return {
@@ -55,7 +80,7 @@ export function createS3Storage(env: Env): StorageGateway {
         publicUrl: `${base}/${key}`,
         key,
         expiresIn,
-        headers: { 'Content-Type': contentType },
+        headers: uploadHeaders(opts),
       };
     },
   };

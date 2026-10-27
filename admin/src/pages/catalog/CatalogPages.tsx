@@ -19,11 +19,13 @@ import {
 } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Cosmetic, Gift } from '@bigboss/shared';
+import { MEDIA_TYPES, type Cosmetic, type Gift } from '@bigboss/shared';
 import { get, send } from '../../lib/api';
 import { money, num } from '../../lib/format';
 import { PageHeader, ToggleSwitch } from '../../components/common';
 import { FormModal } from '../../components/FormModal';
+import { MediaUpload } from '../../components/MediaUpload';
+import { UploadTrackerProvider, useUploadTracker } from '../../components/uploadTracker';
 import { brand } from '../../theme';
 
 const card = { variant: 'borderless' as const, styles: { body: { padding: 0 } } };
@@ -134,7 +136,7 @@ export function GiftsPage() {
             : send('patch', `/admin/gifts/${(editing as Gift).id}`, v)
         }
       >
-        {() => (
+        {(form) => (
           <>
             <Form.Item name="name" label="Name" rules={[{ required: true, max: 40 }]}>
               <Input />
@@ -162,22 +164,42 @@ export function GiftsPage() {
                 />
               </Form.Item>
             </Space.Compact>
-            <Form.Item name="iconUrl" label="Icon URL" rules={[{ required: true, type: 'url' }]}>
-              <Input />
+            <Form.Item
+              name="iconUrl"
+              label="Icon"
+              rules={[{ required: true, message: 'Upload an icon' }, { type: 'url' }]}
+            >
+              <MediaUpload kind="gift-icon" />
             </Form.Item>
-            <Space.Compact block>
-              <Form.Item name="animationFormat" label="Animation" style={{ width: 140 }}>
-                <Select options={animationOptions} />
-              </Form.Item>
-              <Form.Item
-                name="animationUrl"
-                label="Animation URL"
-                style={{ flex: 1, marginLeft: 12 }}
-                rules={[{ type: 'url' }]}
-              >
-                <Input placeholder="https://…" />
-              </Form.Item>
-            </Space.Compact>
+            <Form.Item
+              name="animationUrl"
+              label="Animation"
+              rules={[{ type: 'url' }]}
+              extra="SVGA, Lottie (.json) or MP4. The format is set from the file."
+            >
+              <MediaUpload
+                kind="gift-animation"
+                onUploaded={({ type }) =>
+                  form.setFieldValue('animationFormat', MEDIA_TYPES[type].format)
+                }
+              />
+            </Form.Item>
+            <Form.Item
+              name="animationFormat"
+              label="Animation format"
+              style={{ width: 180 }}
+              dependencies={['animationUrl']}
+              rules={[
+                ({ getFieldValue }) => ({
+                  validator: (_, f: string) =>
+                    !getFieldValue('animationUrl') || f !== 'none'
+                      ? Promise.resolve()
+                      : Promise.reject(new Error('Pick the animation format')),
+                }),
+              ]}
+            >
+              <Select options={animationOptions} />
+            </Form.Item>
             <Space size="large">
               <Form.Item name="vipTierRequired" label="VIP tier required">
                 <InputNumber min={0} max={10} />
@@ -392,11 +414,16 @@ export function StorePage() {
             <Form.Item name="perks" label="Perks">
               <Select mode="tags" tokenSeparators={[',']} />
             </Form.Item>
-            <Form.Item name="badgeUrl" label="Badge URL" rules={[{ type: 'url' }]}>
-              <Input />
+            <Form.Item name="badgeUrl" label="Badge" rules={[{ type: 'url' }]}>
+              <MediaUpload kind="vip-badge" />
             </Form.Item>
-            <Form.Item name="frameUrl" label="Frame URL" rules={[{ type: 'url' }]}>
-              <Input />
+            <Form.Item
+              name="frameUrl"
+              label="Avatar frame"
+              rules={[{ type: 'url' }]}
+              extra="Static image or SVGA."
+            >
+              <MediaUpload kind="vip-frame" />
             </Form.Item>
             <Space size="large">
               <Form.Item name="sortOrder" label="Sort">
@@ -434,7 +461,7 @@ export function StorePage() {
             : send('put', `/admin/cosmetics/${(item as Cosmetic).id}`, v)
         }
       >
-        {() => (
+        {(form) => (
           <>
             <Space size="large">
               <Form.Item
@@ -456,11 +483,21 @@ export function StorePage() {
             <Form.Item name="name" label="Name" rules={[{ required: true }]}>
               <Input />
             </Form.Item>
-            <Form.Item name="assetUrl" label="Asset URL" rules={[{ required: true, type: 'url' }]}>
-              <Input />
+            <Form.Item
+              name="assetUrl"
+              label="Asset"
+              rules={[{ required: true, message: 'Upload the asset' }, { type: 'url' }]}
+              extra="Image, SVGA, Lottie (.json) or MP4. The format is set from the file."
+            >
+              <MediaUpload
+                kind="cosmetic-asset"
+                onUploaded={({ type }) =>
+                  form.setFieldValue('animationFormat', MEDIA_TYPES[type].format)
+                }
+              />
             </Form.Item>
-            <Form.Item name="previewUrl" label="Preview image URL" rules={[{ type: 'url' }]}>
-              <Input />
+            <Form.Item name="previewUrl" label="Preview image" rules={[{ type: 'url' }]}>
+              <MediaUpload kind="cosmetic-preview" />
             </Form.Item>
             <Space size="large">
               <Form.Item name="priceDiamonds" label="Price" rules={[{ required: true }]}>
@@ -512,6 +549,7 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
   const { message, modal } = App.useApp();
   const qc = useQueryClient();
   const [rows, setRows] = useState<LevelRow[]>(initial);
+  const [uploads, tracker] = useUploadTracker();
 
   const save = useMutation({
     mutationFn: () =>
@@ -564,7 +602,7 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
             </Button>
             <Button
               type="primary"
-              disabled={invalid || !rows.length}
+              disabled={invalid || !rows.length || uploads > 0}
               loading={save.isPending}
               onClick={() => save.mutate()}
             >
@@ -581,74 +619,88 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
           message="Each level must require more points than the one before it."
         />
       )}
-      <Card {...card}>
-        <Table<LevelRow>
-          rowKey="level"
-          loading={loading}
-          dataSource={rows}
-          pagination={{ pageSize: 25 }}
-          columns={[
-            {
-              title: 'Level',
-              dataIndex: 'level',
-              width: 80,
-              render: (l: number, r) => (
-                <Tag color={r.color} style={{ color: '#fff' }}>
-                  Lv {l}
-                </Tag>
-              ),
-            },
-            {
-              title: 'Points required',
-              key: 'p',
-              render: (_, r, i) => (
-                <InputNumber
-                  min={0}
-                  value={r.pointsRequired}
-                  onChange={(v) => update(i, { pointsRequired: v ?? 0 })}
-                  style={{ width: 180 }}
-                  formatter={(v) => num(Number(v))}
-                />
-              ),
-            },
-            {
-              title: 'Name',
-              key: 'n',
-              render: (_, r, i) => (
-                <Input
-                  value={r.name}
-                  onChange={(e) => update(i, { name: e.target.value })}
-                  style={{ width: 180 }}
-                />
-              ),
-            },
-            {
-              title: 'Colour',
-              key: 'c',
-              render: (_, r, i) => (
-                <ColorPicker
-                  value={r.color}
-                  onChangeComplete={(c) => update(i, { color: c.toHexString().toUpperCase() })}
-                />
-              ),
-            },
-            {
-              title: '',
-              key: 'd',
-              render: (_, _r, i) =>
-                i === rows.length - 1 && (
-                  <Button
-                    size="small"
-                    type="text"
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={() => setRows((rs) => rs.slice(0, -1))}
+      <UploadTrackerProvider value={tracker}>
+        <Card {...card}>
+          <Table<LevelRow>
+            rowKey="level"
+            loading={loading}
+            dataSource={rows}
+            pagination={{ pageSize: 25 }}
+            columns={[
+              {
+                title: 'Level',
+                dataIndex: 'level',
+                width: 80,
+                render: (l: number, r) => (
+                  <Tag color={r.color} style={{ color: '#fff' }}>
+                    Lv {l}
+                  </Tag>
+                ),
+              },
+              {
+                title: 'Points required',
+                key: 'p',
+                render: (_, r, i) => (
+                  <InputNumber
+                    min={0}
+                    value={r.pointsRequired}
+                    onChange={(v) => update(i, { pointsRequired: v ?? 0 })}
+                    style={{ width: 180 }}
+                    formatter={(v) => num(Number(v))}
                   />
                 ),
-            },
-          ]}
-        />
-      </Card>
+              },
+              {
+                title: 'Name',
+                key: 'n',
+                render: (_, r, i) => (
+                  <Input
+                    value={r.name}
+                    onChange={(e) => update(i, { name: e.target.value })}
+                    style={{ width: 180 }}
+                  />
+                ),
+              },
+              {
+                title: 'Icon',
+                key: 'i',
+                render: (_, r, i) => (
+                  <MediaUpload
+                    compact
+                    kind="level-icon"
+                    value={r.iconUrl}
+                    onChange={(iconUrl) => update(i, { iconUrl })}
+                  />
+                ),
+              },
+              {
+                title: 'Colour',
+                key: 'c',
+                render: (_, r, i) => (
+                  <ColorPicker
+                    value={r.color}
+                    onChangeComplete={(c) => update(i, { color: c.toHexString().toUpperCase() })}
+                  />
+                ),
+              },
+              {
+                title: '',
+                key: 'd',
+                render: (_, _r, i) =>
+                  i === rows.length - 1 && (
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => setRows((rs) => rs.slice(0, -1))}
+                    />
+                  ),
+              },
+            ]}
+          />
+        </Card>
+      </UploadTrackerProvider>
     </>
   );
 }

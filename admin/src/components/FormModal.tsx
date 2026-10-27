@@ -1,10 +1,12 @@
 import { useEffect, type ReactNode } from 'react';
 import { App, Form, Modal, type FormInstance } from 'antd';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { UploadTrackerProvider, useUploadTracker } from './uploadTracker';
 
 /**
  * Modal + antd Form wired to a mutation. `children` receives the form instance and renders
- * the fields; `initialValues` re-seeds the form every time the modal opens.
+ * the fields; `initialValues` re-seeds the form every time the modal opens. Saving waits for
+ * any `MediaUpload` inside to finish, so a half-uploaded file never saves a stale URL.
  */
 export function FormModal<V extends object>({
   open,
@@ -30,6 +32,7 @@ export function FormModal<V extends object>({
   const [form] = Form.useForm<V>();
   const { message } = App.useApp();
   const qc = useQueryClient();
+  const [uploads, tracker] = useUploadTracker();
 
   useEffect(() => {
     if (open) {
@@ -57,12 +60,15 @@ export function FormModal<V extends object>({
       onCancel={onClose}
       okText={okText}
       confirmLoading={m.isPending}
+      okButtonProps={{ disabled: uploads > 0 }}
       onOk={() => form.validateFields().then((v) => m.mutate(v))}
       destroyOnHidden
     >
-      <Form form={form} layout="vertical" requiredMark="optional" style={{ marginTop: 16 }}>
-        {children(form)}
-      </Form>
+      <UploadTrackerProvider value={tracker}>
+        <Form form={form} layout="vertical" requiredMark="optional" style={{ marginTop: 16 }}>
+          {children(form)}
+        </Form>
+      </UploadTrackerProvider>
     </Modal>
   );
 }

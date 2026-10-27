@@ -68,6 +68,62 @@ export type CosmeticType = (typeof COSMETIC_TYPES)[number];
 export const ANIMATION_FORMATS = ['none', 'svga', 'lottie', 'mp4'] as const;
 export type AnimationFormat = (typeof ANIMATION_FORMATS)[number];
 
+/**
+ * Media the admin dashboard may upload, by MIME type. `format` is the
+ * {@link AnimationFormat} a file of that type plays as. SVGA has no registered MIME type,
+ * so it travels as `application/octet-stream`, the only binary type accepted here.
+ */
+export const MEDIA_TYPES = {
+  'image/png': { ext: 'png', format: 'none' },
+  'image/webp': { ext: 'webp', format: 'none' },
+  'image/jpeg': { ext: 'jpg', format: 'none' },
+  'image/gif': { ext: 'gif', format: 'none' },
+  'application/octet-stream': { ext: 'svga', format: 'svga' },
+  'application/json': { ext: 'json', format: 'lottie' },
+  'video/mp4': { ext: 'mp4', format: 'mp4' },
+} as const satisfies Record<string, { ext: string; format: AnimationFormat }>;
+export type MediaType = keyof typeof MEDIA_TYPES;
+
+/** File extension → MIME type, for files the browser reports no type for (`.svga`). */
+export const MEDIA_EXTENSIONS: Record<string, MediaType> = {
+  png: 'image/png',
+  webp: 'image/webp',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  svga: 'application/octet-stream',
+  json: 'application/json',
+  mp4: 'video/mp4',
+};
+
+const MB = 1024 * 1024;
+const IMAGES = ['image/png', 'image/webp', 'image/jpeg', 'image/gif'] as const;
+const ANIMATIONS = ['application/octet-stream', 'application/json', 'video/mp4'] as const;
+
+/**
+ * What each admin upload slot accepts. The dashboard checks these before uploading and the
+ * API enforces them when presigning; the signed `Content-Length` makes the size binding.
+ */
+export const ADMIN_UPLOAD_KINDS = {
+  'gift-icon': { types: IMAGES, maxBytes: 2 * MB },
+  'gift-animation': { types: ANIMATIONS, maxBytes: 20 * MB },
+  'vip-badge': { types: IMAGES, maxBytes: 2 * MB },
+  'vip-frame': { types: [...IMAGES, 'application/octet-stream'], maxBytes: 10 * MB },
+  'cosmetic-asset': { types: [...IMAGES, ...ANIMATIONS], maxBytes: 20 * MB },
+  'cosmetic-preview': { types: IMAGES, maxBytes: 2 * MB },
+  'level-icon': { types: IMAGES, maxBytes: 2 * MB },
+  'game-icon': { types: IMAGES, maxBytes: 2 * MB },
+  'agency-logo': { types: IMAGES, maxBytes: 2 * MB },
+  banner: { types: ['image/png', 'image/webp', 'image/jpeg'], maxBytes: 5 * MB },
+  // FCM shows only JPEG/PNG reliably on both platforms, and caps notification images at 1 MB.
+  announcement: { types: ['image/png', 'image/jpeg'], maxBytes: 1 * MB },
+} as const satisfies Record<string, { types: readonly MediaType[]; maxBytes: number }>;
+export type AdminUploadKind = keyof typeof ADMIN_UPLOAD_KINDS;
+export const ADMIN_UPLOAD_KIND_NAMES = Object.keys(ADMIN_UPLOAD_KINDS) as [
+  AdminUploadKind,
+  ...AdminUploadKind[],
+];
+
 export const MESSAGE_TYPES = ['text', 'image', 'gift', 'system'] as const;
 export type MessageType = (typeof MESSAGE_TYPES)[number];
 
