@@ -252,7 +252,8 @@ That exercises LiveKit tokens and the webhook end to end.
 | Container exits with `unable to determine transport target for "pino-pretty"`, or the API accepts any CORS origin | `NODE_ENV` isn't `production` at runtime. Set `NODE_ENV=production` as a runtime-only variable. Don't use `development` to silence Coolify's build warning: the Dockerfiles already install dev dependencies. |
 | `Docker Compose file must contain a "services" section` | The Build Pack is set to *Docker Compose*. Switch it to **Dockerfile** (or recreate the app and pick Dockerfile). |
 | Deploy fails with `Invalid environment configuration` or `Missing required production configuration` | A required variable is missing or malformed. The log lists each one. |
-| Boot hangs ~30 s, then `MongoServerSelectionError` | The VPS IP isn't in Atlas *Network Access*, or the URI or password is wrong (URL-encode it). |
+| Boot hangs ~30 s, then `MongoServerSelectionError` with `tlsv1 alert internal error` / `SSL alert number 80` and `ReplicaSetNoPrimary` | The VPS IP isn't in Atlas *Network Access*. Find it with `curl -4 -s https://ifconfig.me` on the VPS, add it, wait until the entry is *Active*, then redeploy. |
+| `MongoServerSelectionError` / authentication failed, with the IP allow-listed | The URI or password is wrong. Use the `mongodb+srv://` string and URL-encode the password. |
 | `/readyz` shows `"redis": false` | `REDIS_URL` isn't the **internal** URL, or the password is wrong. |
 | 502 / *no available server* | *Ports Exposes* doesn't match the container (3000 for the API, 80 for admin and games), or the health check is failing. |
 | Admin calls `localhost:3000` | `VITE_API_URL` wasn't a build variable, or you restarted instead of redeploying. |

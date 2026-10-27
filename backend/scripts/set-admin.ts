@@ -24,7 +24,12 @@ const auth = createFirebaseAuth(env);
 const uid = who.includes('@') ? (await getAuth().getUserByEmail(who)).uid : who;
 
 await auth.setAdminRole(uid, role);
+let matched = 0;
 await withDb(async (db) => {
-  await db.col.users.updateOne({ _id: uid }, { $set: { adminRole: role } });
+  matched = (await db.col.users.updateOne({ _id: uid }, { $set: { adminRole: role } }))
+    .matchedCount;
 });
+if (!matched) {
+  console.warn(`${uid} has no profile yet; it is created on first sign-in (app or dashboard).`);
+}
 console.log(`${uid} → ${role ?? 'no admin role'} (existing sessions were revoked; sign in again)`);

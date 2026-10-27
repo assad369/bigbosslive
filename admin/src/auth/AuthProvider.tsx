@@ -6,7 +6,7 @@ import {
   type User,
 } from '@firebase/auth';
 import { auth } from '../lib/firebase';
-import { ApiError, get } from '../lib/api';
+import { ApiError, get, send } from '../lib/api';
 
 import { AuthContext, type AdminMe, type AuthState, type Status } from './useAuth';
 
@@ -27,7 +27,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         try {
-          setMe(await get<AdminMe>('/admin/me'));
+          try {
+            setMe(await get<AdminMe>('/admin/me'));
+          } catch (err) {
+            // An admin who has never opened the app has no profile yet; bootstrap it once.
+            if (!(err instanceof ApiError && err.code === 'profile_required')) throw err;
+            await send('post', '/auth/session', {});
+            setMe(await get<AdminMe>('/admin/me'));
+          }
           setStatus('ready');
           setError(null);
         } catch (err) {
