@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Env } from '../src/config/env.js';
-import { createS3Storage } from '../src/infra/storage.js';
+import { createS3Storage, s3SettingsFromEnv } from '../src/infra/storage.js';
 import { createHarness, fakeStorage, type Harness } from './helpers/harness.js';
 
 let h: Harness;
@@ -99,7 +99,7 @@ describe('user uploads', () => {
 
 describe('S3 presigning', () => {
   it('signs content length and cache control so the bucket enforces them', async () => {
-    const storage = createS3Storage({
+    const settings = s3SettingsFromEnv({
       S3_REGION: 'auto',
       S3_ENDPOINT: 'https://acc.r2.cloudflarestorage.com',
       S3_BUCKET: 'media',
@@ -107,6 +107,7 @@ describe('S3 presigning', () => {
       S3_SECRET_ACCESS_KEY: 'secret',
       S3_PUBLIC_BASE_URL: 'https://cdn.example.com/',
     } as Env);
+    const storage = createS3Storage(async () => settings);
     const p = await storage.presignUpload({
       folder: 'admin/banners',
       ownerId: 'boss',

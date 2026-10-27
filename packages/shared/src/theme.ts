@@ -26,6 +26,15 @@ export const palette = {
   info: '#3C6E8F',
   /** Warm scrim used over live video and game canvases. */
   scrim: 'rgba(43, 33, 24, 0.55)',
+  /** Darkens a room background image under the audio seat grid. */
+  espressoShade: 'rgba(29, 22, 16, 0.67)',
+  goldTint: 'rgba(233, 207, 122, 0.2)',
+  goldOutline: 'rgba(233, 207, 122, 0.33)',
+  champagneTint: 'rgba(243, 229, 195, 0.13)',
+  /** PK sides: the room's own host is always red, the opponent blue. */
+  pkRed: '#D64545',
+  pkBlue: '#3D7BD9',
+  heart: '#E5486B',
 } as const;
 
 export const gradients = {

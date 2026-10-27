@@ -2,6 +2,7 @@ import {
   AccessToken,
   DataPacket_Kind,
   RoomServiceClient,
+  TrackType,
   WebhookReceiver,
   type WebhookEvent,
 } from 'livekit-server-sdk';
@@ -26,7 +27,22 @@ export interface LiveKitGateway {
   createToken(req: TokenRequest): Promise<string>;
   sendData(room: string, topic: string, payload: unknown, identities?: string[]): Promise<void>;
   removeParticipant(room: string, identity: string): Promise<void>;
-  updateParticipantPermissions(room: string, identity: string, canPublish: boolean): Promise<void>;
+  /** Grant/revoke publishing and, optionally, replace the server-minted metadata (role). */
+  updateParticipant(
+    room: string,
+    identity: string,
+    update: { canPublish: boolean; metadata?: Record<string, unknown> },
+  ): Promise<void>;
+  /**
+   * Mute (or allow unmuting of) a participant's published tracks of one kind on the SFU. A
+   * server mute holds even against a modified client; unmuting is left to the participant.
+   */
+  muteTracks(
+    room: string,
+    identity: string,
+    kind: 'audio' | 'video',
+    muted: boolean,
+  ): Promise<void>;
   deleteRoom(room: string): Promise<void>;
   /** Server-side SFU forwarding of a host's tracks into another room (PK battles). */
   forwardParticipant(sourceRoom: string, identity: string, destinationRoom: string): Promise<void>;
@@ -76,10 +92,20 @@ export function createLiveKitGateway(env: Env): LiveKitGateway {
     async removeParticipant(room, identity) {
       await rooms.removeParticipant(room, identity);
     },
-    async updateParticipantPermissions(room, identity, canPublish) {
+    async updateParticipant(room, identity, { canPublish, metadata }) {
       await rooms.updateParticipant(room, identity, {
         permission: { canPublish, canSubscribe: true, canPublishData: true },
+        ...(metadata ? { metadata: JSON.stringify(metadata) } : {}),
       });
+    },
+    async muteTracks(room, identity, kind, muted) {
+      const participant = await rooms.getParticipant(room, identity);
+      const type = kind === 'audio' ? TrackType.AUDIO : TrackType.VIDEO;
+      await Promise.all(
+        participant.tracks
+          .filter((t) => t.type === type && t.muted !== muted)
+          .map((t) => rooms.mutePublishedTrack(room, identity, t.sid, muted)),
+      );
     },
     async deleteRoom(room) {
       await rooms.deleteRoom(room);

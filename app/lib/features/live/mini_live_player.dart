@@ -17,8 +17,9 @@ import 'live_dialogs.dart';
 import 'live_room_controller.dart';
 
 /// Wraps the app (via `MaterialApp.builder`, above the Navigator) with what a live
-/// session needs on every route: the floating mini-player, the Android PiP view and
-/// PK invites. Dialogs go through the router's navigator, since this sits above it.
+/// session needs on every route: the floating mini-player, the Android PiP view, PK
+/// invites and stage invites. Dialogs go through the router's navigator, since this sits
+/// above it.
 class LiveOverlayHost extends ConsumerStatefulWidget {
   const LiveOverlayHost({super.key, required this.child});
   final Widget child;
@@ -30,14 +31,16 @@ class LiveOverlayHost extends ConsumerStatefulWidget {
 class _LiveOverlayHostState extends ConsumerState<LiveOverlayHost> {
   LiveRoomController? _watched;
   StreamSubscription<PkBattle>? _invites;
+  StreamSubscription<SeatInvite>? _seatInvites;
 
   BuildContext? get _navContext =>
       ref.read(routerProvider).routerDelegate.navigatorKey.currentContext;
 
-  /// One PK-invite subscription per session, whether full screen or minimized.
+  /// One subscription per session for each invite kind, whether full screen or minimized.
   void _watch(LiveRoomController? c) {
     if (identical(c, _watched)) return;
     unawaited(_invites?.cancel());
+    unawaited(_seatInvites?.cancel());
     _watched = c;
     _invites = c?.pkInvites.listen((battle) {
       final ctx = _navContext;
@@ -45,11 +48,23 @@ class _LiveOverlayHostState extends ConsumerState<LiveOverlayHost> {
         unawaited(showPkInviteDialog(ctx, ref.read(liveRepo), battle));
       }
     });
+    _seatInvites = c?.seatInvites.listen((invite) async {
+      final ctx = _navContext;
+      if (ctx == null || !ctx.mounted) return;
+      final accept = await showSeatInviteDialog(ctx, invite);
+      try {
+        await c.respondToSeatInvite(accept);
+      } catch (e) {
+        final after = _navContext;
+        if (accept && after != null && after.mounted) showError(after, e);
+      }
+    });
   }
 
   @override
   void dispose() {
     unawaited(_invites?.cancel());
+    unawaited(_seatInvites?.cancel());
     super.dispose();
   }
 

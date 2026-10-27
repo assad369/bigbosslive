@@ -14,6 +14,7 @@ import { LiveService } from './modules/live/live.service.js';
 import { ModerationService } from './modules/moderation/moderation.service.js';
 import { NotificationsService } from './modules/notifications/notifications.service.js';
 import { PkService } from './modules/pk/pk.service.js';
+import { StorageSettingsService } from './modules/config/storage-settings.service.js';
 import { StoreService } from './modules/store/store.service.js';
 import { UsersService } from './modules/users/users.service.js';
 import { IapService } from './modules/wallet/iap.service.js';
@@ -37,6 +38,7 @@ export interface Services {
   notifications: NotificationsService;
   pk: PkService;
   stats: StatsService;
+  storageSettings: StorageSettingsService;
   store: StoreService;
   users: UsersService;
   wallet: WalletService;
@@ -65,6 +67,7 @@ export function createServices(ctx: Ctx): Services {
     notifications: new NotificationsService(ctx),
     pk: new PkService(ctx),
     stats: new StatsService(ctx),
+    storageSettings: new StorageSettingsService(ctx),
     store: new StoreService(ctx),
     users: new UsersService(ctx),
     wallet: new WalletService(ctx),

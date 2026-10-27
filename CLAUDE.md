@@ -33,6 +33,10 @@ cd app && flutter analyze && flutter test && dart format lib test
   (`r.use(['/gifts', …], requireAuth(ctx))`), or unknown routes turn into 401s instead of 404s.
 - **Infra is behind interfaces** (`infra/*`): Firebase auth, FCM, LiveKit, S3, IAP. Tests swap in
   fakes (`test/helpers/harness.ts`). Never call an SDK directly from a service.
+- **Storage settings:** R2 credentials are editable at `/admin/storage` (`config.manage` plus the
+  `X-Admin-Passcode` header, matched against `STORAGE_SETTINGS_PASSCODE`, with failed guesses
+  rate limited). They live in `app_config._id: 'storage'`, outside `CONFIG_SCHEMAS`, and override
+  env `S3_*`. The secret is never returned or written to the audit log.
 - **Time:** use `ctx.clock.now()`, never `new Date()`, in anything a test may need to control.
 - **Pagination:** cursor lists sort `{ field: -1, _id: -1 }` and filter with `afterCursor()`.
   The `_id` tiebreak is required, because rows sharing a timestamp would otherwise be skipped.
@@ -61,18 +65,34 @@ cd app && flutter analyze && flutter test && dart format lib test
 - One live room per host (partial unique index on `status: 'live'`). `start()` resumes an existing
   room instead of failing.
 - LiveKit identity == uid. Tokens are minted server-side with metadata (level, VIP, role) and
-  `canUpdateOwnMetadata: false`. Publish rights go only to the host and seated guests.
+  `canUpdateOwnMetadata: false`. Publish rights go only to the host and seated guests. A role
+  change (seated, unseated, made room admin) re-mints the participant's grant and metadata via
+  `livekit.updateParticipant` in the same call path.
+- Video stage size is `live.videoSeatCount` (host included, max `MAX_VIDEO_SEATS` = 13). Seat
+  mutes (`muted`, `videoMuted`) are enforced on the SFU with `livekit.muteTracks`; unmuting is
+  left to the guest's client.
+- Room admins = `moderatorIds`, appointed by the host only. They manage seats and requests and
+  can remove people, but can't act on the host or other admins, lock the room or appoint admins.
+  Kicking an admin revokes the role.
+- Room lock (`locked`, `passwordHash`) is host-only and enforced at `/join`: staff, room admins
+  and seated guests pass; others need the password (scrypt-hashed, guesses rate limited).
+  Lock changes push `rooms:upserted` so home cards show the lock.
 - Viewer counts come from `room_presence` rows maintained by LiveKit webhooks and recomputed on
   each event, so they are idempotent under redelivery.
 - In-room chat goes through `POST /live/:id/chat` (moderated) and is fanned out on the data
-  channel. Clients must ignore data packets that have a participant sender. Only server packets
-  (`participant == null`) are trusted.
+  channel. Messages are kept in `live_messages` (7-day TTL) so replies, deletes and reports can
+  reference them. Voice messages must be the sender's own `voice` upload
+  (`storage.isOwnUpload`). Clients must ignore data packets that have a participant sender.
+  Only server packets (`participant == null`) are trusted.
 - Rooms with no heartbeat for `live.staleAfterSec` are ended by the `live.sweep` job.
 
 ## PK battles
 
 - State machine: pending → active → ended, or pending → rejected/cancelled/expired. The only
   terminal writers are `terminatePending` and `end`, and both clear `pkLive` in the same update.
+- Battles run in rounds (`pk.maxRounds`, best of N). Active rounds are `live` (gifts score only
+  between `scoringOpensAt` and `endsAt`) or `paused` until a host calls `next-round`. Rounds won
+  decide the winner, total score breaks ties. Round transitions are conditional on `round`.
   The partial unique index on `participantUids` (pkLive: true) enforces one battle per host.
 - Deadlines are timestamps enforced by `pk.sweep`, with no in-memory timers.
 - Cross-room video is SFU forwarding (`livekit.forwardParticipant`). Clients never connect to the

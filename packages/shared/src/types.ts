@@ -6,6 +6,8 @@ import type {
   GameKey,
   LedgerReason,
   MessageType,
+  PkEndReason,
+  PkRoundState,
   PkStatus,
   ReportStatus,
   ReportTarget,
@@ -87,6 +89,9 @@ export interface LiveRoom {
   peakViewers: number;
   giftBeans: number;
   pkBattleId: string | null;
+  /** Locked rooms admit no new viewers, except with the password when one is set. */
+  locked: boolean;
+  hasPassword: boolean;
   startedAt: IsoDate;
   endedAt: IsoDate | null;
 }
@@ -121,15 +126,35 @@ export interface PkBattle {
   hosts: {
     uid: string;
     roomId: string;
+    /** Total across all rounds. */
     score: number;
+    /** Score in the current (or last) round. */
+    roundScore: number;
+    roundsWon: number;
     displayName: string;
     avatarUrl: string | null;
   }[];
+  invitedBy: string;
+  /** Length of each round. */
   durationSec: number;
-  startedAt: IsoDate | null;
+  round: number;
+  maxRounds: number;
+  roundState: PkRoundState | null;
+  /** Gifts count from this instant (after the lead-in countdown). */
+  scoringOpensAt: IsoDate | null;
+  /** End of the current round. */
   endsAt: IsoDate | null;
+  /** While paused: when the battle ends if no host starts the next round. */
+  pausedUntil: IsoDate | null;
+  rounds: { round: number; scores: [number, number]; winnerUid: string | null }[];
+  inviteExpiresAt: IsoDate | null;
+  startedAt: IsoDate | null;
+  endedAt: IsoDate | null;
   winnerUid: string | null;
   isDraw: boolean;
+  endReason: PkEndReason | null;
+  /** Server time when this snapshot was produced, for client clock-offset correction. */
+  serverTime: IsoDate;
 }
 
 export interface GameRound {
@@ -193,4 +218,27 @@ export interface ChatMessage {
   text: string | null;
   mediaUrl: string | null;
   createdAt: IsoDate;
+}
+
+/** Object storage (Cloudflare R2) settings as the admin dashboard sees them. The secret is never sent. */
+export interface StorageSettingsView {
+  /** `database` = set from the dashboard, `env` = `S3_*` variables, `none` = uploads disabled. */
+  source: 'database' | 'env' | 'none';
+  accountId: string;
+  bucket: string;
+  accessKeyId: string;
+  publicBaseUrl: string;
+  secretSet: boolean;
+  /** Last 4 characters of the secret, masked (`••••abcd`). */
+  secretHint: string | null;
+  updatedAt: IsoDate | null;
+}
+
+export interface StorageSettingsInput {
+  accountId: string;
+  bucket: string;
+  accessKeyId: string;
+  /** Omit to keep the stored secret. */
+  secretAccessKey?: string;
+  publicBaseUrl: string;
 }

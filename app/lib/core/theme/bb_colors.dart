@@ -28,6 +28,19 @@ abstract final class BBColors {
   static const espresso = Color(0xFF1D1610);
   static const scrim = Color(0x8C2B2118);
 
+  /// Darkens a room background image under the audio seat grid.
+  static const espressoShade = Color(0xAA1D1610);
+
+  /// Translucent gold for system lines and empty-seat outlines on live video.
+  static const goldTint = Color(0x33E9CF7A);
+  static const goldOutline = Color(0x55E9CF7A);
+  static const champagneTint = Color(0x22F3E5C3);
+
+  /// PK sides: the room's own host is always red, the opponent blue.
+  static const pkRed = Color(0xFFD64545);
+  static const pkBlue = Color(0xFF3D7BD9);
+  static const heart = Color(0xFFE5486B);
+
   static const goldGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,

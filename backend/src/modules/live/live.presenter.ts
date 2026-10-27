@@ -23,6 +23,8 @@ export function toLiveRoom(r: LiveRoomDoc, host: UserBrief | undefined): LiveRoo
     peakViewers: r.peakViewers,
     giftBeans: r.giftBeans,
     pkBattleId: r.pkBattleId ? String(r.pkBattleId) : null,
+    locked: Boolean(r.locked),
+    hasPassword: Boolean(r.locked && r.passwordHash),
     startedAt: r.startedAt.toISOString(),
     endedAt: r.endedAt?.toISOString() ?? null,
   };
@@ -31,16 +33,22 @@ export function toLiveRoom(r: LiveRoomDoc, host: UserBrief | undefined): LiveRoo
 export function toRoomDetail(
   r: LiveRoomDoc,
   host: UserBrief | undefined,
-  seatUsers: Map<string, UserBrief>,
+  users: Map<string, UserBrief>,
 ) {
   return {
     ...toLiveRoom(r, host),
     livekitRoom: r.livekitRoom,
     moderatorIds: r.moderatorIds,
+    moderators: r.moderatorIds.flatMap((id) => users.get(id) ?? []),
     backgroundUrl: r.backgroundUrl,
     seats: r.seats.map((s) => ({
-      ...s,
-      user: s.userId ? (seatUsers.get(s.userId) ?? null) : null,
+      index: s.index,
+      userId: s.userId,
+      muted: s.muted,
+      // Absent on rooms started before camera moderation existed.
+      videoMuted: Boolean(s.videoMuted),
+      locked: s.locked,
+      user: s.userId ? (users.get(s.userId) ?? null) : null,
     })),
   };
 }

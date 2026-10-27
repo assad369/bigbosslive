@@ -1,4 +1,5 @@
-import { Router, type Request } from 'express';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { Filter } from 'mongodb';
 import { z } from 'zod';
 import {
@@ -20,6 +21,7 @@ import {
 import type { Ctx } from '../context.js';
 import type { LiveRoomDoc, UserDoc } from '../db/schema.js';
 import { requireAuth } from '../middleware/auth.js';
+import { createRateLimiter } from '../middleware/http.js';
 import {
   hasPermission,
   permissionsFor,
@@ -39,7 +41,7 @@ import {
   toObjectId,
   uidParam,
 } from '../lib/http.js';
-import { badRequest, forbidden, notFound } from '../lib/errors.js';
+import { AppError, badRequest, forbidden, notFound } from '../lib/errors.js';
 import { addDays } from '../lib/time.js';
 import { CONFIG_SCHEMAS, type ConfigKey } from '../modules/config/config.service.js';
 import { giftInput } from '../modules/gifts/gifts.service.js';
@@ -855,6 +857,59 @@ export function adminRoutes(ctx: Ctx): Router {
     if (key === 'economy') s.levels.invalidate();
     await audit(req, 'config.update', 'config', key, value);
     res.json({ value });
+  });
+
+  // ── Storage (R2) credentials: config.manage plus a passcode ──────────────────
+  // The passcode is short, so only failed guesses are counted and capped per admin.
+  const passcodeLimit = createRateLimiter(ctx.redis, {
+    windowMs: 15 * 60_000,
+    limit: 5,
+    prefix: 'admin-passcode',
+    byUser: true,
+    skipSuccessful: true,
+  });
+  const digest = (v: string) => createHash('sha256').update(v).digest();
+  const expectedPasscode = digest(ctx.env.STORAGE_SETTINGS_PASSCODE);
+  const requirePasscode = (req: Request, _res: Response, next: NextFunction) => {
+    const given = req.get('x-admin-passcode') ?? '';
+    if (!timingSafeEqual(digest(given), expectedPasscode)) throw forbidden('Incorrect passcode');
+    next();
+  };
+  const storageGuard = [can('config.manage'), passcodeLimit, requirePasscode];
+
+  r.get('/storage', ...storageGuard, async (_req, res) => {
+    res.json(await s.storageSettings.view());
+  });
+
+  r.put('/storage', ...storageGuard, async (req, res) => {
+    const { secretChanged } = await s.storageSettings.set(req.body, currentUser(req).uid);
+    const view = await s.storageSettings.view();
+    const { accountId, bucket, accessKeyId, publicBaseUrl } = view;
+    await audit(req, 'storage.update', 'config', 'storage', {
+      accountId,
+      bucket,
+      accessKeyId,
+      publicBaseUrl,
+      secretChanged,
+    });
+    res.json(view);
+  });
+
+  r.post('/storage/test', ...storageGuard, async (_req, res) => {
+    try {
+      await ctx.storage.verify();
+    } catch (err) {
+      // "Not configured" stays a 503; SDK errors (bad keys, missing bucket) are shown to the admin.
+      if (err instanceof AppError || !(err instanceof Error)) throw err;
+      throw badRequest(`Bucket check failed: ${err.name}${err.message ? ` — ${err.message}` : ''}`);
+    }
+    res.json({ ok: true });
+  });
+
+  r.delete('/storage', ...storageGuard, async (req, res) => {
+    await s.storageSettings.clear();
+    await audit(req, 'storage.reset', 'config', 'storage');
+    res.json(await s.storageSettings.view());
   });
 
   r.get('/audit', can('audit.read'), async (req, res) => {

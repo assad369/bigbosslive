@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_VIDEO_SEATS } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import { badRequest } from '../../lib/errors.js';
 
@@ -42,6 +43,8 @@ export const CONFIG_SCHEMAS = {
     /** A live room with no heartbeat for this long is closed by the sweeper. */
     staleAfterSec: z.number().int().min(30).max(3600).default(90),
     audioSeatCount: z.number().int().min(2).max(16).default(8),
+    /** People on a video stage, host included. */
+    videoSeatCount: z.number().int().min(2).max(MAX_VIDEO_SEATS).default(9),
     seatRequestTtlSec: z.number().int().min(10).max(600).default(60),
     followerPushOnGoLive: z.boolean().default(true),
   }),
@@ -52,8 +55,15 @@ export const CONFIG_SCHEMAS = {
     blockContactInfo: z.boolean().default(true),
   }),
   pk: z.object({
-    durationsSec: z.array(z.number().int().min(60).max(1800)).min(1).default([180, 300, 600]),
+    /** Allowed round lengths. */
+    durationsSec: z.array(z.number().int().min(60).max(1800)).min(1).default([60, 180, 300, 600]),
     inviteTtlSec: z.number().int().min(10).max(120).default(30),
+    /** A battle is decided by rounds won; it ends early once one host has a majority. */
+    maxRounds: z.number().int().min(1).max(10).default(3),
+    /** Countdown before each round during which gifts do not score. */
+    leadInSec: z.number().int().min(0).max(10).default(3),
+    /** Between rounds, the battle ends if no host starts the next round within this time. */
+    pauseTimeoutSec: z.number().int().min(10).max(900).default(120),
   }),
 } as const;
 

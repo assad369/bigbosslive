@@ -183,6 +183,8 @@ class LiveRoom {
     required this.viewerCount,
     required this.giftBeans,
     this.pkBattleId,
+    this.locked = false,
+    this.hasPassword = false,
     required this.startedAt,
   });
 
@@ -195,9 +197,36 @@ class LiveRoom {
   final int viewerCount;
   final int giftBeans;
   final String? pkBattleId;
+
+  /// No new viewers can join; [hasPassword] means the password still lets them in.
+  final bool locked;
+  final bool hasPassword;
   final DateTime? startedAt;
 
   bool get isAudio => type == 'audio';
+
+  LiveRoom copyWith({
+    String? title,
+    String? coverUrl,
+    int? viewerCount,
+    int? giftBeans,
+    String? Function()? pkBattleId,
+    bool? locked,
+    bool? hasPassword,
+  }) => LiveRoom(
+    id: id,
+    type: type,
+    status: status,
+    title: title ?? this.title,
+    coverUrl: coverUrl ?? this.coverUrl,
+    host: host,
+    viewerCount: viewerCount ?? this.viewerCount,
+    giftBeans: giftBeans ?? this.giftBeans,
+    pkBattleId: pkBattleId == null ? this.pkBattleId : pkBattleId(),
+    locked: locked ?? this.locked,
+    hasPassword: hasPassword ?? this.hasPassword,
+    startedAt: startedAt,
+  );
 
   factory LiveRoom.fromJson(Json j) => LiveRoom(
     id: j.str('id'),
@@ -209,6 +238,8 @@ class LiveRoom {
     viewerCount: j.integer('viewerCount'),
     giftBeans: j.integer('giftBeans'),
     pkBattleId: j.strOrNull('pkBattleId'),
+    locked: j.flag('locked'),
+    hasPassword: j.flag('hasPassword'),
     startedAt: j.date('startedAt'),
   );
 }
@@ -218,11 +249,15 @@ class Seat {
     required this.index,
     this.user,
     required this.muted,
+    this.videoMuted = false,
     required this.locked,
   });
   final int index;
   final UserBrief? user;
+
+  /// Mic / camera turned off by the host or a room admin.
   final bool muted;
+  final bool videoMuted;
   final bool locked;
 
   factory Seat.fromJson(Json j) {
@@ -231,6 +266,7 @@ class Seat {
       index: j.integer('index'),
       user: u == null ? null : UserBrief.fromJson(u),
       muted: j.flag('muted'),
+      videoMuted: j.flag('videoMuted'),
       locked: j.flag('locked'),
     );
   }
@@ -241,21 +277,72 @@ class RoomDetail {
     required this.room,
     required this.livekitRoom,
     required this.moderatorIds,
+    this.moderators = const [],
     required this.seats,
     this.backgroundUrl,
   });
   final LiveRoom room;
   final String livekitRoom;
+
+  /// Room admins appointed by the host.
   final List<String> moderatorIds;
+  final List<UserBrief> moderators;
   final List<Seat> seats;
   final String? backgroundUrl;
+
+  RoomDetail copyWith({
+    LiveRoom? room,
+    List<String>? moderatorIds,
+    List<UserBrief>? moderators,
+    List<Seat>? seats,
+    String? Function()? backgroundUrl,
+  }) => RoomDetail(
+    room: room ?? this.room,
+    livekitRoom: livekitRoom,
+    moderatorIds: moderatorIds ?? this.moderatorIds,
+    moderators: moderators ?? this.moderators,
+    seats: seats ?? this.seats,
+    backgroundUrl: backgroundUrl == null ? this.backgroundUrl : backgroundUrl(),
+  );
 
   factory RoomDetail.fromJson(Json j) => RoomDetail(
     room: LiveRoom.fromJson(j),
     livekitRoom: j.str('livekitRoom'),
     moderatorIds: j.strings('moderatorIds'),
+    moderators: j.list('moderators', UserBrief.fromJson),
     seats: j.list('seats', Seat.fromJson),
     backgroundUrl: j.strOrNull('backgroundUrl'),
+  );
+}
+
+/// A viewer asking for a seat, as listed to the host and room admins.
+class SeatRequest {
+  const SeatRequest({required this.user, this.expiresAt});
+  final UserBrief user;
+  final DateTime? expiresAt;
+  factory SeatRequest.fromJson(Json j) => SeatRequest(
+    user: UserBrief.fromJson(j.obj('user')),
+    expiresAt: j.date('expiresAt'),
+  );
+}
+
+/// A live host the PK picker can challenge.
+class PkCandidate {
+  const PkCandidate({
+    required this.user,
+    required this.roomId,
+    required this.viewerCount,
+    required this.busy,
+  });
+  final UserBrief user;
+  final String roomId;
+  final int viewerCount;
+  final bool busy;
+  factory PkCandidate.fromJson(Json j) => PkCandidate(
+    user: UserBrief.fromJson(j.obj('user')),
+    roomId: j.str('roomId'),
+    viewerCount: j.integer('viewerCount'),
+    busy: j.flag('busy'),
   );
 }
 
@@ -624,52 +711,121 @@ class PkHost {
     required this.uid,
     required this.roomId,
     required this.score,
+    this.roundScore = 0,
+    this.roundsWon = 0,
     required this.displayName,
     this.avatarUrl,
   });
   final String uid;
   final String roomId;
+
+  /// Total over the battle; [roundScore] is the current (or last) round.
   final int score;
+  final int roundScore;
+  final int roundsWon;
   final String displayName;
   final String? avatarUrl;
   factory PkHost.fromJson(Json j) => PkHost(
     uid: j.str('uid'),
     roomId: j.str('roomId'),
     score: j.integer('score'),
+    roundScore: j.integer('roundScore', j.integer('score')),
+    roundsWon: j.integer('roundsWon'),
     displayName: j.str('displayName'),
     avatarUrl: j.strOrNull('avatarUrl'),
   );
 }
 
+class PkRound {
+  const PkRound({required this.round, required this.scores, this.winnerUid});
+  final int round;
+  final List<int> scores;
+  final String? winnerUid;
+  factory PkRound.fromJson(Json j) => PkRound(
+    round: j.integer('round'),
+    scores: ((j['scores'] as List<dynamic>?) ?? const [])
+        .whereType<num>()
+        .map((n) => n.toInt())
+        .toList(),
+    winnerUid: j.strOrNull('winnerUid'),
+  );
+}
+
+/// A PK battle as the server last described it. Deadlines are server instants; the
+/// [clockOffset] (server − device) converts them to device time for countdowns.
 class PkBattle {
   const PkBattle({
     required this.id,
     required this.status,
     required this.hosts,
+    this.invitedBy = '',
     required this.durationSec,
+    this.round = 1,
+    this.maxRounds = 1,
+    this.roundState,
+    this.scoringOpensAt,
     this.endsAt,
+    this.pausedUntil,
+    this.rounds = const [],
+    this.inviteExpiresAt,
     this.winnerUid,
     required this.isDraw,
+    this.endReason,
+    this.clockOffset = Duration.zero,
   });
   final String id;
   final String status;
   final List<PkHost> hosts;
+  final String invitedBy;
   final int durationSec;
+  final int round;
+  final int maxRounds;
+
+  /// `live` while a round is scored, `paused` between rounds.
+  final String? roundState;
+  final DateTime? scoringOpensAt;
   final DateTime? endsAt;
+  final DateTime? pausedUntil;
+  final List<PkRound> rounds;
+  final DateTime? inviteExpiresAt;
   final String? winnerUid;
   final bool isDraw;
+  final String? endReason;
+  final Duration clockOffset;
 
   bool get isActive => status == 'active';
+  bool get isEnded => status == 'ended';
+  bool get isPaused => isActive && roundState == 'paused';
 
-  factory PkBattle.fromJson(Json j) => PkBattle(
-    id: j.str('id'),
-    status: j.str('status'),
-    hosts: j.list('hosts', PkHost.fromJson),
-    durationSec: j.integer('durationSec'),
-    endsAt: j.date('endsAt'),
-    winnerUid: j.strOrNull('winnerUid'),
-    isDraw: j.flag('isDraw'),
-  );
+  /// Server "now", estimated from the device clock.
+  DateTime get serverNow => DateTime.now().add(clockOffset);
+
+  PkHost? host(String uid) => hosts.where((h) => h.uid == uid).firstOrNull;
+
+  factory PkBattle.fromJson(Json j) {
+    final serverTime = j.date('serverTime');
+    return PkBattle(
+      id: j.str('id'),
+      status: j.str('status'),
+      hosts: j.list('hosts', PkHost.fromJson),
+      invitedBy: j.str('invitedBy'),
+      durationSec: j.integer('durationSec'),
+      round: j.integer('round', 1),
+      maxRounds: j.integer('maxRounds', 1),
+      roundState: j.strOrNull('roundState'),
+      scoringOpensAt: j.date('scoringOpensAt'),
+      endsAt: j.date('endsAt'),
+      pausedUntil: j.date('pausedUntil'),
+      rounds: j.list('rounds', PkRound.fromJson),
+      inviteExpiresAt: j.date('inviteExpiresAt'),
+      winnerUid: j.strOrNull('winnerUid'),
+      isDraw: j.flag('isDraw'),
+      endReason: j.strOrNull('endReason'),
+      clockOffset: serverTime == null
+          ? Duration.zero
+          : serverTime.difference(DateTime.now()),
+    );
+  }
 }
 
 class LeaderboardEntry {

@@ -96,6 +96,8 @@ String _mime(String path) {
   if (p.endsWith('.png')) return 'image/png';
   if (p.endsWith('.webp')) return 'image/webp';
   if (p.endsWith('.mp4')) return 'video/mp4';
+  if (p.endsWith('.m4a')) return 'audio/mp4';
+  if (p.endsWith('.aac')) return 'audio/aac';
   return 'image/jpeg';
 }
 
@@ -149,13 +151,60 @@ class LiveRepository {
     ),
   );
 
-  Future<LiveSession> join(String roomId) async =>
-      LiveSession.fromJson(await _api.post('/live/$roomId/join'));
+  /// [password] unlocks a locked room that has one.
+  Future<LiveSession> join(String roomId, {String? password}) async =>
+      LiveSession.fromJson(
+        await _api.post(
+          '/live/$roomId/join',
+          body: password == null ? null : {'password': password},
+        ),
+      );
   Future<RoomDetail> detail(String roomId) async =>
       RoomDetail.fromJson((await _api.get('/live/$roomId')).obj('room'));
   Future<void> heartbeat(String roomId) => _api.post('/live/$roomId/heartbeat');
-  Future<void> chat(String roomId, String text) =>
-      _api.post('/live/$roomId/chat', body: {'text': text});
+  Future<void> chat(String roomId, String text, {String? replyToId}) =>
+      _api.post(
+        '/live/$roomId/chat',
+        body: {'type': 'text', 'text': text, 'replyToId': ?replyToId},
+      );
+  Future<void> voiceChat(
+    String roomId,
+    File file,
+    int durationSec, {
+    String? replyToId,
+  }) async {
+    final url = await _api.upload(
+      kind: 'voice',
+      file: file,
+      contentType: _mime(file.path),
+    );
+    await _api.post(
+      '/live/$roomId/chat',
+      body: {
+        'type': 'voice',
+        'voiceUrl': url,
+        'durationSec': durationSec,
+        'replyToId': ?replyToId,
+      },
+    );
+  }
+
+  Future<void> deleteChat(String roomId, String messageId) =>
+      _api.delete('/live/$roomId/chat/$messageId');
+  Future<void> react(String roomId, int count) =>
+      _api.post('/live/$roomId/reactions', body: {'count': count});
+
+  /// Host only. Locking without a [password] admits nobody new.
+  Future<RoomDetail> setLock(
+    String roomId, {
+    required bool locked,
+    String? password,
+  }) async => RoomDetail.fromJson(
+    (await _api.post(
+      '/live/$roomId/lock',
+      body: {'locked': locked, 'password': password},
+    )).obj('room'),
+  );
   Future<Json> end(String roomId) async =>
       (await _api.post('/live/$roomId/end')).obj('summary');
   Future<List<UserBrief>> viewers(String roomId) async =>
@@ -173,11 +222,17 @@ class LiveRepository {
       );
   Future<void> requestSeat(String roomId) =>
       _api.post('/live/$roomId/seats/request');
-  Future<List<UserBrief>> seatRequests(String roomId) async =>
+  Future<void> cancelSeatRequest(String roomId) =>
+      _api.delete('/live/$roomId/seats/request');
+  Future<List<SeatRequest>> seatRequests(String roomId) async =>
       (await _api.get('/live/$roomId/seats/requests'))
-          .list('items', (j) => UserBrief.fromJson(j.obj('user')));
+          .list('items', SeatRequest.fromJson);
   Future<void> decideSeat(String roomId, String uid, bool accept) =>
       _api.post('/live/$roomId/seats/requests/$uid', body: {'accept': accept});
+  Future<void> inviteToSeat(String roomId, String uid) =>
+      _api.post('/live/$roomId/seats/invite', body: {'userId': uid});
+  Future<void> respondToSeatInvite(String roomId, bool accept) =>
+      _api.post('/live/$roomId/seats/invite/respond', body: {'accept': accept});
   Future<void> leaveSeat(String roomId) =>
       _api.post('/live/$roomId/seats/leave');
   Future<void> manageSeat(String roomId, int index, String action) =>
@@ -203,7 +258,15 @@ class LiveRepository {
   );
   Future<void> pkRespond(String battleId, bool accept) =>
       _api.post('/pk/$battleId/respond', body: {'accept': accept});
+  Future<void> pkCancel(String battleId) => _api.post('/pk/$battleId/cancel');
   Future<void> pkEnd(String battleId) => _api.post('/pk/$battleId/end');
+  Future<void> pkNextRound(String battleId) =>
+      _api.post('/pk/$battleId/next-round');
+  Future<List<PkCandidate>> pkHosts({String tab = 'all'}) async =>
+      (await _api.get(
+        '/pk/hosts',
+        query: {'tab': tab},
+      )).list('items', PkCandidate.fromJson);
 
   Future<Json> history(String uid, {int page = 1}) =>
       _api.get('/users/$uid/live-history', query: {'page': page});

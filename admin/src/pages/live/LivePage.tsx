@@ -31,7 +31,13 @@ type AdminRoom = LiveRoom & { endReason: string | null; giftCount: number; durat
 interface RoomDetail {
   room: LiveRoom & {
     livekitRoom: string;
-    seats: { index: number; user: Brief | null; muted: boolean; locked: boolean }[];
+    seats: {
+      index: number;
+      user: Brief | null;
+      muted: boolean;
+      videoMuted: boolean;
+      locked: boolean;
+    }[];
     moderatorIds: string[];
   };
   viewers: Brief[];
@@ -108,6 +114,7 @@ export function LivePage() {
                   <Space size={4}>
                     <Tag>{r.type}</Tag>
                     {r.pkBattleId && <Tag color="volcano">PK</Tag>}
+                    {r.locked && <Tag>{r.hasPassword ? 'locked · password' : 'locked'}</Tag>}
                   </Space>
                 </div>
               </Space>
@@ -209,6 +216,7 @@ export function LivePage() {
                   extra={
                     <Space>
                       {s.muted && <Tag>muted</Tag>}
+                      {s.videoMuted && <Tag>camera off</Tag>}
                       {s.locked && <Tag>locked</Tag>}
                     </Space>
                   }

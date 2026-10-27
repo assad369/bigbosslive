@@ -85,6 +85,13 @@ describe('live rooms', () => {
     await webhook('participant_joined', livekitRoom, 'host'); // host is not a viewer
     let room = await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) });
     expect(room).toMatchObject({ viewerCount: 2, peakViewers: 2 });
+    // Each first join is announced once with the live count and top viewers.
+    const joins = h.livekit
+      .topics('bb.system')
+      .map((d) => d.payload as { kind: string; joined: { id: string } | null; count: number })
+      .filter((p) => p.kind === 'viewers');
+    expect(joins.map((p) => p.joined?.id ?? null)).toEqual(['viewer', null, 'mod']);
+    expect(joins.at(-1)!.count).toBe(2);
     await webhook('participant_left', livekitRoom, 'mod');
     await webhook('participant_left', livekitRoom, 'mod');
     room = await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) });
@@ -147,19 +154,245 @@ describe('live rooms', () => {
       .set(h.as('host'))
       .send({ accept: true });
     expect(accept.body).toEqual({ seated: true, index: 1 });
-    expect(h.livekit.permissions.at(-1)).toEqual({
+    expect(h.livekit.permissions.at(-1)).toMatchObject({
       room: livekitRoom,
       identity: 'viewer',
       canPublish: true,
+      metadata: { role: 'guest' },
     });
     const rejoin = await h.api.post(`/v1/live/${roomId}/join`).set(h.as('viewer'));
     expect(rejoin.body.credentials.role).toBe('guest');
     await h.api.post(`/v1/live/${roomId}/seats/leave`).set(h.as('viewer')).expect(204);
-    expect(h.livekit.permissions.at(-1)).toEqual({
+    expect(h.livekit.permissions.at(-1)).toMatchObject({
       room: livekitRoom,
       identity: 'viewer',
       canPublish: false,
+      metadata: { role: 'audience' },
     });
+  });
+
+  it('invites a viewer to a seat; host mutes are enforced on the SFU', async () => {
+    await h.api
+      .post(`/v1/live/${roomId}/seats/invite`)
+      .set(h.as('mod'))
+      .send({ userId: 'viewer' })
+      .expect(202);
+    const invite = h.livekit.topics('bb.seats').at(-1)!;
+    expect(invite.identities).toEqual(['viewer']);
+    expect(invite.payload).toMatchObject({ kind: 'invite', from: { uid: 'mod' } });
+    const seated = await h.api
+      .post(`/v1/live/${roomId}/seats/invite/respond`)
+      .set(h.as('viewer'))
+      .send({ accept: true });
+    expect(seated.body).toEqual({ seated: true, index: 1 });
+
+    await h.api
+      .post(`/v1/live/${roomId}/seats/1`)
+      .set(h.as('host'))
+      .send({ action: 'mute' })
+      .expect(204);
+    await h.api
+      .post(`/v1/live/${roomId}/seats/1`)
+      .set(h.as('host'))
+      .send({ action: 'camera_off' })
+      .expect(204);
+    expect(h.livekit.mutes.slice(-2)).toEqual([
+      { room: livekitRoom, identity: 'viewer', kind: 'audio', muted: true },
+      { room: livekitRoom, identity: 'viewer', kind: 'video', muted: true },
+    ]);
+    const detail = await h.api.get(`/v1/live/${roomId}`).set(h.as('viewer'));
+    expect(detail.body.room.seats[1]).toMatchObject({
+      userId: 'viewer',
+      muted: true,
+      videoMuted: true,
+    });
+    // The host seat is off limits.
+    expect(
+      (await h.api.post(`/v1/live/${roomId}/seats/0`).set(h.as('mod')).send({ action: 'mute' }))
+        .status,
+    ).toBe(400);
+    await h.api
+      .post(`/v1/live/${roomId}/seats/1`)
+      .set(h.as('mod'))
+      .send({ action: 'remove' })
+      .expect(204);
+  });
+
+  it('sizes the video stage from config', async () => {
+    const detail = await h.api.get(`/v1/live/${roomId}`).set(h.as('viewer'));
+    expect(detail.body.room.seats).toHaveLength(9);
+  });
+
+  it('keeps chat for replies, voice notes from our bucket, and moderator deletes', async () => {
+    const first = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as('host'))
+      .send({ type: 'text', text: 'Welcome everyone' });
+    const reply = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as('viewer'))
+      .send({ type: 'text', text: 'thanks!', replyToId: first.body.message.id });
+    expect(reply.status).toBe(201);
+    expect(reply.body.message.replyTo).toEqual({
+      id: first.body.message.id,
+      userId: 'host',
+      displayName: 'Golden Host',
+      text: 'Welcome everyone',
+    });
+    expect(reply.body.message.user.role).toBe('audience');
+
+    const foreign = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as('viewer'))
+      .send({ type: 'voice', voiceUrl: 'https://evil.test/voice/viewer/a.m4a', durationSec: 5 });
+    expect(foreign.status).toBe(400);
+    const notMine = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as('viewer'))
+      .send({ type: 'voice', voiceUrl: 'https://cdn.test/voice/host/a.m4a', durationSec: 5 });
+    expect(notMine.status).toBe(400);
+    const voice = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as('viewer'))
+      .send({ type: 'voice', voiceUrl: 'https://cdn.test/voice/viewer/abc-1.m4a', durationSec: 7 });
+    expect(voice.status).toBe(201);
+    expect(voice.body.message.voice).toEqual({
+      url: 'https://cdn.test/voice/viewer/abc-1.m4a',
+      durationSec: 7,
+    });
+
+    // Viewers cannot delete other people's messages; moderators can.
+    expect(
+      (await h.api.delete(`/v1/live/${roomId}/chat/${first.body.message.id}`).set(h.as('viewer')))
+        .status,
+    ).toBe(403);
+    await h.api
+      .delete(`/v1/live/${roomId}/chat/${voice.body.message.id}`)
+      .set(h.as('mod'))
+      .expect(204);
+    expect(h.livekit.topics('bb.system').at(-1)!.payload).toEqual({
+      kind: 'chat_deleted',
+      id: voice.body.message.id,
+    });
+    // A deleted message cannot be replied to.
+    const late = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as('host'))
+      .send({ type: 'text', text: 'hm', replyToId: voice.body.message.id });
+    expect(late.status).toBe(404);
+  });
+
+  it('fans out heart reactions with a per-user rate limit', async () => {
+    for (let i = 0; i < 10; i++) {
+      await h.api
+        .post(`/v1/live/${roomId}/reactions`)
+        .set(h.as('viewer'))
+        .send({ count: 3 })
+        .expect(204);
+    }
+    expect(h.livekit.topics('bb.reaction').at(-1)!.payload).toEqual({ uid: 'viewer', count: 3 });
+    const limited = await h.api
+      .post(`/v1/live/${roomId}/reactions`)
+      .set(h.as('viewer'))
+      .send({ count: 1 });
+    expect(limited.status).toBe(429);
+  });
+
+  it('locks the room: new viewers need the password; staff and moderators pass', async () => {
+    await h.user('newcomer');
+    await h.user('staff');
+    expect(
+      (await h.api.post(`/v1/live/${roomId}/lock`).set(h.as('mod')).send({ locked: true })).status,
+    ).toBe(404);
+    const locked = await h.api
+      .post(`/v1/live/${roomId}/lock`)
+      .set(h.as('host'))
+      .send({ locked: true, password: '4321' });
+    expect(locked.body.room).toMatchObject({ locked: true, hasPassword: true });
+    expect(h.livekit.topics('bb.system').at(-1)!.payload).toEqual({
+      kind: 'lock',
+      locked: true,
+      hasPassword: true,
+    });
+    const stored = await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) });
+    expect(stored!.passwordHash).not.toContain('4321');
+
+    const list = await h.api.get('/v1/live').set(h.as('newcomer'));
+    expect(list.body.items[0]).toMatchObject({ locked: true, hasPassword: true });
+
+    const blocked = await h.api.post(`/v1/live/${roomId}/join`).set(h.as('newcomer'));
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toMatchObject({
+      code: 'room_locked',
+      details: { hasPassword: true },
+    });
+    const wrong = await h.api
+      .post(`/v1/live/${roomId}/join`)
+      .set(h.as('newcomer'))
+      .send({ password: '0000' });
+    expect(wrong.body.error.code).toBe('wrong_password');
+    await h.api
+      .post(`/v1/live/${roomId}/join`)
+      .set(h.as('newcomer'))
+      .send({ password: '4321' })
+      .expect(200);
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('mod')).expect(200);
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('staff', 'moderator')).expect(200);
+
+    // Without a password the lock is absolute for ordinary viewers.
+    await h.api
+      .post(`/v1/live/${roomId}/lock`)
+      .set(h.as('host'))
+      .send({ locked: true })
+      .expect(200);
+    const noPw = await h.api
+      .post(`/v1/live/${roomId}/join`)
+      .set(h.as('newcomer'))
+      .send({ password: '4321' });
+    expect(noPw.body.error).toMatchObject({
+      code: 'room_locked',
+      details: { hasPassword: false },
+    });
+    const unlocked = await h.api
+      .post(`/v1/live/${roomId}/lock`)
+      .set(h.as('host'))
+      .send({ locked: false, password: '1111' });
+    expect(unlocked.body.room).toMatchObject({ locked: false, hasPassword: false });
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('newcomer')).expect(200);
+  });
+
+  it('caps password guesses per user', async () => {
+    await h.ctx.services.live.setLock(new ObjectId(roomId), 'host', true, '9999');
+    let last = 0;
+    for (let i = 0; i < 11; i++) {
+      last = (
+        await h.api.post(`/v1/live/${roomId}/join`).set(h.as('troll')).send({ password: '1234' })
+      ).status;
+    }
+    expect(last).toBe(429);
+    await h.ctx.services.live.setLock(new ObjectId(roomId), 'host', false, null);
+  });
+
+  it('revoking a moderator updates their role; kicking one also revokes it', async () => {
+    await h.api
+      .post(`/v1/live/${roomId}/moderators`)
+      .set(h.as('host'))
+      .send({ userId: 'newcomer', enabled: true })
+      .expect(204);
+    let detail = await h.api.get(`/v1/live/${roomId}`).set(h.as('host'));
+    expect(detail.body.room.moderators.map((m: { id: string }) => m.id)).toContain('newcomer');
+    expect(h.livekit.permissions.at(-1)).toMatchObject({
+      identity: 'newcomer',
+      canPublish: false,
+      metadata: { role: 'moderator' },
+    });
+    await h.api
+      .post(`/v1/live/${roomId}/kick`)
+      .set(h.as('host'))
+      .send({ userId: 'newcomer', banMinutes: 1 })
+      .expect(204);
+    detail = await h.api.get(`/v1/live/${roomId}`).set(h.as('host'));
+    expect(detail.body.room.moderatorIds).not.toContain('newcomer');
   });
 
   it('ends the room, books live time and returns a summary', async () => {

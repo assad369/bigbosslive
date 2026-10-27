@@ -18,10 +18,10 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { LockOutlined, PlusOutlined, UnlockOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ADMIN_ROLES } from '@bigboss/shared';
-import { get, send } from '../../lib/api';
+import { ADMIN_ROLES, type StorageSettingsInput, type StorageSettingsView } from '@bigboss/shared';
+import { ApiError, get, send } from '../../lib/api';
 import { ago, dateTime } from '../../lib/format';
 import { ActionButton, PageHeader } from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
@@ -40,10 +40,14 @@ const LABELS: Record<string, string> = {
   maxGiftQuantity: 'Max gift quantity per send',
   staleAfterSec: 'Close lives with no heartbeat after (s)',
   audioSeatCount: 'Audio room seats',
+  videoSeatCount: 'People on a video stage, host included (2–13)',
   seatRequestTtlSec: 'Seat request expiry (s)',
   followerPushOnGoLive: 'Push followers when a host goes live',
   inviteTtlSec: 'PK invitation expiry (s)',
-  durationsSec: 'PK durations (seconds)',
+  durationsSec: 'PK round lengths (seconds)',
+  maxRounds: 'PK rounds (best of N)',
+  leadInSec: 'PK countdown before each round (s)',
+  pauseTimeoutSec: 'PK ends if no next round within (s)',
   blockContactInfo: 'Block phone numbers / links in user text',
   blockedWords: 'Extra blocked words',
   maintenanceMessage: 'Maintenance message',
@@ -153,6 +157,188 @@ function Section({ k, value }: { k: string; value: Record<string, unknown> }) {
   );
 }
 
+// ── Storage (R2) ───────────────────────────────────────────────────────────────
+
+const SOURCE_TAG: Record<StorageSettingsView['source'], { color: string; label: string }> = {
+  database: { color: 'green', label: 'Saved from dashboard' },
+  env: { color: 'blue', label: 'From server env (S3_*)' },
+  none: { color: 'red', label: 'Not configured — uploads disabled' },
+};
+
+const passcodeError = (e: Error) =>
+  e instanceof ApiError && e.status === 429
+    ? 'Too many wrong passcodes — try again in 15 minutes'
+    : e.message;
+
+/**
+ * Credentials sit behind a second passcode, checked by the server on every call. The code is
+ * kept in component state only, so leaving the page or pressing Lock forgets it.
+ */
+function StorageSettings() {
+  const [form] = Form.useForm<StorageSettingsInput>();
+  const { message } = App.useApp();
+  const [entry, setEntry] = useState('');
+  const [unlocked, setUnlocked] = useState<{ code: string; view: StorageSettingsView } | null>(
+    null,
+  );
+  const headers = unlocked ? { 'X-Admin-Passcode': unlocked.code } : undefined;
+  const lock = () => {
+    setUnlocked(null);
+    setEntry('');
+    form.resetFields();
+  };
+  const show = (code: string, view: StorageSettingsView) => {
+    setUnlocked({ code, view });
+    form.setFieldsValue({ ...view, secretAccessKey: undefined });
+  };
+  const onError = (e: Error) => {
+    message.error(passcodeError(e));
+    if (e instanceof ApiError && (e.status === 403 || e.status === 429)) lock();
+  };
+
+  const unlock = useMutation({
+    mutationFn: (code: string) =>
+      get<StorageSettingsView>('/admin/storage', undefined, { 'X-Admin-Passcode': code }),
+    onSuccess: (view, code) => show(code, view),
+    onError: (e: Error) => message.error(passcodeError(e)),
+  });
+  const save = useMutation({
+    mutationFn: (v: StorageSettingsInput) =>
+      send<StorageSettingsView>(
+        'put',
+        '/admin/storage',
+        { ...v, secretAccessKey: v.secretAccessKey || undefined },
+        headers,
+      ),
+    onSuccess: (view) => {
+      message.success('Storage settings saved — live within ~30 seconds');
+      show(unlocked!.code, view);
+    },
+    onError,
+  });
+  const test = useMutation({
+    mutationFn: () => send('post', '/admin/storage/test', undefined, headers),
+    onSuccess: () => message.success('Connected — the bucket is reachable'),
+    onError,
+  });
+  const revert = () =>
+    send<StorageSettingsView>('delete', '/admin/storage', undefined, headers).then((view) =>
+      show(unlocked!.code, view),
+    );
+
+  if (!unlocked) {
+    return (
+      <Space.Compact style={{ maxWidth: 360 }}>
+        <Input.Password
+          placeholder="Passcode"
+          inputMode="numeric"
+          maxLength={32}
+          autoComplete="off"
+          prefix={<LockOutlined />}
+          value={entry}
+          onChange={(e) => setEntry(e.target.value)}
+          onPressEnter={() => entry && unlock.mutate(entry)}
+        />
+        <Button
+          type="primary"
+          icon={<UnlockOutlined />}
+          loading={unlock.isPending}
+          disabled={!entry}
+          onClick={() => unlock.mutate(entry)}
+        >
+          Unlock
+        </Button>
+      </Space.Compact>
+    );
+  }
+
+  const { view } = unlocked;
+  const source = SOURCE_TAG[view.source];
+  return (
+    <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
+      <Space style={{ marginBottom: 16 }}>
+        <Tag color={source.color}>{source.label}</Tag>
+        {view.updatedAt && (
+          <Typography.Text type="secondary">Updated {ago(view.updatedAt)}</Typography.Text>
+        )}
+      </Space>
+      <Row gutter={24}>
+        <Col xs={24} md={12}>
+          <Form.Item
+            name="accountId"
+            label="Cloudflare account ID"
+            extra="Endpoint: https://<account id>.r2.cloudflarestorage.com"
+            rules={[{ required: true }]}
+          >
+            <Input autoComplete="off" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={12}>
+          <Form.Item name="bucket" label="Bucket" rules={[{ required: true }]}>
+            <Input autoComplete="off" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={12}>
+          <Form.Item name="accessKeyId" label="Access key ID" rules={[{ required: true }]}>
+            <Input autoComplete="off" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={12}>
+          <Form.Item
+            name="secretAccessKey"
+            label="Secret access key"
+            // Only a secret saved from the dashboard can be kept; env values are never copied.
+            extra={
+              view.source === 'database' ? 'Leave blank to keep the current secret' : undefined
+            }
+            rules={[{ required: view.source !== 'database' }]}
+          >
+            <Input.Password
+              autoComplete="new-password"
+              placeholder={view.secretHint ?? 'Paste the R2 API token secret'}
+            />
+          </Form.Item>
+        </Col>
+        <Col xs={24}>
+          <Form.Item
+            name="publicBaseUrl"
+            label="Public base URL"
+            extra="Custom domain or r2.dev URL that serves the bucket, e.g. https://media.example.com"
+            rules={[{ required: true, type: 'url' }]}
+          >
+            <Input autoComplete="off" />
+          </Form.Item>
+        </Col>
+      </Row>
+      <Space wrap>
+        <Button type="primary" htmlType="submit" loading={save.isPending}>
+          Save storage
+        </Button>
+        <Button
+          loading={test.isPending}
+          disabled={view.source === 'none'}
+          onClick={() => test.mutate()}
+        >
+          Test saved connection
+        </Button>
+        {view.source === 'database' && (
+          <ActionButton
+            label="Revert to env"
+            size="middle"
+            danger
+            confirm="Remove the dashboard settings and use the server's S3_* env variables?"
+            run={revert}
+            success="Reverted to server env"
+          />
+        )}
+        <Button icon={<LockOutlined />} onClick={lock}>
+          Lock
+        </Button>
+      </Space>
+    </Form>
+  );
+}
+
 export function SettingsPage() {
   const q = useQuery({ queryKey: ['config'], queryFn: () => get<Config>('/admin/config') });
   return (
@@ -166,16 +352,31 @@ export function SettingsPage() {
         <Card variant="borderless">
           <Tabs
             tabPlacement="top"
-            items={SECTIONS.filter((s) => q.data[s.key]).map((s) => ({
-              key: s.key,
-              label: s.title,
-              children: (
-                <>
-                  <Typography.Paragraph type="secondary">{s.help}</Typography.Paragraph>
-                  <Section k={s.key} value={q.data[s.key]!} />
-                </>
-              ),
-            }))}
+            items={[
+              ...SECTIONS.filter((s) => q.data[s.key]).map((s) => ({
+                key: s.key,
+                label: s.title,
+                children: (
+                  <>
+                    <Typography.Paragraph type="secondary">{s.help}</Typography.Paragraph>
+                    <Section k={s.key} value={q.data[s.key]!} />
+                  </>
+                ),
+              })),
+              {
+                key: 'storage',
+                label: 'Storage (R2)',
+                children: (
+                  <>
+                    <Typography.Paragraph type="secondary">
+                      Cloudflare R2 bucket used for every upload. Protected by a passcode; the
+                      secret is never shown again after saving.
+                    </Typography.Paragraph>
+                    <StorageSettings />
+                  </>
+                ),
+              },
+            ]}
           />
         </Card>
       )}

@@ -40,6 +40,8 @@ const EnvSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_PUBLIC_BASE_URL: z.string().optional(),
+  /** Second factor for viewing or changing storage credentials in the admin dashboard. */
+  STORAGE_SETTINGS_PASSCODE: z.string().min(4).default('9797'),
 
   // In-app purchases (diamond recharge). Leave unset to disable a store.
   GOOGLE_PLAY_PACKAGE_NAME: z.string().optional(),

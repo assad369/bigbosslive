@@ -12,16 +12,18 @@ import 'live_room_controller.dart';
 typedef LiveControllerFactory = LiveRoomController Function({
   required String roomId,
   LiveSession? hostSession,
+  String? password,
 });
 
 /// Overridable in tests, where a real LiveKit [Room] can't connect.
 final liveControllerFactoryProvider = Provider<LiveControllerFactory>(
   (ref) =>
-      ({required roomId, hostSession}) => LiveRoomController(
+      ({required roomId, hostSession, password}) => LiveRoomController(
         roomId: roomId,
         myUid: ref.read(meProvider).id,
         repo: ref.read(liveRepo),
         hostSession: hostSession,
+        password: password,
       ),
 );
 
@@ -82,7 +84,11 @@ class ActiveLiveNotifier extends Notifier<ActiveLive?> {
   /// The controller for [roomId]. Reuses the active one when it is the same room, so
   /// re-opening a minimized live restores it without rejoining. Returns null while the
   /// user is hosting a different live: one session at a time, and a host can't leave theirs.
-  LiveRoomController? attach(String roomId, {LiveSession? hostSession}) {
+  LiveRoomController? attach(
+    String roomId, {
+    LiveSession? hostSession,
+    String? password,
+  }) {
     final cur = _current;
     if (cur != null && cur.roomId == roomId) {
       _set(ActiveLive(cur.controller));
@@ -97,6 +103,7 @@ class ActiveLiveNotifier extends Notifier<ActiveLive?> {
     final c = ref.read(liveControllerFactoryProvider)(
       roomId: roomId,
       hostSession: hostSession,
+      password: password,
     );
     c.addListener(_onControllerChanged);
     _set(ActiveLive(c));

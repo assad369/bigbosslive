@@ -45,6 +45,23 @@ export const PK_STATUSES = [
 ] as const;
 export type PkStatus = (typeof PK_STATUSES)[number];
 
+/** `live` = a round is being scored; `paused` = between rounds, waiting for a host to start the next. */
+export const PK_ROUND_STATES = ['live', 'paused'] as const;
+export type PkRoundState = (typeof PK_ROUND_STATES)[number];
+
+export const PK_END_REASONS = [
+  'completed',
+  'timeout',
+  'host_ended',
+  'host_left',
+  'admin',
+  'forfeit',
+] as const;
+export type PkEndReason = (typeof PK_END_REASONS)[number];
+
+/** Most people on a video stage (host included). The configurable seat count is capped by this. */
+export const MAX_VIDEO_SEATS = 13;
+
 export const GAME_KEYS = ['golden_wheel', 'teen_patti', 'fortune_ferris'] as const;
 export type GameKey = (typeof GAME_KEYS)[number];
 
@@ -170,6 +187,9 @@ export const LIVEKIT_TOPICS = {
   pkRejected: 'bb.pk.rejected',
   pkCancelled: 'bb.pk.cancelled',
   pkExpired: 'bb.pk.expired',
+  pkRoundEnded: 'bb.pk.round_ended',
+  pkRoundStarted: 'bb.pk.round_started',
+  reaction: 'bb.reaction',
   entry: 'bb.entry',
   roomEnded: 'bb.room.ended',
 } as const;

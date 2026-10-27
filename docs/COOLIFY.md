@@ -83,6 +83,10 @@ The API uses multi-document transactions, so it needs a replica set. Every Atlas
 
 ### Object storage (R2 / S3)
 
+R2 credentials can also be set from the admin dashboard (Settings → Storage (R2), passcode
+`STORAGE_SETTINGS_PASSCODE`). Saved values override the `S3_*` env vars within ~30 seconds, with
+no redeploy; "Revert to env" goes back to them.
+
 Create the bucket, a public CDN domain (`S3_PUBLIC_BASE_URL`), and a CORS rule that allows `PUT`
 and `GET` (uploads go straight from the apps and the admin dashboard by presigned URL). The admin
 dashboard uploads from the browser, so its origin must be listed, and the signed `Cache-Control`
@@ -167,7 +171,8 @@ regardless (`npm ci --include=dev`).
 | `LIVEKIT_URL` | `wss://<project>.livekit.cloud` |
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | from LiveKit Cloud |
 | `LIVEKIT_TOKEN_TTL_SECONDS` | `21600` |
-| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` | storage credentials (`S3_REGION=auto` for R2) |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` | storage credentials (`S3_REGION=auto` for R2); overridden by dashboard settings |
+| `STORAGE_SETTINGS_PASSCODE` | passcode for Settings → Storage (R2) in the dashboard (default `9797`) |
 | `GOOGLE_PLAY_PACKAGE_NAME` | `com.bigbosslive.app` |
 | `APPLE_BUNDLE_ID`, `APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY_BASE64`, `APPLE_ENVIRONMENT` | App Store Server API (`base64 -i AuthKey_XXX.p8 \| tr -d '\n'`) |
 | `JOBS_ENABLED` | `true` |

@@ -388,6 +388,9 @@ export function PkBattlesPage() {
                       {h.displayName}
                     </Typography.Text>
                     <Tag>{num(h.score)}</Tag>
+                    {b.maxRounds > 1 && (
+                      <Typography.Text type="secondary">{h.roundsWon} rounds</Typography.Text>
+                    )}
                   </Space>
                 ))}
               </Space>
@@ -395,14 +398,23 @@ export function PkBattlesPage() {
           },
           { title: 'Status', dataIndex: 'status', render: (s: string) => <StatusTag status={s} /> },
           {
-            title: 'Duration',
-            dataIndex: 'durationSec',
-            render: (s: number) => `${Math.round(s / 60)} min`,
+            title: 'Rounds',
+            key: 'rounds',
+            render: (_, b) =>
+              `${b.status === 'pending' ? 0 : b.round}/${b.maxRounds} × ${Math.round(b.durationSec / 60)} min`,
           },
           {
             title: 'Result',
             key: 'res',
-            render: (_, b) => (b.status === 'ended' ? (b.isDraw ? 'Draw' : 'Decided') : '—'),
+            render: (_, b) =>
+              b.status === 'ended' ? (
+                <Space>
+                  {b.isDraw ? 'Draw' : 'Decided'}
+                  {b.endReason && <StatusTag status={b.endReason} />}
+                </Space>
+              ) : (
+                '—'
+              ),
           },
           { title: 'Started', dataIndex: 'startedAt', render: dateTime },
           {

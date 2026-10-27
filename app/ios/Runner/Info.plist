@@ -27,7 +27,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>BigBoss Live uses your camera when you go live or join a guest seat.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>BigBoss Live uses your microphone when you go live, speak on a seat or join a party room.</string>
+	<string>BigBoss Live uses your microphone when you go live, speak on a seat, join a party room or record a voice message.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose photos for your profile, live cover, moments and messages.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>

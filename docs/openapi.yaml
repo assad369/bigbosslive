@@ -168,6 +168,8 @@ components:
         peakViewers: { type: integer }
         giftBeans: { type: integer }
         pkBattleId: { type: [string, 'null'] }
+        locked: { type: boolean, description: No new viewers may join }
+        hasPassword: { type: boolean, description: A locked room admits viewers with the password }
         startedAt: { type: string, format: date-time }
     LiveSession:
       type: object
@@ -179,6 +181,7 @@ components:
               properties:
                 livekitRoom: { type: string }
                 moderatorIds: { type: array, items: { type: string } }
+                moderators: { type: array, items: { $ref: '#/components/schemas/UserBrief' } }
                 seats:
                   type: array
                   items:
@@ -188,6 +191,7 @@ components:
                       user:
                         { oneOf: [{ $ref: '#/components/schemas/UserBrief' }, { type: 'null' }] }
                       muted: { type: boolean }
+                      videoMuted: { type: boolean }
                       locked: { type: boolean }
         credentials:
           type: object
@@ -229,14 +233,38 @@ components:
             properties:
               uid: { type: string }
               roomId: { type: string }
-              score: { type: integer }
+              score: { type: integer, description: Total over all rounds }
+              roundScore: { type: integer }
+              roundsWon: { type: integer }
               displayName: { type: string }
               avatarUrl: { type: [string, 'null'] }
-        durationSec: { type: integer }
+        invitedBy: { type: string }
+        durationSec: { type: integer, description: Length of each round }
+        round: { type: integer }
+        maxRounds: { type: integer }
+        roundState: { type: [string, 'null'], enum: [live, paused, null] }
+        scoringOpensAt: { type: [string, 'null'], format: date-time }
+        endsAt: { type: [string, 'null'], format: date-time, description: End of the current round }
+        pausedUntil: { type: [string, 'null'], format: date-time }
+        rounds:
+          type: array
+          items:
+            type: object
+            properties:
+              round: { type: integer }
+              scores: { type: array, items: { type: integer } }
+              winnerUid: { type: [string, 'null'] }
+        inviteExpiresAt: { type: [string, 'null'], format: date-time }
         startedAt: { type: [string, 'null'], format: date-time }
-        endsAt: { type: [string, 'null'], format: date-time }
+        endedAt: { type: [string, 'null'], format: date-time }
         winnerUid: { type: [string, 'null'] }
         isDraw: { type: boolean }
+        endReason:
+          {
+            type: [string, 'null'],
+            enum: [completed, timeout, host_ended, host_left, admin, forfeit, null],
+          }
+        serverTime: { type: string, format: date-time }
     GameRound:
       type: object
       properties:
@@ -627,7 +655,23 @@ paths:
       {
         tags: [Live],
         summary: Join and get a LiveKit token,
+        description: 'A locked room returns 403 room_locked (details.hasPassword) unless the caller is staff, a room admin or seated; with a password, 403 wrong_password on a miss. Password attempts are rate limited.',
         parameters: [{ $ref: '#/components/parameters/Id' }],
+        requestBody:
+          {
+            required: false,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        type: object,
+                        properties: { password: { type: string, pattern: '^\\d{4,6}$' } },
+                      },
+                  },
+              },
+          },
         responses:
           {
             '200':
@@ -657,6 +701,7 @@ paths:
       {
         tags: [Live],
         summary: Moderated in-room chat (rate limited),
+        description: "Text, or a voice message uploaded with kind=voice (the URL must be the sender's own upload). replyToId must be a message in this room.",
         parameters: [{ $ref: '#/components/parameters/Id' }],
         requestBody:
           {
@@ -665,12 +710,53 @@ paths:
                 application/json:
                   {
                     schema:
-                      { type: object, properties: { text: { type: string, maxLength: 300 } } },
+                      {
+                        type: object,
+                        properties:
+                          {
+                            type: { type: string, enum: [text, voice] },
+                            text: { type: string, maxLength: 300 },
+                            voiceUrl: { type: string },
+                            durationSec: { type: integer, minimum: 1, maximum: 60 },
+                            replyToId: { type: string },
+                          },
+                      },
                   },
               },
           },
         responses:
           { '201': { description: Sent }, '422': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/live/{id}/chat/{messageId}:
+    delete:
+      {
+        tags: [Live],
+        summary: Delete a chat message for everyone (author,
+        host,
+        room admin or staff),
+        parameters:
+          [
+            { $ref: '#/components/parameters/Id' },
+            { name: messageId, in: path, required: true, schema: { type: string } },
+          ],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/live/{id}/reactions:
+    post:
+      {
+        tags: [Live],
+        summary: Send heart reactions (count 1–20,
+        rate limited),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/live/{id}/lock:
+    post:
+      {
+        tags: [Live],
+        summary: 'Lock / unlock the room (host). Body: { locked, password?: 4–6 digits | null }',
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
       }
   /v1/live/{id}/end:
     post:
@@ -712,6 +798,13 @@ paths:
         summary: Request a seat,
         parameters: [{ $ref: '#/components/parameters/Id' }],
         responses: { '202': { description: Requested } },
+      }
+    delete:
+      {
+        tags: [Live],
+        summary: Cancel your seat request,
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
       }
   /v1/live/{id}/seats/requests:
     get:
@@ -761,7 +854,7 @@ paths:
     post:
       {
         tags: [Live],
-        summary: 'Seat action: remove | mute | unmute | lock | unlock',
+        summary: 'Seat action: remove | mute | unmute | camera_off | camera_on | lock | unlock (host/room admin; mutes are enforced on the SFU)',
         parameters:
           [
             { $ref: '#/components/parameters/Id' },
@@ -861,9 +954,24 @@ paths:
     post:
       {
         tags: [Live],
-        summary: End early (forfeit),
+        summary: 'Leave the battle: cancel/decline when pending, settle on rounds won between rounds, forfeit during a round',
         parameters: [{ $ref: '#/components/parameters/Id' }],
         responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/pk/{id}/next-round:
+    post:
+      {
+        tags: [Live],
+        summary: Start the next round from the pause (either host),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/pk/hosts:
+    get:
+      {
+        tags: [Live],
+        summary: 'Opponents for the PK picker (tab: all | friends), busy hosts flagged',
+        responses: { '200': { description: OK } },
       }
   /v1/pk/{id}:
     get:
@@ -1641,6 +1749,36 @@ paths:
         summary: 'Update runtime config: economy | features | app | live | moderation | pk',
         parameters: [{ name: key, in: path, required: true, schema: { type: string } }],
         responses: { '200': { description: OK } },
+      }
+  /v1/admin/storage:
+    parameters: [{ name: X-Admin-Passcode, in: header, required: true, schema: { type: string } }]
+    get:
+      {
+        tags: [Admin],
+        summary: 'Cloudflare R2 settings (config.manage + passcode). The secret is never returned; 5 wrong passcodes per 15 min → 429',
+        responses:
+          { '200': { description: StorageSettingsView }, '403': { description: Wrong passcode } },
+      }
+    put:
+      {
+        tags: [Admin],
+        summary: 'Save R2 settings { accountId, bucket, accessKeyId, secretAccessKey?, publicBaseUrl }; omitted secret keeps the stored one',
+        responses: { '200': { description: StorageSettingsView } },
+      }
+    delete:
+      {
+        tags: [Admin],
+        summary: Remove dashboard settings and fall back to env S3_*,
+        responses: { '200': { description: StorageSettingsView } },
+      }
+  /v1/admin/storage/test:
+    post:
+      {
+        tags: [Admin],
+        summary: HeadBucket with the active settings (config.manage + passcode),
+        parameters:
+          [{ name: X-Admin-Passcode, in: header, required: true, schema: { type: string } }],
+        responses: { '200': { description: OK }, '400': { description: Bucket unreachable } },
       }
   /v1/admin/audit:
     get:

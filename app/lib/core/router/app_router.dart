@@ -124,9 +124,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/go-live', builder: (_, _) => const GoLiveScreen()),
       GoRoute(
         path: '/live/:id',
+        // `extra` is the host's own session right after going live, or the password a
+        // viewer entered for a locked room.
         builder: (_, s) => LiveRoomScreen(
           roomId: s.pathParameters['id']!,
-          hostSession: s.extra as LiveSession?,
+          hostSession: s.extra is LiveSession ? s.extra! as LiveSession : null,
+          password: s.extra is RoomPassword
+              ? (s.extra! as RoomPassword).value
+              : null,
         ),
       ),
       GoRoute(

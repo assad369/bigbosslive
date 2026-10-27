@@ -2,7 +2,7 @@ import { ObjectId, type Filter, type Sort } from 'mongodb';
 import { z } from 'zod';
 import { LIVEKIT_TOPICS, ROOM_TYPES, SOCKET, type RoomType } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
-import type { LiveRoomDoc, SeatDoc } from '../../db/schema.js';
+import type { LiveMessageDoc, LiveRoomDoc, SeatDoc } from '../../db/schema.js';
 import {
   AppError,
   badRequest,
@@ -10,9 +10,12 @@ import {
   isDuplicateKeyError,
   notFound,
 } from '../../lib/errors.js';
+import { hashPassword, verifyPassword } from '../../lib/password.js';
 import { addSeconds } from '../../lib/time.js';
 import { activeVipTier } from '../users/users.presenter.js';
 import { toLiveRoom, toRoomDetail } from './live.presenter.js';
+
+const objectIdHex = z.string().regex(/^[a-f0-9]{24}$/i);
 
 export const startLiveInput = z.object({
   type: z.enum(ROOM_TYPES).default('video'),
@@ -28,9 +31,31 @@ export const startLiveInput = z.object({
   tags: z.array(z.string().trim().min(1).max(20)).max(5).default([]),
 });
 
-export type LiveRole = 'host' | 'moderator' | 'guest' | 'audience';
+export const roomPassword = z.string().regex(/^\d{4,6}$/, 'Password must be 4–6 digits');
 
-const VIDEO_SEATS = 4;
+export const liveChatInput = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('text'),
+    text: z.string().trim().min(1).max(300),
+    replyToId: objectIdHex.optional(),
+  }),
+  z.object({
+    type: z.literal('voice'),
+    voiceUrl: z.url().max(500),
+    durationSec: z.number().int().min(1).max(60),
+    replyToId: objectIdHex.optional(),
+  }),
+]);
+
+export type LiveRole = 'host' | 'moderator' | 'guest' | 'audience';
+export type SeatAction =
+  'remove' | 'mute' | 'unmute' | 'camera_off' | 'camera_on' | 'lock' | 'unlock';
+
+/** Viewers shown as avatars in the room's top bar. */
+const TOP_VIEWERS = 3;
+
+/** Upload folder for in-room voice messages; a sent voice URL must point into the sender's. */
+export const VOICE_FOLDER = 'voice';
 
 /**
  * Live rooms (video and audio). Mongo holds room state; LiveKit carries media and the data
@@ -57,9 +82,42 @@ export class LiveService {
     const room = await this.get(roomId);
     const briefs = await this.ctx.services.users.briefs([
       room.hostId,
+      ...room.moderatorIds,
       ...room.seats.map((s) => s.userId).filter((u): u is string => Boolean(u)),
     ]);
     return toRoomDetail(room, briefs.get(room.hostId), briefs);
+  }
+
+  roleOf(room: LiveRoomDoc, uid: string): LiveRole {
+    if (room.hostId === uid) return 'host';
+    if (room.seats.some((s) => s.index > 0 && s.userId === uid)) return 'guest';
+    if (room.moderatorIds.includes(uid)) return 'moderator';
+    return 'audience';
+  }
+
+  /** Push the directory card (lock, title, PK badge) to home screens subscribed to `rooms`. */
+  async publishDirectory(roomId: ObjectId): Promise<void> {
+    const room = await this.ctx.col.liveRooms.findOne({ _id: roomId, status: 'live' });
+    if (!room) return;
+    const host = (await this.ctx.services.users.briefs([room.hostId])).get(room.hostId);
+    this.ctx.realtime.toRoom(
+      SOCKET.namespaces.app,
+      'rooms',
+      SOCKET.app.roomUpserted,
+      toLiveRoom(room, host),
+    );
+  }
+
+  /** Re-mint a connected participant's publish grant and role metadata after a role change. */
+  private async syncParticipant(room: LiveRoomDoc, uid: string, role: LiveRole): Promise<void> {
+    const { metadata } = await this.metadataFor(uid, role);
+    await this.ctx.livekit
+      .updateParticipant(room.livekitRoom, uid, {
+        canPublish: role === 'host' || role === 'guest',
+        metadata,
+      })
+      // Not connected right now: the next /join mints a token with the new role.
+      .catch(() => undefined);
   }
 
   private async metadataFor(uid: string, role: LiveRole) {
@@ -119,11 +177,12 @@ export class LiveService {
       ? await this.ctx.services.moderation.assertClean(input.title, 'title')
       : host.displayName.slice(0, 60);
     const liveCfg = await this.ctx.services.config.get('live');
-    const seatCount = input.type === 'audio' ? liveCfg.audioSeatCount : VIDEO_SEATS;
+    const seatCount = input.type === 'audio' ? liveCfg.audioSeatCount : liveCfg.videoSeatCount;
     const seats: SeatDoc[] = Array.from({ length: seatCount }, (_, index) => ({
       index,
       userId: index === 0 ? hostId : null,
       muted: false,
+      videoMuted: false,
       locked: false,
     }));
     const now = this.ctx.clock.now();
@@ -146,6 +205,8 @@ export class LiveService {
       seats,
       pkBattleId: null,
       backgroundUrl: null,
+      locked: false,
+      passwordHash: null,
       startedAt: now,
       lastHeartbeatAt: now,
       endedAt: null,
@@ -165,20 +226,19 @@ export class LiveService {
     await this.ctx.col.users.updateOne({ _id: hostId }, { $set: { liveRoomId: room._id } });
 
     const detail = await this.detail(room._id);
-    this.ctx.realtime.toRoom(
-      SOCKET.namespaces.app,
-      'rooms',
-      SOCKET.app.roomUpserted,
-      toLiveRoom(room, undefined),
-    );
+    await this.publishDirectory(room._id);
     if (liveCfg.followerPushOnGoLive) {
       await this.ctx.jobs.enqueue('push.followers', { hostId, roomId: String(room._id) });
     }
     return { room: detail, credentials: await this.tokenFor(room, hostId, 'host'), resumed: false };
   }
 
-  /** Viewer join: checks bans/blocks, returns a subscribe-only token (publish if seated). */
-  async join(roomId: ObjectId, uid: string) {
+  /**
+   * Viewer join: checks bans, blocks and the room lock, then returns a subscribe-only token
+   * (publish if seated). Staff, moderators and seated guests pass a lock; anyone else needs the
+   * password, when the host set one.
+   */
+  async join(roomId: ObjectId, uid: string, opts: { password?: string; isStaff?: boolean } = {}) {
     const room = await this.getLive(roomId);
     if (room.hostId === uid)
       return {
@@ -196,11 +256,14 @@ export class LiveService {
     if (await this.ctx.services.users.isBlockedEitherWay(uid, room.hostId))
       throw forbidden('You cannot join this live');
 
-    const role: LiveRole = room.seats.some((s) => s.userId === uid)
-      ? 'guest'
-      : room.moderatorIds.includes(uid)
-        ? 'moderator'
-        : 'audience';
+    const role = this.roleOf(room, uid);
+    if (room.locked && role === 'audience' && !opts.isStaff) {
+      const hasPassword = Boolean(room.passwordHash);
+      if (!room.passwordHash || !opts.password)
+        throw new AppError(403, 'room_locked', 'This live is locked', { hasPassword });
+      if (!(await verifyPassword(opts.password, room.passwordHash)))
+        throw new AppError(403, 'wrong_password', 'Wrong password', { hasPassword });
+    }
     const credentials = await this.tokenFor(room, uid, role);
 
     // Entry banner (VIP / entry animation) for everyone in the room.
@@ -243,8 +306,27 @@ export class LiveService {
     await this.broadcastSystem(res, {
       kind: 'room_updated',
       title: res.title,
+      coverUrl: res.coverUrl,
       backgroundUrl: res.backgroundUrl,
     });
+    await this.publishDirectory(roomId);
+    return this.detail(roomId);
+  }
+
+  /**
+   * Host-only room lock. A locked room admits no new viewers; with a password, viewers who know
+   * it still can. People already inside are not affected. Unlocking clears the password.
+   */
+  async setLock(roomId: ObjectId, hostId: string, locked: boolean, password: string | null) {
+    const passwordHash = locked && password ? await hashPassword(password) : null;
+    const res = await this.ctx.col.liveRooms.findOneAndUpdate(
+      { _id: roomId, hostId, status: 'live' },
+      { $set: { locked, passwordHash } },
+      { returnDocument: 'after' },
+    );
+    if (!res) throw notFound('Your live room');
+    await this.broadcastSystem(res, { kind: 'lock', locked, hasPassword: Boolean(passwordHash) });
+    await this.publishDirectory(roomId);
     return this.detail(roomId);
   }
 
@@ -464,6 +546,14 @@ export class LiveService {
       },
       { upsert: true },
     );
+    // A removed moderator loses the role too; otherwise they could rejoin past the lock.
+    if (room.moderatorIds.includes(targetUid)) {
+      await this.ctx.col.liveRooms.updateOne(
+        { _id: room._id },
+        { $pull: { moderatorIds: targetUid } },
+      );
+      await this.broadcastSystem(room, { kind: 'moderator', uid: targetUid, enabled: false });
+    }
     await this.vacateSeatOf(room, targetUid);
     await this.ctx.livekit
       .sendData(room.livekitRoom, LIVEKIT_TOPICS.kick, { uid: targetUid, by: actor.uid })
@@ -489,44 +579,118 @@ export class LiveService {
     }));
   }
 
+  /** Host appoints or removes a room admin (moderator). */
   async setModerator(
     roomId: ObjectId,
     hostId: string,
     uid: string,
     enabled: boolean,
   ): Promise<void> {
-    const res = await this.ctx.col.liveRooms.updateOne(
+    if (uid === hostId) throw badRequest('The host is already in charge');
+    if (enabled) await this.ctx.services.users.get(uid);
+    const room = await this.ctx.col.liveRooms.findOneAndUpdate(
       { _id: roomId, hostId, status: 'live' },
       enabled ? { $addToSet: { moderatorIds: uid } } : { $pull: { moderatorIds: uid } },
+      { returnDocument: 'after' },
     );
-    if (!res.matchedCount) throw notFound('Your live room');
-    const room = await this.get(roomId);
-    await this.broadcastSystem(room, { kind: 'moderator', uid, enabled });
+    if (!room) throw notFound('Your live room');
+    await this.syncParticipant(room, uid, this.roleOf(room, uid));
+    const user = (await this.ctx.services.users.briefs([uid])).get(uid) ?? null;
+    await this.broadcastSystem(room, { kind: 'moderator', uid, enabled, user });
+  }
+
+  private async assertNotBanned(room: LiveRoomDoc, uid: string): Promise<void> {
+    const ban = await this.ctx.col.roomBans.findOne({ hostId: room.hostId, userId: uid });
+    if (ban && (!ban.until || ban.until > this.ctx.clock.now()))
+      throw forbidden('You were removed from this live');
   }
 
   /**
    * In-room chat. Goes through the API (not client-to-client data) so every message is
    * moderated, ban-checked and attributed with server-minted identity, then fanned out on the
-   * LiveKit data channel.
+   * LiveKit data channel. Messages are kept briefly (TTL) so replies, deletes and reports can
+   * reference them.
    */
-  async chat(roomId: ObjectId, uid: string, text: string) {
+  async chat(roomId: ObjectId, uid: string, input: z.infer<typeof liveChatInput>) {
     const room = await this.getLive(roomId);
-    const ban = await this.ctx.col.roomBans.findOne({ hostId: room.hostId, userId: uid });
-    if (ban && (!ban.until || ban.until > this.ctx.clock.now()))
-      throw forbidden('You were removed from this live');
-    const clean = await this.ctx.services.moderation.assertClean(text, 'chat');
-    const { metadata } = await this.metadataFor(
-      uid,
-      room.hostId === uid ? 'host' : room.moderatorIds.includes(uid) ? 'moderator' : 'audience',
-    );
+    await this.assertNotBanned(room, uid);
+    let text = '';
+    let voice: LiveMessageDoc['voice'] = null;
+    if (input.type === 'text') {
+      text = await this.ctx.services.moderation.assertClean(input.text, 'chat');
+    } else {
+      if (!(await this.ctx.storage.isOwnUpload(input.voiceUrl, VOICE_FOLDER, uid)))
+        throw badRequest('Voice messages must be uploaded through the app');
+      voice = { url: input.voiceUrl, durationSec: input.durationSec };
+    }
+    let replyTo: LiveMessageDoc['replyTo'] = null;
+    if (input.replyToId) {
+      const target = await this.ctx.col.liveMessages.findOne({
+        _id: new ObjectId(input.replyToId),
+        roomId,
+        deletedAt: null,
+      });
+      if (!target) throw notFound('Message');
+      const author = (await this.ctx.services.users.briefs([target.userId])).get(target.userId);
+      replyTo = {
+        id: String(target._id),
+        userId: target.userId,
+        displayName: author?.displayName ?? 'User',
+        text: target.type === 'voice' ? '🎤 Voice message' : target.text.slice(0, 80),
+      };
+    }
+    const now = this.ctx.clock.now();
+    const doc: LiveMessageDoc = {
+      _id: new ObjectId(),
+      roomId,
+      userId: uid,
+      type: input.type,
+      text,
+      voice,
+      replyTo,
+      createdAt: now,
+      deletedAt: null,
+    };
+    await this.ctx.col.liveMessages.insertOne(doc);
+    const { metadata } = await this.metadataFor(uid, this.roleOf(room, uid));
     const message = {
-      id: new ObjectId().toHexString(),
-      text: clean,
+      id: String(doc._id),
+      type: doc.type,
+      text,
+      voice,
+      replyTo,
       user: metadata,
-      at: this.ctx.clock.now().toISOString(),
+      at: now.toISOString(),
     };
     await this.ctx.livekit.sendData(room.livekitRoom, LIVEKIT_TOPICS.chat, message);
     return message;
+  }
+
+  /** The author, the host, a room moderator or staff can remove a chat message for everyone. */
+  async deleteChat(
+    roomId: ObjectId,
+    actor: { uid: string; isAdmin: boolean },
+    messageId: ObjectId,
+  ): Promise<void> {
+    const room = await this.getLive(roomId);
+    const msg = await this.ctx.col.liveMessages.findOne({ _id: messageId, roomId });
+    if (!msg) throw notFound('Message');
+    if (msg.userId !== actor.uid) await this.assertCanModerate(room, actor.uid, actor.isAdmin);
+    const res = await this.ctx.col.liveMessages.updateOne(
+      { _id: messageId, deletedAt: null },
+      { $set: { deletedAt: this.ctx.clock.now() } },
+    );
+    if (res.modifiedCount)
+      await this.broadcastSystem(room, { kind: 'chat_deleted', id: String(messageId) });
+  }
+
+  /** Heart reactions. Rate-limited per user at the route; clients coalesce the animation. */
+  async react(roomId: ObjectId, uid: string, count: number): Promise<void> {
+    const room = await this.getLive(roomId);
+    await this.assertNotBanned(room, uid);
+    await this.ctx.livekit
+      .sendData(room.livekitRoom, LIVEKIT_TOPICS.reaction, { uid, count })
+      .catch(() => undefined);
   }
 
   async broadcastSystem(room: LiveRoomDoc, payload: Record<string, unknown>): Promise<void> {
@@ -540,7 +704,22 @@ export class LiveService {
   private async broadcastSeats(roomId: ObjectId): Promise<void> {
     const detail = await this.detail(roomId);
     await this.ctx.livekit
-      .sendData(detail.livekitRoom, LIVEKIT_TOPICS.seats, { seats: detail.seats })
+      .sendData(detail.livekitRoom, LIVEKIT_TOPICS.seats, { kind: 'seats', seats: detail.seats })
+      .catch(() => undefined);
+  }
+
+  /** Seat-request bookkeeping goes to the requester, the host and the room moderators. */
+  private async notifySeatStaff(
+    room: LiveRoomDoc,
+    payload: Record<string, unknown>,
+    extra: string[] = [],
+  ): Promise<void> {
+    await this.ctx.livekit
+      .sendData(room.livekitRoom, LIVEKIT_TOPICS.seats, payload, [
+        room.hostId,
+        ...room.moderatorIds,
+        ...extra,
+      ])
       .catch(() => undefined);
   }
 
@@ -550,19 +729,24 @@ export class LiveService {
       (s) => s.index > 0 && !s.userId && !s.locked && (index === null || s.index === index),
     );
     for (const seat of candidates) {
-      const res = await this.ctx.col.liveRooms.updateOne(
+      const updated = await this.ctx.col.liveRooms.findOneAndUpdate(
         {
           _id: room._id,
           status: 'live',
           'seats.userId': { $ne: uid },
           seats: { $elemMatch: { index: seat.index, userId: null, locked: false } },
         },
-        { $set: { 'seats.$.userId': uid, 'seats.$.muted': false } },
+        {
+          $set: {
+            'seats.$.userId': uid,
+            'seats.$.muted': false,
+            'seats.$.videoMuted': false,
+          },
+        },
+        { returnDocument: 'after' },
       );
-      if (res.modifiedCount) {
-        await this.ctx.livekit
-          .updateParticipantPermissions(room.livekitRoom, uid, true)
-          .catch(() => undefined);
+      if (updated) {
+        await this.syncParticipant(updated, uid, 'guest');
         await this.broadcastSeats(room._id);
         return seat.index;
       }
@@ -571,14 +755,13 @@ export class LiveService {
   }
 
   private async vacateSeatOf(room: LiveRoomDoc, uid: string): Promise<boolean> {
-    const res = await this.ctx.col.liveRooms.updateOne(
+    const updated = await this.ctx.col.liveRooms.findOneAndUpdate(
       { _id: room._id, seats: { $elemMatch: { userId: uid, index: { $gt: 0 } } } },
-      { $set: { 'seats.$.userId': null, 'seats.$.muted': false } },
+      { $set: { 'seats.$.userId': null, 'seats.$.muted': false, 'seats.$.videoMuted': false } },
+      { returnDocument: 'after' },
     );
-    if (!res.modifiedCount) return false;
-    await this.ctx.livekit
-      .updateParticipantPermissions(room.livekitRoom, uid, false)
-      .catch(() => undefined);
+    if (!updated) return false;
+    await this.syncParticipant(updated, uid, this.roleOf(updated, uid));
     await this.broadcastSeats(room._id);
     return true;
   }
@@ -586,28 +769,40 @@ export class LiveService {
   async requestSeat(roomId: ObjectId, uid: string) {
     const room = await this.getLive(roomId);
     if (room.seats.some((s) => s.userId === uid)) throw badRequest('You are already on a seat');
+    await this.assertNotBanned(room, uid);
     const ttl = (await this.ctx.services.config.get('live')).seatRequestTtlSec;
     const now = this.ctx.clock.now();
+    const expiresAt = addSeconds(now, ttl);
     await this.ctx.col.seatRequests.updateOne(
       { roomId, userId: uid, kind: 'request', status: 'pending' },
       {
-        $set: { expiresAt: addSeconds(now, ttl) },
+        $set: { expiresAt },
         $setOnInsert: { roomId, userId: uid, kind: 'request', status: 'pending', createdAt: now },
       },
       { upsert: true },
     );
     const { metadata } = await this.metadataFor(uid, 'audience');
-    await this.ctx.livekit
-      .sendData(room.livekitRoom, LIVEKIT_TOPICS.seats, { kind: 'request', user: metadata }, [
-        room.hostId,
-        ...room.moderatorIds,
-      ])
-      .catch(() => undefined);
+    await this.notifySeatStaff(room, {
+      kind: 'request',
+      user: metadata,
+      expiresAt: expiresAt.toISOString(),
+    });
+    return { expiresAt };
   }
 
-  async seatRequests(roomId: ObjectId, hostId: string) {
+  async cancelSeatRequest(roomId: ObjectId, uid: string): Promise<void> {
     const room = await this.getLive(roomId);
-    if (room.hostId !== hostId && !room.moderatorIds.includes(hostId)) throw forbidden();
+    const res = await this.ctx.col.seatRequests.updateOne(
+      { roomId, userId: uid, kind: 'request', status: 'pending' },
+      { $set: { status: 'cancelled' } },
+    );
+    if (res.modifiedCount)
+      await this.notifySeatStaff(room, { kind: 'request_resolved', uid, accepted: false });
+  }
+
+  async seatRequests(roomId: ObjectId, actorUid: string, actorIsAdmin = false) {
+    const room = await this.getLive(roomId);
+    await this.assertCanModerate(room, actorUid, actorIsAdmin);
     const rows = await this.ctx.col.seatRequests
       .find({
         roomId,
@@ -625,41 +820,62 @@ export class LiveService {
     }));
   }
 
-  /** Host/moderator accepts a pending request (or invites directly when none exists). */
+  /** Host/moderator accepts or rejects a pending request. */
   async decideSeat(
     roomId: ObjectId,
-    actorUid: string,
+    actor: { uid: string; isAdmin: boolean },
     uid: string,
     accept: boolean,
     index: number | null,
   ) {
     const room = await this.getLive(roomId);
-    await this.assertCanModerate(room, actorUid, false);
+    await this.assertCanModerate(room, actor.uid, actor.isAdmin);
     const now = this.ctx.clock.now();
     const req = await this.ctx.col.seatRequests.findOneAndUpdate(
       { roomId, userId: uid, kind: 'request', status: 'pending', expiresAt: { $gt: now } },
       { $set: { status: accept ? 'accepted' : 'rejected' } },
     );
     if (!req) throw notFound('Pending seat request');
-    if (!accept) return { seated: false as const };
-    return { seated: true as const, index: await this.occupySeat(room, uid, index) };
+    if (!accept) {
+      await this.notifySeatStaff(room, { kind: 'request_resolved', uid, accepted: false }, [uid]);
+      return { seated: false as const };
+    }
+    try {
+      const seated = await this.occupySeat(room, uid, index);
+      await this.notifySeatStaff(room, { kind: 'request_resolved', uid, accepted: true }, [uid]);
+      return { seated: true as const, index: seated };
+    } catch (err) {
+      // No free seat: put the request back so it can be accepted once one frees up.
+      await this.ctx.col.seatRequests
+        .updateOne({ _id: req._id, status: 'accepted' }, { $set: { status: 'pending' } })
+        .catch(() => undefined);
+      throw err;
+    }
   }
 
-  async inviteToSeat(roomId: ObjectId, hostUid: string, uid: string) {
+  async inviteToSeat(roomId: ObjectId, actor: { uid: string; isAdmin: boolean }, uid: string) {
     const room = await this.getLive(roomId);
-    await this.assertCanModerate(room, hostUid, false);
+    await this.assertCanModerate(room, actor.uid, actor.isAdmin);
+    if (room.seats.some((s) => s.userId === uid)) throw badRequest('Already on a seat');
     const ttl = (await this.ctx.services.config.get('live')).seatRequestTtlSec;
     const now = this.ctx.clock.now();
+    const expiresAt = addSeconds(now, ttl);
     await this.ctx.col.seatRequests.updateOne(
       { roomId, userId: uid, kind: 'invite', status: 'pending' },
       {
-        $set: { expiresAt: addSeconds(now, ttl) },
+        $set: { expiresAt },
         $setOnInsert: { roomId, userId: uid, kind: 'invite', status: 'pending', createdAt: now },
       },
       { upsert: true },
     );
+    const { metadata } = await this.metadataFor(actor.uid, this.roleOf(room, actor.uid));
     await this.ctx.livekit
-      .sendData(room.livekitRoom, LIVEKIT_TOPICS.seats, { kind: 'invite', from: hostUid }, [uid])
+      .sendData(
+        room.livekitRoom,
+        LIVEKIT_TOPICS.seats,
+        { kind: 'invite', from: metadata, expiresAt: expiresAt.toISOString() },
+        [uid],
+      )
       .catch(() => undefined);
   }
 
@@ -676,7 +892,11 @@ export class LiveService {
       { $set: { status: accept ? 'accepted' : 'rejected' } },
     );
     if (!req) throw notFound('Pending invitation');
-    if (!accept) return { seated: false as const };
+    const { metadata } = await this.metadataFor(uid, 'audience');
+    if (!accept) {
+      await this.notifySeatStaff(room, { kind: 'invite_declined', user: metadata });
+      return { seated: false as const };
+    }
     return { seated: true as const, index: await this.occupySeat(room, uid, null) };
   }
 
@@ -687,32 +907,51 @@ export class LiveService {
 
   async manageSeat(
     roomId: ObjectId,
-    actorUid: string,
+    actor: { uid: string; isAdmin: boolean },
     index: number,
-    action: 'remove' | 'mute' | 'unmute' | 'lock' | 'unlock',
+    action: SeatAction,
   ) {
     const room = await this.getLive(roomId);
-    await this.assertCanModerate(room, actorUid, false);
-    if (index === 0 && action !== 'mute' && action !== 'unmute')
-      throw badRequest('The host seat cannot be changed');
+    await this.assertCanModerate(room, actor.uid, actor.isAdmin);
+    if (index === 0) throw badRequest('The host seat cannot be changed');
     const seat = room.seats.find((s) => s.index === index);
     if (!seat) throw notFound('Seat');
-    if (action === 'remove') {
-      if (seat.userId) await this.vacateSeatOf(room, seat.userId);
-      return;
+    if (
+      seat.userId &&
+      room.moderatorIds.includes(actor.uid) &&
+      room.moderatorIds.includes(seat.userId)
+    )
+      throw forbidden('Moderators cannot manage other moderators');
+    switch (action) {
+      case 'remove':
+        if (seat.userId) await this.vacateSeatOf(room, seat.userId);
+        return;
+      case 'lock':
+        if (seat.userId) await this.vacateSeatOf(room, seat.userId);
+        break;
+      case 'mute':
+      case 'unmute':
+      case 'camera_off':
+      case 'camera_on': {
+        if (!seat.userId) throw badRequest('The seat is empty');
+        const audio = action === 'mute' || action === 'unmute';
+        const muted = action === 'mute' || action === 'camera_off';
+        // Enforced on the SFU. Unmuting stays with the guest (LiveKit only lets a server unmute
+        // when remote unmute is enabled), whose client re-enables the track when the flag clears.
+        if (muted) {
+          await this.ctx.livekit
+            .muteTracks(room.livekitRoom, seat.userId, audio ? 'audio' : 'video', true)
+            .catch((err: unknown) => this.ctx.log.warn({ err }, 'seat mute failed'));
+        }
+        break;
+      }
     }
-    const $set =
-      action === 'mute' || action === 'unmute'
-        ? { 'seats.$.muted': action === 'mute' }
-        : {
-            'seats.$.locked': action === 'lock',
-            ...(action === 'lock' ? { 'seats.$.userId': null } : {}),
-          };
-    if (action === 'lock' && seat.userId) {
-      await this.ctx.livekit
-        .updateParticipantPermissions(room.livekitRoom, seat.userId, false)
-        .catch(() => undefined);
-    }
+    const $set: Record<string, boolean> =
+      action === 'lock' || action === 'unlock'
+        ? { 'seats.$.locked': action === 'lock' }
+        : action === 'mute' || action === 'unmute'
+          ? { 'seats.$.muted': action === 'mute' }
+          : { 'seats.$.videoMuted': action === 'camera_off' };
     await this.ctx.col.liveRooms.updateOne({ _id: room._id, 'seats.index': index }, { $set });
     await this.broadcastSeats(room._id);
   }
@@ -725,12 +964,13 @@ export class LiveService {
       { projection: { _id: 1, hostId: 1 } },
     );
     if (!room || identity === room.hostId) return;
-    await this.ctx.col.roomPresence.updateOne(
+    const res = await this.ctx.col.roomPresence.updateOne(
       { roomId: room._id, identity },
       { $setOnInsert: { roomId: room._id, identity, joinedAt: this.ctx.clock.now() } },
       { upsert: true },
     );
-    await this.syncViewerCount(room._id);
+    // Only a first delivery announces the join; redelivered webhooks just recount.
+    await this.syncViewerCount(room._id, res.upsertedCount ? identity : undefined);
   }
 
   async onParticipantLeft(livekitRoom: string, identity: string): Promise<void> {
@@ -747,12 +987,25 @@ export class LiveService {
     }
   }
 
-  /** Viewer count is recomputed from presence rows, so webhook redelivery cannot skew it. */
-  private async syncViewerCount(roomId: ObjectId): Promise<void> {
+  /**
+   * Viewer count is recomputed from presence rows, so webhook redelivery cannot skew it. The room
+   * gets the new count and its top viewers, so clients don't poll for them.
+   */
+  private async syncViewerCount(roomId: ObjectId, joinedUid?: string): Promise<void> {
     const count = await this.ctx.col.roomPresence.countDocuments({ roomId });
-    await this.ctx.col.liveRooms.updateOne({ _id: roomId, status: 'live' }, [
-      { $set: { viewerCount: count, peakViewers: { $max: ['$peakViewers', count] } } },
-    ]);
+    const room = await this.ctx.col.liveRooms.findOneAndUpdate(
+      { _id: roomId, status: 'live' },
+      [{ $set: { viewerCount: count, peakViewers: { $max: ['$peakViewers', count] } } }],
+      { returnDocument: 'after', projection: { livekitRoom: 1 } },
+    );
+    if (!room) return;
+    const top = (await this.viewers(roomId, 50)).slice(0, TOP_VIEWERS);
+    const joined = joinedUid
+      ? ((await this.ctx.services.users.briefs([joinedUid])).get(joinedUid) ?? null)
+      : null;
+    await this.ctx.livekit
+      .sendData(room.livekitRoom, LIVEKIT_TOPICS.system, { kind: 'viewers', count, top, joined })
+      .catch(() => undefined);
   }
 
   async onRoomFinished(livekitRoom: string): Promise<void> {

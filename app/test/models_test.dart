@@ -135,4 +135,74 @@ void main() {
     expect(cfg.feature('gamesEnabled'), isTrue);
     expect(cfg.pkDurations, [180, 300, 600]);
   });
+
+  group('live lock, seats and PK rounds', () {
+    test('LiveRoom carries the lock and copyWith keeps the rest', () {
+      final room = LiveRoom.fromJson({
+        'id': 'r1',
+        'type': 'video',
+        'status': 'live',
+        'title': 'T',
+        'host': {'id': 'h', 'displayName': 'H'},
+        'viewerCount': 3,
+        'giftBeans': 0,
+        'locked': true,
+        'hasPassword': true,
+      });
+      expect(room.locked, isTrue);
+      expect(room.hasPassword, isTrue);
+      final open = room.copyWith(locked: false, hasPassword: false);
+      expect(open.locked, isFalse);
+      expect(open.viewerCount, 3);
+      expect(open.host.id, 'h');
+    });
+
+    test('RoomDetail parses admins and seat camera state', () {
+      final d = RoomDetail.fromJson({
+        'id': 'r1',
+        'host': {'id': 'h'},
+        'livekitRoom': 'lk',
+        'moderatorIds': ['m'],
+        'moderators': [
+          {'id': 'm', 'displayName': 'Mod'},
+        ],
+        'seats': [
+          {'index': 1, 'muted': true, 'videoMuted': true, 'locked': false},
+        ],
+      });
+      expect(d.moderators.single.displayName, 'Mod');
+      expect(d.seats.single.videoMuted, isTrue);
+    });
+
+    test('PkBattle parses rounds and corrects for server clock skew', () {
+      final serverNow = DateTime.now().toUtc().add(const Duration(minutes: 5));
+      final b = PkBattle.fromJson({
+        'id': 'b',
+        'status': 'active',
+        'invitedBy': 'a',
+        'hosts': [
+          {'uid': 'a', 'score': 70, 'roundScore': 10, 'roundsWon': 2},
+          {'uid': 'b', 'score': 130, 'roundScore': 5, 'roundsWon': 1},
+        ],
+        'durationSec': 180,
+        'round': 3,
+        'maxRounds': 3,
+        'roundState': 'paused',
+        'rounds': [
+          {
+            'round': 1,
+            'scores': [60, 30],
+            'winnerUid': 'a',
+          },
+        ],
+        'isDraw': false,
+        'serverTime': serverNow.toIso8601String(),
+      });
+      expect(b.isPaused, isTrue);
+      expect(b.host('a')!.roundsWon, 2);
+      expect(b.rounds.single.scores, [60, 30]);
+      expect(b.clockOffset.inMinutes, closeTo(5, 1));
+      expect(b.serverNow.difference(serverNow).inSeconds.abs(), lessThan(5));
+    });
+  });
 }

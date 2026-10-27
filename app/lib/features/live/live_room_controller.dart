@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart';
@@ -10,18 +11,79 @@ import '../../core/utils/json.dart';
 import '../../data/repositories.dart';
 import '../../models/models.dart';
 
+enum ChatKind { chat, voice, gift, join, system }
+
+/// Who someone is in this room, as shown on badges. Derived from server-minted metadata
+/// or the room detail; never from what a client claims.
+enum RoomRole { host, admin, guest, viewer }
+
+class ChatReply {
+  const ChatReply({
+    required this.id,
+    required this.userId,
+    required this.displayName,
+    required this.text,
+  });
+  final String id;
+  final String userId;
+  final String displayName;
+  final String text;
+  factory ChatReply.fromJson(Json j) => ChatReply(
+    id: j.str('id'),
+    userId: j.str('userId'),
+    displayName: j.str('displayName'),
+    text: j.str('text'),
+  );
+}
+
 class ChatLine {
   const ChatLine({
     required this.id,
     required this.text,
+    this.kind = ChatKind.chat,
     this.user,
-    this.system = false,
+    this.role,
+    this.replyTo,
+    this.voiceUrl,
+    this.voiceSec = 0,
   });
   final String id;
   final String text;
+  final ChatKind kind;
   final UserBrief? user;
-  final bool system;
+  final RoomRole? role;
+  final ChatReply? replyTo;
+  final String? voiceUrl;
+  final int voiceSec;
+
+  bool get system => kind == ChatKind.system || kind == ChatKind.join;
+
+  /// Server-sent messages can be replied to, reported and deleted; local lines cannot.
+  bool get isMessage => kind == ChatKind.chat || kind == ChatKind.voice;
+
+  factory ChatLine.fromServer(Json p) {
+    final u = p.obj('user');
+    final voice = p.objOrNull('voice');
+    final reply = p.objOrNull('replyTo');
+    return ChatLine(
+      id: p.str('id'),
+      text: p.str('text'),
+      kind: voice == null ? ChatKind.chat : ChatKind.voice,
+      user: UserBrief.fromJson(u),
+      role: roleFromMetadata(u.str('role')),
+      replyTo: reply == null ? null : ChatReply.fromJson(reply),
+      voiceUrl: voice?.str('url'),
+      voiceSec: voice?.integer('durationSec') ?? 0,
+    );
+  }
 }
+
+RoomRole? roleFromMetadata(String role) => switch (role) {
+  'host' => RoomRole.host,
+  'moderator' => RoomRole.admin,
+  'guest' => RoomRole.guest,
+  _ => null,
+};
 
 class GiftEvent {
   const GiftEvent({
@@ -38,22 +100,34 @@ class GiftEvent {
   final List<String> receiverNames;
 }
 
+/// A host or room admin asked this user onto a seat.
+class SeatInvite {
+  const SeatInvite({required this.from, this.expiresAt});
+  final UserBrief from;
+  final DateTime? expiresAt;
+}
+
 enum LiveStatus { connecting, live, reconnecting, ended, kicked, failed }
 
 /// Owns one live session: the LiveKit [Room], server data-channel events, chat, gifts, seats,
-/// PK state and the host heartbeat. The screen only renders this state.
+/// room admins, the lock, PK state and the host heartbeat. The screen only renders this state.
 class LiveRoomController extends ChangeNotifier {
   LiveRoomController({
     required this.roomId,
     required this.myUid,
     required this._repo,
     LiveSession? hostSession,
+    this._password,
   }) : _initial = hostSession;
 
   final String roomId;
   final String myUid;
   final LiveRepository _repo;
   final LiveSession? _initial;
+  final String? _password;
+
+  static const _maxChat = 120;
+  static const _maxRecoveries = 5;
 
   final room = Room(
     roomOptions: const RoomOptions(
@@ -68,79 +142,137 @@ class LiveRoomController extends ChangeNotifier {
   EventsListener<RoomEvent>? _listener;
   Timer? _heartbeat;
   Timer? _poll;
+  Timer? _pkClear;
+  Timer? _reactionFlush;
+  Timer? _requestExpiry;
+  bool _disposed = false;
+  bool _recovering = false;
 
   LiveStatus status = LiveStatus.connecting;
   String? error;
+
+  /// Set when [status] is failed because the room is locked; the screen asks for the password.
+  ({bool hasPassword, bool wrong})? lockedOut;
   RoomDetail? detail;
   LiveCredentials? credentials;
   final chat = <ChatLine>[];
+  List<UserBrief> topViewers = const [];
+
+  /// Pending seat requests (host and room admins only).
+  final seatRequests = <SeatRequest>[];
+
+  /// This viewer's own request is waiting for the host.
+  bool seatRequestPending = false;
+
   final _gifts = StreamController<GiftEvent>.broadcast();
   final _entries = StreamController<UserBrief>.broadcast();
   final _pkInvites = StreamController<PkBattle>.broadcast();
+  final _seatInvites = StreamController<SeatInvite>.broadcast();
+  final _reactions = StreamController<int>.broadcast();
+  final _notices = StreamController<String>.broadcast();
   PkBattle? pk;
+
+  /// A challenge this host sent that is waiting for an answer.
+  PkBattle? pkOutgoing;
   Map<String, List<({UserBrief? user, int score})>> pkContributors = const {};
-  bool micOn = true;
-  bool cameraOn = true;
+  bool micOn = false;
+  bool cameraOn = false;
   bool frontCamera = true;
+
+  /// The user's own mic/camera choice while on stage, so syncing seat state never undoes it.
+  bool _micOffByMe = false;
+  bool _cameraOffByMe = false;
+  bool _staged = false;
   Json? endSummary;
+  int _pendingHearts = 0;
 
   Stream<GiftEvent> get gifts => _gifts.stream;
   Stream<UserBrief> get entries => _entries.stream;
   Stream<PkBattle> get pkInvites => _pkInvites.stream;
+  Stream<SeatInvite> get seatInvites => _seatInvites.stream;
+
+  /// Heart reactions from others (own taps are drawn locally).
+  Stream<int> get reactions => _reactions.stream;
+
+  /// Short messages for the user (snackbars), e.g. "Your seat request was declined".
+  Stream<String> get notices => _notices.stream;
 
   bool get isHost => detail?.room.host.id == myUid;
   bool get canPublish => credentials?.canPublish ?? false;
+
+  /// The host or a room admin: can manage seats, requests and remove people.
   bool get isModerator =>
       isHost || (detail?.moderatorIds.contains(myUid) ?? false);
-  bool get onSeat =>
-      detail?.seats.any((s) => s.index > 0 && s.user?.id == myUid) ?? false;
+  Seat? get mySeat => detail?.seats
+      .where((s) => s.index > 0 && s.user?.id == myUid)
+      .firstOrNull;
+  bool get onSeat => mySeat != null;
+  bool get isVideoRoom => !(detail?.room.isAudio ?? false);
   int get viewerCount => detail?.room.viewerCount ?? 0;
+  bool get locked => detail?.room.locked ?? false;
+
+  /// Everyone on stage (host first), for the participant grid.
+  List<Seat> get stage =>
+      detail?.seats.where((s) => s.user != null).toList() ?? const [];
+  bool get hasFreeSeat =>
+      detail?.seats.any((s) => s.index > 0 && s.user == null && !s.locked) ??
+      false;
+
+  RoomRole roleOf(String uid) {
+    final d = detail;
+    if (d == null) return RoomRole.viewer;
+    if (d.room.host.id == uid) return RoomRole.host;
+    if (d.moderatorIds.contains(uid)) return RoomRole.admin;
+    if (d.seats.any((s) => s.index > 0 && s.user?.id == uid)) {
+      return RoomRole.guest;
+    }
+    return RoomRole.viewer;
+  }
 
   /// The host's camera track (in this room) — the main video.
-  VideoTrack? get hostVideo => _videoOf(detail?.room.host.id);
+  VideoTrack? get hostVideo => videoOf(detail?.room.host.id);
 
   /// In PK, the opponent host is forwarded into this room by the SFU under their own uid.
   VideoTrack? get opponentVideo {
-    final opp = pk?.hosts
-        .where((h) => h.uid != detail?.room.host.id)
-        .firstOrNull;
-    return opp == null ? null : _videoOf(opp.uid);
+    final opp = pkOpponent;
+    return opp == null ? null : videoOf(opp.uid);
   }
 
-  VideoTrack? _videoOf(String? uid) {
-    if (uid == null) return null;
-    if (uid == myUid) {
-      return room.localParticipant?.videoTrackPublications
-          .where((p) => !p.muted)
-          .firstOrNull
-          ?.track;
-    }
-    final p = room.remoteParticipants.values
-        .where((p) => p.identity == uid)
-        .firstOrNull;
-    return p?.videoTrackPublications
-        .where((t) => t.subscribed && !t.muted)
-        .firstOrNull
-        ?.track;
-  }
+  PkHost? get pkOpponent =>
+      pk?.hosts.where((h) => h.uid != detail?.room.host.id).firstOrNull;
 
-  bool isSpeaking(String uid) {
-    if (uid == myUid) return room.localParticipant?.isSpeaking ?? false;
-    return room.remoteParticipants.values
+  Participant? _participant(String uid) => uid == myUid
+      ? room.localParticipant
+      : room.remoteParticipants.values
             .where((p) => p.identity == uid)
+            .firstOrNull;
+
+  bool isConnected(String uid) => _participant(uid) != null;
+
+  VideoTrack? videoOf(String? uid) {
+    if (uid == null) return null;
+    final p = _participant(uid);
+    if (p == null) return null;
+    return p.videoTrackPublications
+            .where((t) => !t.muted && (p is LocalParticipant || t.subscribed))
             .firstOrNull
-            ?.isSpeaking ??
-        false;
+            ?.track
+        as VideoTrack?;
   }
+
+  bool isMicOn(String uid) =>
+      _participant(uid)?.audioTrackPublications.any((t) => !t.muted) ?? false;
+
+  bool isSpeaking(String uid) => _participant(uid)?.isSpeaking ?? false;
 
   Future<void> start() async {
     try {
-      final session = _initial ?? await _repo.join(roomId);
+      final session = _initial ?? await _repo.join(roomId, password: _password);
       detail = session.detail;
       credentials = session.credentials;
       _listen();
       await room.connect(session.credentials.url, session.credentials.token);
-      if (canPublish) await _publish();
+      await _syncPublishing();
       status = LiveStatus.live;
       _system(
         'Welcome to ${detail!.room.host.displayName}\'s live. Be kind — harassment gets you removed.',
@@ -154,61 +286,162 @@ class LiveRoomController extends ChangeNotifier {
           }),
         );
       }
+      // Data-channel events keep state current; the poll only repairs anything missed.
       _poll = Timer.periodic(
-        const Duration(seconds: 15),
+        const Duration(seconds: 30),
         (_) => _refreshDetail(),
       );
-      await _loadPk();
+      await Future.wait([_loadPk(), _loadSeatRequests()]);
     } on ApiException catch (e) {
       status = e.status == 410 ? LiveStatus.ended : LiveStatus.failed;
       error = e.message;
+      if (e.code == 'room_locked' || e.code == 'wrong_password') {
+        final details = e.details;
+        lockedOut = (
+          hasPassword: details is Map && details['hasPassword'] == true,
+          wrong: e.code == 'wrong_password',
+        );
+      }
     } catch (e) {
       status = LiveStatus.failed;
       error = 'Could not connect to the live';
       debugPrint('live connect failed: $e');
     }
-    notifyListeners();
+    _notify();
   }
 
-  Future<void> _publish() async {
-    final audioOnly = detail?.room.isAudio ?? false;
-    if (!audioOnly && (isHost || onSeat)) {
-      await room.localParticipant?.setCameraEnabled(true);
+  /// Publish while on stage (host or seated guest), stop when not. Seat mutes set by the
+  /// host or an admin win over the guest's own toggles.
+  Future<void> _syncPublishing() async {
+    final local = room.localParticipant;
+    if (local == null) return;
+    final staged = isHost || onSeat;
+    final allowed = local.permissions.canPublish;
+    final seat = isHost ? null : mySeat;
+    if (!staged || !allowed) {
+      _staged = false;
+      if (micOn || cameraOn) {
+        micOn = false;
+        cameraOn = false;
+        await local.setMicrophoneEnabled(false);
+        await local.setCameraEnabled(false);
+      }
+      return;
     }
-    await room.localParticipant?.setMicrophoneEnabled(true);
+    if (!_staged) {
+      // Fresh on stage: start with mic and camera on.
+      _staged = true;
+      _micOffByMe = false;
+      _cameraOffByMe = false;
+    }
+    final wantMic = !(seat?.muted ?? false) && !_micOffByMe;
+    final wantCam =
+        isVideoRoom && !(seat?.videoMuted ?? false) && !_cameraOffByMe;
+    if (wantMic != micOn) {
+      micOn = wantMic;
+      await local.setMicrophoneEnabled(wantMic);
+    }
+    if (wantCam != cameraOn) {
+      cameraOn = wantCam;
+      await local.setCameraEnabled(wantCam);
+    }
   }
 
   void _listen() {
     final l = room.createListener();
     _listener = l;
     l
-      ..on<TrackSubscribedEvent>((_) => notifyListeners())
-      ..on<TrackUnsubscribedEvent>((_) => notifyListeners())
-      ..on<TrackMutedEvent>((_) => notifyListeners())
-      ..on<TrackUnmutedEvent>((_) => notifyListeners())
-      ..on<LocalTrackPublishedEvent>((_) => notifyListeners())
-      ..on<ActiveSpeakersChangedEvent>((_) => notifyListeners())
-      ..on<ParticipantConnectedEvent>((_) => notifyListeners())
+      ..on<TrackSubscribedEvent>((_) => _notify())
+      ..on<TrackUnsubscribedEvent>((_) => _notify())
+      ..on<TrackMutedEvent>((_) => _notify())
+      ..on<TrackUnmutedEvent>((_) => _notify())
+      ..on<LocalTrackPublishedEvent>((_) => _notify())
+      ..on<ActiveSpeakersChangedEvent>((_) => _notify())
+      ..on<ParticipantConnectedEvent>((_) => _notify())
+      ..on<ParticipantPermissionsUpdatedEvent>((e) {
+        // The server grants publish just before broadcasting the seat change.
+        if (e.participant is LocalParticipant) unawaited(_syncPublishing());
+        _notify();
+      })
       ..on<ParticipantDisconnectedEvent>((e) {
         if (e.participant.identity == detail?.room.host.id && !isHost) {
           _system('The host stepped away…');
         }
-        notifyListeners();
+        _notify();
       })
       ..on<RoomReconnectingEvent>((_) {
         status = LiveStatus.reconnecting;
-        notifyListeners();
+        _notify();
       })
       ..on<RoomReconnectedEvent>((_) {
         status = LiveStatus.live;
-        notifyListeners();
+        _notify();
       })
-      ..on<RoomDisconnectedEvent>((_) {
-        if (status == LiveStatus.live || status == LiveStatus.reconnecting) {
-          _ended();
-        }
-      })
+      ..on<RoomDisconnectedEvent>(_onDisconnected)
       ..on<DataReceivedEvent>(_onData);
+  }
+
+  void _onDisconnected(RoomDisconnectedEvent e) {
+    if (status != LiveStatus.live && status != LiveStatus.reconnecting) return;
+    switch (e.reason) {
+      case DisconnectReason.participantRemoved:
+        status = LiveStatus.kicked;
+        unawaited(_teardown());
+        _notify();
+      case DisconnectReason.roomDeleted:
+        _ended();
+      case DisconnectReason.clientInitiated:
+      case DisconnectReason.duplicateIdentity:
+        // Left on purpose, or this account joined from another device.
+        _ended();
+      default:
+        unawaited(_recover());
+    }
+  }
+
+  /// LiveKit gave up resuming: rejoin through the API (fresh token, current role) with
+  /// backoff, so a network change doesn't end the session.
+  Future<void> _recover() async {
+    if (_recovering) return;
+    _recovering = true;
+    status = LiveStatus.reconnecting;
+    _notify();
+    try {
+      for (var attempt = 1; attempt <= _maxRecoveries; attempt++) {
+        await Future<void>.delayed(Duration(seconds: attempt * 2));
+        if (_disposed) return;
+        try {
+          final session = await _repo.join(roomId, password: _password);
+          detail = session.detail;
+          credentials = session.credentials;
+          micOn = false;
+          cameraOn = false;
+          await room.connect(
+            session.credentials.url,
+            session.credentials.token,
+          );
+          await _syncPublishing();
+          status = LiveStatus.live;
+          _notify();
+          return;
+        } on ApiException catch (e) {
+          if (e.status == 410) return _ended();
+          if (e.status == 403) {
+            status = LiveStatus.kicked;
+            _notify();
+            return;
+          }
+        } catch (e) {
+          debugPrint('live rejoin $attempt failed: $e');
+        }
+      }
+      status = LiveStatus.failed;
+      error = 'Lost connection to the live';
+      await _teardown();
+      _notify();
+    } finally {
+      _recovering = false;
+    }
   }
 
   void _onData(DataReceivedEvent e) {
@@ -220,17 +453,19 @@ class LiveRoomController extends ChangeNotifier {
     } catch (_) {
       return;
     }
-    final topic = packet.str('topic', e.topic ?? '');
-    final p = packet.obj('payload');
+    handleServerPacket(
+      packet.str('topic', e.topic ?? ''),
+      packet.obj('payload'),
+    );
+  }
+
+  /// Applies one server event. Public for tests; production input is [_onData].
+  @visibleForTesting
+  void handleServerPacket(String topic, Json p) {
     switch (topic) {
       case 'bb.chat':
-        _addChat(
-          ChatLine(
-            id: p.str('id'),
-            text: p.str('text'),
-            user: UserBrief.fromJson(p.obj('user')),
-          ),
-        );
+        if (p.str('id').isEmpty) return;
+        _addChat(ChatLine.fromServer(p));
       case 'bb.gift':
         final sender = p.objOrNull('sender');
         final event = GiftEvent(
@@ -247,73 +482,200 @@ class LiveRoomController extends ChangeNotifier {
         _addChat(
           ChatLine(
             id: 'g${event.id}',
-            text: 'sent ${event.gift.name} ×${event.quantity}',
+            kind: ChatKind.gift,
+            text:
+                'sent ${event.gift.name} ×${event.quantity} to ${event.receiverNames.join(', ')}',
             user: event.sender,
           ),
         );
       case 'bb.entry':
-        final u = UserBrief.fromJson(p.obj('user'));
-        _entries.add(u);
-        _system('${u.displayName} joined');
+        _entries.add(UserBrief.fromJson(p.obj('user')));
+      case 'bb.reaction':
+        if (p.str('uid') != myUid) _reactions.add(p.integer('count', 1));
       case 'bb.kick':
         if (p.str('uid') == myUid) {
           status = LiveStatus.kicked;
           unawaited(_teardown());
         }
       case 'bb.seats':
-        if (p['seats'] is List) {
-          final d = detail;
-          if (d != null) {
-            detail = RoomDetail(
-              room: d.room,
-              livekitRoom: d.livekitRoom,
-              moderatorIds: d.moderatorIds,
-              seats: p.list('seats', Seat.fromJson),
-              backgroundUrl: d.backgroundUrl,
-            );
-          }
-        } else if (p.str('kind') == 'request' && isModerator) {
-          _system(
-            '${UserBrief.fromJson(p.obj('user')).displayName} wants to join a seat',
-          );
-        } else if (p.str('kind') == 'invite') {
-          _system('The host invited you to a seat');
-        }
+        _onSeats(p);
       case 'bb.system':
-        if (p.str('kind') == 'moderator') unawaited(_refreshDetail());
+        _onSystem(p);
       case 'bb.room.ended':
         _ended();
       case 'bb.pk.invitation':
         _pkInvites.add(PkBattle.fromJson(p.obj('battle')));
       case 'bb.pk.started' ||
           'bb.pk.score' ||
+          'bb.pk.round_ended' ||
+          'bb.pk.round_started' ||
           'bb.pk.ended' ||
           'bb.pk.rejected' ||
           'bb.pk.cancelled' ||
           'bb.pk.expired':
-        final b = PkBattle.fromJson(p.obj('battle'));
-        pk = (b.status == 'active' || topic == 'bb.pk.ended') ? b : null;
-        if (p['contributors'] is Map) {
-          pkContributors = _parseContributors(p.obj('contributors'));
+        _onPk(topic, p);
+    }
+    _notify();
+  }
+
+  void _onSeats(Json p) {
+    final d = detail;
+    switch (p.str('kind', p['seats'] is List ? 'seats' : '')) {
+      case 'seats':
+        if (d == null) return;
+        detail = d.copyWith(seats: p.list('seats', Seat.fromJson));
+        if (onSeat) seatRequestPending = false;
+        unawaited(_syncPublishing());
+      case 'request':
+        if (!isModerator) return;
+        final user = UserBrief.fromJson(p.obj('user'));
+        seatRequests
+          ..removeWhere((r) => r.user.id == user.id)
+          ..add(SeatRequest(user: user, expiresAt: p.date('expiresAt')));
+        _system('${user.displayName} wants to join the stage');
+      case 'request_resolved':
+        final uid = p.str('uid');
+        seatRequests.removeWhere((r) => r.user.id == uid);
+        if (uid == myUid) {
+          seatRequestPending = false;
+          _requestExpiry?.cancel();
+          if (!p.flag('accepted')) {
+            _notices.add('Your request to join the stage was declined');
+          }
         }
-        if (topic == 'bb.pk.ended') {
-          final winner = b.hosts.where((h) => h.uid == b.winnerUid).firstOrNull;
+      case 'invite':
+        _seatInvites.add(
+          SeatInvite(
+            from: UserBrief.fromJson(p.obj('from')),
+            expiresAt: p.date('expiresAt'),
+          ),
+        );
+      case 'invite_declined':
+        _system(
+          '${UserBrief.fromJson(p.obj('user')).displayName} declined the invitation',
+        );
+    }
+  }
+
+  void _onSystem(Json p) {
+    final d = detail;
+    if (d == null) return;
+    switch (p.str('kind')) {
+      case 'moderator':
+        final uid = p.str('uid');
+        final enabled = p.flag('enabled');
+        final user = p.objOrNull('user');
+        detail = d.copyWith(
+          moderatorIds: enabled
+              ? {...d.moderatorIds, uid}.toList()
+              : d.moderatorIds.where((m) => m != uid).toList(),
+          moderators: enabled
+              ? [
+                  ...d.moderators.where((m) => m.id != uid),
+                  if (user != null) UserBrief.fromJson(user),
+                ]
+              : d.moderators.where((m) => m.id != uid).toList(),
+        );
+        if (user != null) {
+          final name = UserBrief.fromJson(user).displayName;
           _system(
-            b.isDraw
-                ? 'PK ended in a draw!'
-                : '👑 ${winner?.displayName ?? 'Winner'} wins the PK!',
+            enabled
+                ? '$name is now a room admin'
+                : '$name is no longer a room admin',
           );
-          Timer(const Duration(seconds: 8), () {
-            if (pk?.id == b.id && pk?.status == 'ended') {
-              pk = null;
-              notifyListeners();
-            }
+        }
+        if (uid == myUid) {
+          if (enabled) {
+            unawaited(_loadSeatRequests());
+          } else {
+            seatRequests.clear();
+          }
+        }
+      case 'lock':
+        final isLocked = p.flag('locked');
+        detail = d.copyWith(
+          room: d.room.copyWith(
+            locked: isLocked,
+            hasPassword: p.flag('hasPassword'),
+          ),
+        );
+        _system(
+          isLocked
+              ? 'The host locked this live. New viewers can’t join.'
+              : 'The host unlocked this live',
+        );
+      case 'room_updated':
+        detail = d.copyWith(
+          room: d.room.copyWith(
+            title: p.strOrNull('title'),
+            coverUrl: p.strOrNull('coverUrl'),
+          ),
+          backgroundUrl: () => p.strOrNull('backgroundUrl'),
+        );
+      case 'viewers':
+        detail = d.copyWith(
+          room: d.room.copyWith(viewerCount: p.integer('count')),
+        );
+        topViewers = p.list('top', UserBrief.fromJson);
+        final joined = p.objOrNull('joined');
+        if (joined != null) _join(UserBrief.fromJson(joined));
+      case 'chat_deleted':
+        chat.removeWhere((c) => c.id == p.str('id'));
+    }
+  }
+
+  void _onPk(String topic, Json p) {
+    final b = PkBattle.fromJson(p.obj('battle'));
+    final mine =
+        pk?.id == b.id || pkOutgoing?.id == b.id || topic == 'bb.pk.started';
+    if (!mine) return;
+    if (p['contributors'] is Map) {
+      pkContributors = _parseContributors(p.obj('contributors'));
+    }
+    final opponent = b.hosts
+        .where((h) => h.uid != detail?.room.host.id)
+        .firstOrNull;
+    switch (topic) {
+      case 'bb.pk.rejected' || 'bb.pk.cancelled' || 'bb.pk.expired':
+        if (pkOutgoing?.id == b.id) pkOutgoing = null;
+        if (pk?.id == b.id) pk = null;
+        if (isHost && b.invitedBy == myUid) {
+          _notices.add(switch (topic) {
+            'bb.pk.rejected' =>
+              '${opponent?.displayName ?? 'The host'} declined your PK',
+            'bb.pk.expired' => 'No answer to your PK challenge',
+            _ => 'PK challenge cancelled',
           });
         }
-        if (topic == 'bb.pk.rejected') _system('PK invitation was declined');
-        if (topic == 'bb.pk.expired') _system('PK invitation expired');
+        return;
+      case 'bb.pk.started':
+        pkOutgoing = null;
+        pkContributors = const {};
+        _system('⚔️ PK started against ${opponent?.displayName ?? 'a host'}!');
+      case 'bb.pk.round_ended':
+        final last = b.rounds.lastOrNull;
+        final w = last == null ? null : b.host(last.winnerUid ?? '');
+        _system(
+          w == null
+              ? 'Round ${b.round} is a draw'
+              : 'Round ${b.round} goes to ${w.displayName}',
+        );
+      case 'bb.pk.ended':
+        final winner = b.host(b.winnerUid ?? '');
+        _system(
+          b.isDraw
+              ? 'PK ended in a draw!'
+              : '👑 ${winner?.displayName ?? 'Winner'} wins the PK!',
+        );
+        _pkClear?.cancel();
+        _pkClear = Timer(const Duration(seconds: 10), () {
+          if (pk?.id == b.id && pk!.isEnded) {
+            pk = null;
+            _notify();
+          }
+        });
     }
-    notifyListeners();
+    pk = b;
   }
 
   Map<String, List<({UserBrief? user, int score})>> _parseContributors(
@@ -340,45 +702,65 @@ class LiveRoomController extends ChangeNotifier {
       final j = await _repo.pkForRoom(roomId);
       if (j != null && j.objOrNull('battle') != null) {
         final b = PkBattle.fromJson(j.obj('battle'));
-        pk = b.isActive ? b : null;
+        if (b.isActive) {
+          pk = b;
+        } else if (b.status == 'pending' && b.invitedBy == myUid) {
+          pkOutgoing = b;
+        }
         pkContributors = _parseContributors(j.obj('contributors'));
-        notifyListeners();
+        _notify();
       }
     } catch (_) {
       /* PK is optional */
     }
   }
 
+  Future<void> _loadSeatRequests() async {
+    if (!isModerator) return;
+    try {
+      final rows = await _repo.seatRequests(roomId);
+      seatRequests
+        ..clear()
+        ..addAll(rows);
+      _notify();
+    } catch (_) {}
+  }
+
   Future<void> _refreshDetail() async {
     try {
       final next = await _repo.detail(roomId);
       if (next.room.status == 'ended') return _ended();
-      final wasSeated = onSeat;
       detail = next;
-      // Promoted to a seat: start publishing. Removed: stop.
-      if (!isHost && onSeat != wasSeated) {
-        if (onSeat) {
-          await _publish();
-        } else {
-          await room.localParticipant?.setCameraEnabled(false);
-          await room.localParticipant?.setMicrophoneEnabled(false);
-        }
-      }
-      notifyListeners();
+      await _syncPublishing();
+      _notify();
     } catch (_) {}
   }
 
   void _addChat(ChatLine line) {
     if (chat.any((c) => c.id == line.id)) return;
     chat.add(line);
-    if (chat.length > 120) chat.removeRange(0, chat.length - 120);
+    if (chat.length > _maxChat) chat.removeRange(0, chat.length - _maxChat);
+  }
+
+  /// Join lines collapse: a burst of arrivals shows only the latest one.
+  void _join(UserBrief u) {
+    if (u.id == myUid) return;
+    if (chat.isNotEmpty && chat.last.kind == ChatKind.join) chat.removeLast();
+    _addChat(
+      ChatLine(
+        id: 'j${u.id}${DateTime.now().microsecondsSinceEpoch}',
+        kind: ChatKind.join,
+        text: 'joined',
+        user: u,
+      ),
+    );
   }
 
   void _system(String text) => _addChat(
     ChatLine(
       id: 's${DateTime.now().microsecondsSinceEpoch}',
       text: text,
-      system: true,
+      kind: ChatKind.system,
     ),
   );
 
@@ -386,21 +768,35 @@ class LiveRoomController extends ChangeNotifier {
     if (status == LiveStatus.ended) return;
     status = LiveStatus.ended;
     unawaited(_teardown());
-    notifyListeners();
+    _notify();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
   }
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
   Future<void> toggleMic() async {
+    if (!micOn && (mySeat?.muted ?? false)) {
+      _notices.add('An admin muted your mic');
+      return;
+    }
     micOn = !micOn;
+    _micOffByMe = !micOn;
     await room.localParticipant?.setMicrophoneEnabled(micOn);
-    notifyListeners();
+    _notify();
   }
 
   Future<void> toggleCamera() async {
+    if (!cameraOn && (mySeat?.videoMuted ?? false)) {
+      _notices.add('An admin turned your camera off');
+      return;
+    }
     cameraOn = !cameraOn;
+    _cameraOffByMe = !cameraOn;
     await room.localParticipant?.setCameraEnabled(cameraOn);
-    notifyListeners();
+    _notify();
   }
 
   Future<void> flipCamera() async {
@@ -411,22 +807,113 @@ class LiveRoomController extends ChangeNotifier {
     await track.setCameraPosition(
       frontCamera ? CameraPosition.front : CameraPosition.back,
     );
-    notifyListeners();
+    _notify();
   }
 
-  Future<void> sendChat(String text) async {
+  Future<void> sendChat(String text, {String? replyToId}) async {
     final t = text.trim();
     if (t.isEmpty) return;
-    await _repo.chat(roomId, t);
+    await _repo.chat(roomId, t, replyToId: replyToId);
   }
 
-  Future<void> requestSeat() => _repo.requestSeat(roomId);
+  Future<void> sendVoice(File file, int seconds, {String? replyToId}) =>
+      _repo.voiceChat(roomId, file, seconds, replyToId: replyToId);
+
+  Future<void> deleteMessage(String id) => _repo.deleteChat(roomId, id);
+
+  /// Own hearts are drawn at once and sent in small batches (the API is rate-limited).
+  void react() {
+    _pendingHearts++;
+    _reactionFlush ??= Timer(const Duration(milliseconds: 800), () {
+      final count = _pendingHearts.clamp(1, 20);
+      _pendingHearts = 0;
+      _reactionFlush = null;
+      unawaited(_repo.react(roomId, count).catchError((Object _) {}));
+    });
+  }
+
+  Future<void> requestSeat() async {
+    await _repo.requestSeat(roomId);
+    seatRequestPending = true;
+    _requestExpiry?.cancel();
+    _requestExpiry = Timer(const Duration(seconds: 60), () {
+      seatRequestPending = false;
+      _notify();
+    });
+    _notify();
+  }
+
+  Future<void> cancelSeatRequest() async {
+    await _repo.cancelSeatRequest(roomId);
+    seatRequestPending = false;
+    _requestExpiry?.cancel();
+    _notify();
+  }
+
   Future<void> leaveSeat() async {
     await _repo.leaveSeat(roomId);
     await _refreshDetail();
   }
 
-  Future<void> kick(String uid) => _repo.kick(roomId, uid);
+  Future<void> respondToSeatInvite(bool accept) =>
+      _repo.respondToSeatInvite(roomId, accept);
+
+  Future<void> decideSeat(String uid, bool accept) async {
+    try {
+      await _repo.decideSeat(roomId, uid, accept);
+    } on ApiException catch (e) {
+      // Expired or handled by another admin: drop it either way.
+      if (e.status != 404) rethrow;
+    }
+    seatRequests.removeWhere((r) => r.user.id == uid);
+    _notify();
+  }
+
+  Future<void> inviteToSeat(String uid) => _repo.inviteToSeat(roomId, uid);
+  Future<void> manageSeat(int index, String action) =>
+      _repo.manageSeat(roomId, index, action);
+  Future<void> kick(String uid, {int? banMinutes = 60}) =>
+      _repo.kick(roomId, uid, banMinutes: banMinutes);
+  Future<void> setAdmin(String uid, bool enabled) =>
+      _repo.setModerator(roomId, uid, enabled);
+
+  Future<void> setLock({required bool locked, String? password}) async {
+    final next = await _repo.setLock(
+      roomId,
+      locked: locked,
+      password: password,
+    );
+    detail = detail?.copyWith(room: next.room) ?? next;
+    _notify();
+  }
+
+  Future<void> invitePk(String opponentId, int durationSec) async {
+    pkOutgoing = await _repo.pkInvite(opponentId, durationSec);
+    _notify();
+  }
+
+  Future<void> randomPk(int durationSec) async {
+    pkOutgoing = await _repo.pkRandom(durationSec);
+    _notify();
+  }
+
+  Future<void> cancelPkInvite() async {
+    final b = pkOutgoing;
+    if (b == null) return;
+    pkOutgoing = null;
+    _notify();
+    await _repo.pkCancel(b.id).catchError((Object _) {});
+  }
+
+  Future<void> nextPkRound() async {
+    final b = pk;
+    if (b != null) await _repo.pkNextRound(b.id);
+  }
+
+  Future<void> endPk() async {
+    final b = pk;
+    if (b != null) await _repo.pkEnd(b.id);
+  }
 
   Future<Json?> end() async {
     if (isHost) {
@@ -436,27 +923,35 @@ class LiveRoomController extends ChangeNotifier {
     }
     status = LiveStatus.ended;
     await _teardown();
-    notifyListeners();
+    _notify();
     return endSummary;
   }
 
   Future<void> _teardown() async {
     _heartbeat?.cancel();
     _poll?.cancel();
+    _requestExpiry?.cancel();
     unawaited(WakelockPlus.disable());
     await room.disconnect();
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _heartbeat?.cancel();
     _poll?.cancel();
+    _pkClear?.cancel();
+    _reactionFlush?.cancel();
+    _requestExpiry?.cancel();
     unawaited(_listener?.dispose());
     unawaited(room.disconnect().then((_) => room.dispose()));
     unawaited(WakelockPlus.disable());
     _gifts.close();
     _entries.close();
     _pkInvites.close();
+    _seatInvites.close();
+    _reactions.close();
+    _notices.close();
     super.dispose();
   }
 }

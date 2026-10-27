@@ -14,6 +14,7 @@ import type { AuthProvider, PushGateway, PushMessage } from '../../src/infra/fir
 import type { IapGateway } from '../../src/infra/iap.js';
 import type { LiveKitGateway, TokenRequest } from '../../src/infra/livekit.js';
 import {
+  isOwnUploadUrl,
   uploadHeaders,
   type PresignUploadOptions,
   type StorageGateway,
@@ -75,7 +76,13 @@ export class FakeLiveKit implements LiveKitGateway {
   tokens: TokenRequest[] = [];
   data: { room: string; topic: string; payload: unknown; identities?: string[] }[] = [];
   removed: { room: string; identity: string }[] = [];
-  permissions: { room: string; identity: string; canPublish: boolean }[] = [];
+  permissions: {
+    room: string;
+    identity: string;
+    canPublish: boolean;
+    metadata?: Record<string, unknown>;
+  }[] = [];
+  mutes: { room: string; identity: string; kind: 'audio' | 'video'; muted: boolean }[] = [];
   deletedRooms: string[] = [];
   forwards: { src: string; identity: string; dest: string; active: boolean }[] = [];
   webhookEvent: unknown = null;
@@ -90,8 +97,15 @@ export class FakeLiveKit implements LiveKitGateway {
   async removeParticipant(room: string, identity: string) {
     this.removed.push({ room, identity });
   }
-  async updateParticipantPermissions(room: string, identity: string, canPublish: boolean) {
-    this.permissions.push({ room, identity, canPublish });
+  async updateParticipant(
+    room: string,
+    identity: string,
+    update: { canPublish: boolean; metadata?: Record<string, unknown> },
+  ) {
+    this.permissions.push({ room, identity, ...update });
+  }
+  async muteTracks(room: string, identity: string, kind: 'audio' | 'video', muted: boolean) {
+    this.mutes.push({ room, identity, kind, muted });
   }
   async deleteRoom(room: string) {
     this.deletedRooms.push(room);
@@ -137,6 +151,9 @@ export const fakeStorage: StorageGateway & { last?: PresignUploadOptions } = {
       headers: uploadHeaders(opts),
     };
   },
+  isOwnUpload: async (url, folder, ownerId) =>
+    isOwnUploadUrl('https://cdn.test', url, folder, ownerId),
+  verify: async () => undefined,
 };
 
 export class FakeIap implements IapGateway {

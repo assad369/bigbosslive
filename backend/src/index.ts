@@ -48,7 +48,8 @@ async function main(): Promise<void> {
         },
     livekit: createLiveKitGateway(env),
     push: firebaseConfigured ? createFcmGateway(env) : noopPush,
-    storage: createS3Storage(env),
+    // Resolved per call: dashboard settings override env `S3_*` without a restart.
+    storage: createS3Storage(() => ctx.services.storageSettings.resolve()),
     iap: createIapGateway(env),
     jobs,
   });

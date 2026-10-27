@@ -130,9 +130,12 @@ await withDb(async (db) => {
         giftBeans: rand(80_000),
         giftCount: rand(400),
         moderatorIds: [],
-        seats: [{ index: 0, userId: host._id, muted: false, locked: false }],
+        seats: [{ index: 0, userId: host._id, muted: false, videoMuted: false, locked: false }],
         pkBattleId: null,
         backgroundUrl: null,
+        // A few locked rooms so the home-screen lock badge shows up in demos.
+        locked: live && i % 7 === 0,
+        passwordHash: null,
         startedAt,
         lastHeartbeatAt: live ? now : startedAt,
         endedAt: live ? null : new Date(startedAt.getTime() + 600_000 + rand(7200_000)),

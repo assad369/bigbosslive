@@ -90,6 +90,7 @@ void main() {
         liveControllerFactoryProvider.overrideWithValue(({
           required roomId,
           hostSession,
+          password,
         }) {
           final c = _FakeController(
             roomId,

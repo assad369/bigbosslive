@@ -58,6 +58,11 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     },
     { key: { status: 1, expiresAt: 1 } },
   ],
+  liveMessages: [
+    { key: { roomId: 1, createdAt: -1 } },
+    // Room chat is ephemeral: kept a week for replies and reports, then dropped.
+    { key: { createdAt: 1 }, expireAfterSeconds: 7 * 86_400 },
+  ],
   gifts: [{ key: { active: 1, category: 1, sortOrder: 1 } }],
   giftTransactions: [
     { key: { idempotencyKey: 1 }, unique: true },
@@ -149,7 +154,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
       name: 'one_live_pk_per_host',
     },
     { key: { status: 1, inviteExpiresAt: 1 } },
-    { key: { status: 1, endsAt: 1 } },
+    { key: { status: 1, roundState: 1, endsAt: 1 } },
+    { key: { status: 1, roundState: 1, pausedUntil: 1 } },
     { key: { 'hosts.roomId': 1, createdAt: -1 } },
     { key: { createdAt: -1 } },
   ],

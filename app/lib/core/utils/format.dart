@@ -11,6 +11,15 @@ abstract final class Fmt {
   static String usd(num n) =>
       NumberFormat.simpleCurrency(name: 'USD').format(n);
 
+  /// `mm:ss`, or `h:mm:ss` from an hour.
+  static String clock(int seconds) {
+    final s = seconds < 0 ? 0 : seconds;
+    String two(int n) => n.toString().padLeft(2, '0');
+    final h = s ~/ 3600;
+    final body = '${two((s % 3600) ~/ 60)}:${two(s % 60)}';
+    return h > 0 ? '$h:$body' : body;
+  }
+
   static String duration(int seconds) {
     final h = seconds ~/ 3600;
     final m = (seconds % 3600) ~/ 60;

@@ -11,6 +11,8 @@ import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../live/live_dialogs.dart';
+import '../live/live_room_screen.dart';
 
 final _liveTabProvider = FutureProvider.family<List<LiveRoom>, String>((
   ref,
@@ -188,14 +190,45 @@ class _BannerCarousel extends ConsumerWidget {
   }
 }
 
-class LiveCard extends StatelessWidget {
+class LiveCard extends ConsumerWidget {
   const LiveCard({super.key, required this.room});
   final LiveRoom room;
 
+  /// Locked rooms ask for the password when there is one. Without one, staff go straight in
+  /// and everyone else is told it's locked — room admins can still try, and the server decides.
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    if (!room.locked) {
+      await context.push('/live/${room.id}');
+      return;
+    }
+    if (room.hasPassword) {
+      final pw = await showRoomPasswordDialog(context);
+      if (pw != null && context.mounted) {
+        await context.push('/live/${room.id}', extra: RoomPassword(pw));
+      }
+      return;
+    }
+    if (ref.read(sessionProvider).value?.adminRole != null) {
+      await context.push('/live/${room.id}');
+      return;
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('This live is locked'),
+          action: SnackBarAction(
+            label: 'Try anyway',
+            onPressed: () => context.push('/live/${room.id}'),
+          ),
+        ),
+      );
+  }
+
   @override
-  Widget build(BuildContext context) => InkWell(
+  Widget build(BuildContext context, WidgetRef ref) => InkWell(
     borderRadius: BorderRadius.circular(18),
-    onTap: () => context.push('/live/${room.id}'),
+    onTap: () => _open(context, ref),
     child: ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: Stack(
@@ -245,6 +278,24 @@ class LiveCard extends StatelessWidget {
               ),
             ),
           ),
+          if (room.locked)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: BBColors.scrim,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: BBColors.goldOutline, width: 1.5),
+                ),
+                child: Icon(
+                  room.hasPassword
+                      ? Icons.lock_rounded
+                      : Icons.lock_outline_rounded,
+                  color: BBColors.goldLight,
+                  size: 30,
+                ),
+              ),
+            ),
           if (room.pkBattleId != null)
             Positioned(
               top: 8,

@@ -59,13 +59,17 @@ export interface Paged<T> {
   pageSize: number;
 }
 
-export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+export async function get<T>(
+  url: string,
+  params?: Record<string, unknown>,
+  headers?: Record<string, string>,
+): Promise<T> {
   const clean = params
     ? Object.fromEntries(
         Object.entries(params).filter(([, v]) => v !== undefined && v !== '' && v !== null),
       )
     : undefined;
-  return (await api.get<T>(url, { params: clean })).data;
+  return (await api.get<T>(url, { params: clean, headers })).data;
 }
 
 export async function send<T>(

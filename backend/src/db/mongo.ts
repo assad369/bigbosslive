@@ -17,6 +17,7 @@ export interface Collections {
   roomPresence: Collection<S.RoomPresenceDoc>;
   roomBans: Collection<S.RoomBanDoc>;
   seatRequests: Collection<S.SeatRequestDoc>;
+  liveMessages: Collection<S.LiveMessageDoc>;
   gifts: Collection<S.GiftDoc>;
   giftTransactions: Collection<S.GiftTransactionDoc>;
   ledger: Collection<S.LedgerDoc>;
@@ -63,6 +64,7 @@ const NAMES: Record<keyof Collections, string> = {
   roomPresence: 'room_presence',
   roomBans: 'room_bans',
   seatRequests: 'seat_requests',
+  liveMessages: 'live_messages',
   gifts: 'gifts',
   giftTransactions: 'gift_transactions',
   ledger: 'ledger',

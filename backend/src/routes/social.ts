@@ -156,6 +156,15 @@ export function socialRoutes(ctx: Ctx): Router {
     res.status(201).json({ battle: await pk.randomMatch(currentUser(req).uid, durationSec) });
   });
 
+  r.get('/pk/hosts', async (req, res) => {
+    const { tab } = parseQuery(req, z.object({ tab: z.enum(['all', 'friends']).default('all') }));
+    res.json({ items: await pk.candidates(currentUser(req).uid, tab) });
+  });
+
+  r.post('/pk/:id/next-round', async (req, res) => {
+    res.json({ battle: await pk.nextRound(id(req), currentUser(req).uid) });
+  });
+
   r.post('/pk/:id/respond', async (req, res) => {
     const { accept } = parseBody(req, z.object({ accept: z.boolean() }));
     res.json({ battle: await pk.respond(id(req), currentUser(req).uid, accept) });

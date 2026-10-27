@@ -82,6 +82,8 @@ export interface RateLimitOpts {
   prefix: string;
   /** Key by authenticated uid when available, else client IP. */
   byUser?: boolean;
+  /** Count only failed (4xx/5xx) requests, e.g. for passcode guesses. */
+  skipSuccessful?: boolean;
 }
 
 export function createRateLimiter(redis: Redis | null, opts: RateLimitOpts): RequestHandler {
@@ -90,6 +92,7 @@ export function createRateLimiter(redis: Redis | null, opts: RateLimitOpts): Req
     limit: opts.limit,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
+    skipSuccessfulRequests: opts.skipSuccessful ?? false,
     handler: (_req, _res, next) =>
       next(new AppError(429, 'rate_limited', 'Too many requests, slow down')),
     ...(opts.byUser ? { keyGenerator: (req: Request) => req.auth?.uid ?? req.ip ?? 'anon' } : {}),

@@ -7,6 +7,8 @@ import type {
   GameKey,
   LedgerReason,
   MessageType,
+  PkEndReason,
+  PkRoundState,
   PkStatus,
   ReportStatus,
   ReportTarget,
@@ -89,7 +91,10 @@ export interface BlockDoc {
 export interface SeatDoc {
   index: number;
   userId: string | null;
+  /** Mic muted by the host or a moderator. Enforced on the SFU, not just signalled. */
   muted: boolean;
+  /** Camera turned off by the host or a moderator. */
+  videoMuted: boolean;
   locked: boolean;
 }
 
@@ -113,6 +118,10 @@ export interface LiveRoomDoc {
   seats: SeatDoc[];
   pkBattleId: ObjectId | null;
   backgroundUrl: string | null;
+  /** No new viewers may join (staff, moderators and seated guests still can). */
+  locked: boolean;
+  /** scrypt hash (`salt:hash`, hex) of an optional numeric password that bypasses the lock. */
+  passwordHash: string | null;
   startedAt: Date;
   lastHeartbeatAt: Date;
   endedAt: Date | null;
@@ -135,6 +144,19 @@ export interface RoomBanDoc {
   until: Date | null;
   by: string;
   createdAt: Date;
+}
+
+/** In-room chat, kept briefly so replies, deletion and reports can reference a message. */
+export interface LiveMessageDoc {
+  _id: ObjectId;
+  roomId: ObjectId;
+  userId: string;
+  type: 'text' | 'voice';
+  text: string;
+  voice: { url: string; durationSec: number } | null;
+  replyTo: { id: string; userId: string; displayName: string; text: string } | null;
+  createdAt: Date;
+  deletedAt: Date | null;
 }
 
 export interface SeatRequestDoc {
@@ -440,7 +462,16 @@ export interface PkHost {
   uid: string;
   roomId: ObjectId;
   livekitRoom: string;
+  /** Total across all rounds. */
   score: number;
+  roundScore: number;
+  roundsWon: number;
+}
+
+export interface PkRoundDoc {
+  round: number;
+  scores: [number, number];
+  winnerUid: string | null;
 }
 
 export interface PkBattleDoc {
@@ -455,14 +486,24 @@ export interface PkBattleDoc {
   participantUids: string[];
   hosts: [PkHost, PkHost];
   invitedBy: string;
+  /** Length of each round. */
   durationSec: number;
+  /** 1-based; 0 while pending. */
+  round: number;
+  maxRounds: number;
+  roundState: PkRoundState | null;
+  scoringOpensAt: Date | null;
+  /** Deadline of the current round. */
+  endsAt: Date | null;
+  /** Deadline of the between-rounds pause. */
+  pausedUntil: Date | null;
+  rounds: PkRoundDoc[];
   inviteExpiresAt: Date;
   startedAt: Date | null;
-  endsAt: Date | null;
   endedAt: Date | null;
   winnerUid: string | null;
   isDraw: boolean;
-  endReason: 'timeout' | 'host_left' | 'admin' | 'forfeit' | null;
+  endReason: PkEndReason | null;
   createdAt: Date;
 }
 
