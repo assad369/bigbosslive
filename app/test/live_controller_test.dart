@@ -1,10 +1,23 @@
+import 'dart:async';
+
 import 'package:bigboss_live/data/repositories.dart';
 import 'package:bigboss_live/features/live/live_room_controller.dart';
 import 'package:bigboss_live/models/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Server events are applied without any API calls; nothing here should reach the network.
+/// The few calls a test drives are answered by the completers it sets.
 class _FakeRepo implements LiveRepository {
+  Completer<LiveSession>? joining;
+  Completer<RoomDetail>? polling;
+
+  @override
+  Future<LiveSession> join(String roomId, {String? password}) =>
+      joining!.future;
+
+  @override
+  Future<RoomDetail> detail(String roomId) => polling!.future;
+
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName}');
@@ -67,27 +80,42 @@ Map<String, dynamic> _battle(
   'serverTime': DateTime.now().toUtc().toIso8601String(),
 };
 
+Map<String, dynamic> _roomJson({
+  List<String> mods = const [],
+  String title = 'Room',
+  String? guest,
+  String? serverTime,
+}) => {
+  'id': 'r1',
+  'type': 'video',
+  'status': 'live',
+  'title': title,
+  'host': {'id': 'host', 'displayName': 'Host'},
+  'viewerCount': 1,
+  'giftBeans': 0,
+  'livekitRoom': 'bb_host_1',
+  'moderatorIds': mods,
+  'seats': [_seat(0, 'host'), _seat(1, guest), _seat(2, null)],
+  'serverTime': ?serverTime,
+};
+
 LiveRoomController _controller({
   String me = 'me',
   List<String> mods = const [],
+  _FakeRepo? repo,
 }) {
-  final c = LiveRoomController(roomId: 'r1', myUid: me, repo: _FakeRepo());
-  c.detail = RoomDetail.fromJson({
-    'id': 'r1',
-    'type': 'video',
-    'status': 'live',
-    'title': 'Room',
-    'host': {'id': 'host', 'displayName': 'Host'},
-    'viewerCount': 1,
-    'giftBeans': 0,
-    'livekitRoom': 'bb_host_1',
-    'moderatorIds': mods,
-    'seats': [_seat(0, 'host'), _seat(1, null), _seat(2, null)],
-  });
+  final c = LiveRoomController(
+    roomId: 'r1',
+    myUid: me,
+    repo: repo ?? _FakeRepo(),
+  );
+  c.detail = RoomDetail.fromJson(_roomJson(mods: mods));
   return c;
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('server chat carries role, reply and voice', () {
     final c = _controller();
     c.handleServerPacket('bb.chat', {
@@ -282,5 +310,105 @@ void main() {
     });
     expect(c.pkOutgoing, isNull);
     expect(c.pk, isNull);
+  });
+
+  group('lifecycle', () {
+    test('closing while joining never connects or starts anything', () async {
+      // Regression: a controller disposed mid-join went on to connect, take the wakelock
+      // and start the heartbeat and poll timers, keeping a host room alive forever.
+      final repo = _FakeRepo()..joining = Completer();
+      final c = LiveRoomController(roomId: 'r1', myUid: 'me', repo: repo);
+      final started = c.start();
+      c.dispose();
+      repo.joining!.complete(
+        LiveSession.fromJson({
+          'room': _roomJson(),
+          'credentials': {
+            'token': 't',
+            'url': 'wss://lk.test',
+            'identity': 'me',
+            'role': 'viewer',
+          },
+        }),
+      );
+      await started;
+      expect(c.detail, isNull);
+      expect(c.status, LiveStatus.connecting);
+    });
+
+    test(
+      'a poll answer older than a seats event keeps the newer seats',
+      () async {
+        final repo = _FakeRepo()..polling = Completer();
+        final c = _controller(repo: repo);
+        final poll = c.refreshDetail();
+        // While the poll is in flight, a guest takes seat 1.
+        c.handleServerPacket('bb.seats', {
+          'kind': 'seats',
+          'seats': [_seat(0, 'host'), _seat(1, 'g'), _seat(2, null)],
+        });
+        // The poll was answered before that, so it has seat 1 empty (and a new title).
+        repo.polling!.complete(RoomDetail.fromJson(_roomJson(title: 'New')));
+        await poll;
+        expect(c.detail!.seats[1].user?.id, 'g');
+        expect(c.detail!.room.title, 'New');
+      },
+    );
+
+    test('a poll with no seat event in between applies in full', () async {
+      final repo = _FakeRepo()..polling = Completer();
+      final c = _controller(repo: repo);
+      final poll = c.refreshDetail();
+      repo.polling!.complete(RoomDetail.fromJson(_roomJson(guest: 'g')));
+      await poll;
+      expect(c.detail!.seats[1].user?.id, 'g');
+    });
+
+    test('stream-only events do not rebuild the room', () {
+      final c = _controller();
+      var notified = 0;
+      c.addListener(() => notified++);
+      c.handleServerPacket('bb.reaction', {'uid': 'v', 'count': 3});
+      c.handleServerPacket('bb.entry', {'user': _brief('v')});
+      expect(notified, 0);
+      c.handleServerPacket('bb.chat', {
+        'id': 'm1',
+        'text': 'hi',
+        'user': _brief('v'),
+      });
+      expect(notified, 1);
+    });
+
+    test('packets after dispose are ignored', () {
+      final c = _controller()..dispose();
+      expect(
+        () => c.handleServerPacket('bb.reaction', {'uid': 'v', 'count': 1}),
+        returnsNormally,
+      );
+    });
+
+    test('seat invites count down on the device clock', () async {
+      // A server 10 minutes ahead of this phone: the raw expiry would already be "past".
+      final c = _controller();
+      c.detail = RoomDetail.fromJson(
+        _roomJson(
+          serverTime: DateTime.now()
+              .add(const Duration(minutes: 10))
+              .toUtc()
+              .toIso8601String(),
+        ),
+      );
+      final invite = c.seatInvites.first;
+      final serverExpiry = DateTime.now().add(
+        const Duration(minutes: 10, seconds: 30),
+      );
+      c.handleServerPacket('bb.seats', {
+        'kind': 'invite',
+        'from': _brief('host'),
+        'expiresAt': serverExpiry.toUtc().toIso8601String(),
+      });
+      final left = (await invite).expiresAt!.difference(DateTime.now());
+      expect(left.inSeconds, inInclusiveRange(25, 31));
+    });
   });
 }

@@ -24,9 +24,33 @@ abstract final class BBColors {
   static const danger = Color(0xFFB4443A);
   static const info = Color(0xFF3C6E8F);
 
+  /// Pale wash behind an inline error message.
+  static const dangerTint = Color(0xFFFBEAE8);
+
+  /// Text and icons on saturated fills (live pill, tier badges, podium ranks).
+  static const onAccent = Color(0xFFFFFFFF);
+
+  /// Silver: second place on podiums, the level 20–39 band.
+  static const silverLight = Color(0xFFE3E3E3);
+  static const silver = Color(0xFFA9A9A9);
+  static const silverDeep = Color(0xFF8E8E8E);
+
+  /// Deep umber for the top level band (70+).
+  static const umber = Color(0xFF8B5A00);
+  static const umberDeep = Color(0xFF5C3A00);
+
+  /// Soft shadow under the brand mark.
+  static const bronzeShadow = Color(0x406B4826);
+
   /// Immersive surfaces (live rooms, games) sit on a warm espresso base.
   static const espresso = Color(0xFF1D1610);
+
+  /// Soft drop shadow under gold surfaces (buttons, the wallet card).
+  static const goldShadow = Color(0x40B8860B);
   static const scrim = Color(0x8C2B2118);
+
+  /// Warm centre of the radial glow behind a camera-less preview.
+  static const espressoGlow = Color(0xFF4A3722);
 
   /// Darkens a room background image under the audio seat grid.
   static const espressoShade = Color(0xAA1D1610);
@@ -35,6 +59,11 @@ abstract final class BBColors {
   static const goldTint = Color(0x33E9CF7A);
   static const goldOutline = Color(0x55E9CF7A);
   static const champagneTint = Color(0x22F3E5C3);
+  static const champagneVeil = Color(0x33F3E5C3);
+
+  /// Card-table felt, for the Teen Patti game tile.
+  static const feltGreen = Color(0xFF3C6B4A);
+  static const feltGreenDeep = Color(0xFF18301F);
 
   /// PK sides: the room's own host is always red, the opponent blue.
   static const pkRed = Color(0xFFD64545);
@@ -93,6 +122,15 @@ abstract final class BBColors {
     end: Alignment.bottomCenter,
     colors: [surface, champagne],
   );
+
+  static const silverGradient = LinearGradient(colors: [silverLight, silver]);
+
+  /// Darker than [silverGradient] so white "Lv" text on it stays legible (≥ 3:1).
+  static const silverBadgeGradient = LinearGradient(
+    colors: [Color(0xFF8C8C8C), Color(0xFF5E5E5E)],
+  );
+
+  static const umberGradient = LinearGradient(colors: [umber, umberDeep]);
 
   static const bronzeGradient = LinearGradient(
     begin: Alignment.topLeft,

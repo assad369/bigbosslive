@@ -17,6 +17,31 @@ import 'host_detail.dart';
 void _open(BuildContext context, Widget screen) =>
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
 
+/// Agency actions in flight, by id, so a double tap can't approve, decline or cancel twice.
+final _busyProvider = NotifierProvider.autoDispose<_Busy, Set<String>>(
+  _Busy.new,
+);
+
+class _Busy extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => const {};
+
+  Future<void> run(String id, Future<void> Function() action) async {
+    if (state.contains(id)) return;
+    state = {...state, id};
+    try {
+      await action();
+    } finally {
+      if (ref.mounted) state = {...state}..remove(id);
+    }
+  }
+}
+
+/// The dashboard as it is now. Sub-screens get a snapshot when opened, but roles,
+/// suspension and settings can change while they are open.
+AgencyDashboard _live(WidgetRef ref, AgencyDashboard opened) =>
+    ref.watch(agencyDashboardProvider).value ?? opened;
+
 /// Home of the agency dashboard for its owner or an agency admin.
 class AgencyDashboardView extends ConsumerWidget {
   const AgencyDashboardView({super.key, required this.dash});
@@ -50,7 +75,7 @@ class AgencyDashboardView extends ConsumerWidget {
               ),
             ),
           const SizedBox(height: 16),
-          _StatGrid(
+          AgencyStatGrid(
             children: [
               AgencyStat(
                 icon: Icons.groups,
@@ -95,8 +120,8 @@ class AgencyDashboardView extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _StatGrid(
-            aspect: 3.2,
+          AgencyStatGrid(
+            actions: true,
             children: [
               AgencyActionTile(
                 icon: Icons.groups,
@@ -149,23 +174,6 @@ class AgencyDashboardView extends ConsumerWidget {
       ),
     );
   }
-}
-
-class _StatGrid extends StatelessWidget {
-  const _StatGrid({required this.children, this.aspect = 2.1});
-  final List<Widget> children;
-  final double aspect;
-
-  @override
-  Widget build(BuildContext context) => GridView.count(
-    crossAxisCount: 2,
-    shrinkWrap: true,
-    physics: const NeverScrollableScrollPhysics(),
-    mainAxisSpacing: 10,
-    crossAxisSpacing: 10,
-    childAspectRatio: aspect,
-    children: children,
-  );
 }
 
 class _Hero extends StatelessWidget {
@@ -272,6 +280,7 @@ class AgencyHostsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final members = ref.watch(agencyMembersProvider);
+    final dash = _live(ref, this.dash);
     return Scaffold(
       appBar: AppBar(title: const Text('Hosts')),
       floatingActionButton: dash.suspended
@@ -288,6 +297,7 @@ class AgencyHostsScreen extends ConsumerWidget {
           onRefresh: () => ref.refresh(agencyMembersProvider.future),
           child: items.isEmpty
               ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   children: const [
                     SizedBox(height: 80),
                     EmptyState(
@@ -321,9 +331,14 @@ class _HostRow extends ConsumerWidget {
     String done,
   ) async {
     try {
-      await action();
-      refreshAgency(ref);
-      if (context.mounted) showMessage(context, done);
+      await ref.read(_busyProvider.notifier).run(
+        'member:${m.user!.id}',
+        () async {
+          await action();
+          refreshAgency(ref);
+          if (context.mounted) showMessage(context, done);
+        },
+      );
     } catch (e) {
       if (context.mounted) showError(context, e);
     }
@@ -453,6 +468,8 @@ class _HostRow extends ConsumerWidget {
         ],
       ),
       trailing: PopupMenuButton<String>(
+        tooltip: 'Manage host',
+        enabled: !ref.watch(_busyProvider).contains('member:${u.id}'),
         onSelected: (a) => _onAction(context, ref, a),
         itemBuilder: (_) => [
           if (owner && !m.isAdmin)
@@ -529,37 +546,58 @@ Future<bool> _confirm(
     false;
 
 /// Minutes per day, or 0 to clear; null when cancelled.
-Future<int?> _askTarget(BuildContext context, int? current) {
-  final field = TextEditingController(text: current?.toString() ?? '');
-  return showDialog<int>(
-    context: context,
-    builder: (c) => AlertDialog(
-      title: const Text('Daily live target'),
-      content: TextField(
-        controller: field,
-        autofocus: true,
-        keyboardType: TextInputType.number,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        decoration: const InputDecoration(
-          labelText: 'Minutes per day (1–1440)',
-          helperText: 'Leave empty to clear the target',
-        ),
+Future<int?> _askTarget(BuildContext context, int? current) => showDialog<int>(
+  context: context,
+  builder: (_) => _TargetDialog(current: current),
+);
+
+/// Owns its text controller, so it is disposed with the dialog's element, after the exit
+/// animation (disposing when the future completes is too early: the field is still built).
+class _TargetDialog extends StatefulWidget {
+  const _TargetDialog({required this.current});
+  final int? current;
+  @override
+  State<_TargetDialog> createState() => _TargetDialogState();
+}
+
+class _TargetDialogState extends State<_TargetDialog> {
+  late final _field = TextEditingController(
+    text: widget.current?.toString() ?? '',
+  );
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final n = int.tryParse(_field.text.trim()) ?? 0;
+    Navigator.pop(context, n.clamp(0, 1440));
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Daily live target'),
+    content: TextField(
+      controller: _field,
+      autofocus: true,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: const InputDecoration(
+        labelText: 'Minutes per day (1–1440)',
+        helperText: 'Leave empty to clear the target',
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(c),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () {
-            final n = int.tryParse(field.text.trim()) ?? 0;
-            Navigator.pop(c, n.clamp(0, 1440));
-          },
-          child: const Text('Save'),
-        ),
-      ],
+      onSubmitted: (_) => _save(),
     ),
-  ).whenComplete(field.dispose);
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(onPressed: _save, child: const Text('Save')),
+    ],
+  );
 }
 
 /// Invite a host by BigBoss ID. They join only once they accept.
@@ -642,6 +680,7 @@ class AgencyRequestsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final reqs = ref.watch(agencyRequestsProvider);
+    final busy = ref.watch(_busyProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Applications')),
       body: AsyncView(
@@ -651,6 +690,7 @@ class AgencyRequestsScreen extends ConsumerWidget {
           onRefresh: () => ref.refresh(agencyRequestsProvider.future),
           child: items.isEmpty
               ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   children: const [
                     SizedBox(height: 80),
                     EmptyState(
@@ -665,30 +705,42 @@ class AgencyRequestsScreen extends ConsumerWidget {
                       if (r.user != null)
                         UserTile(
                           user: r.user!,
+                          key: ValueKey(r.id),
                           subtitle:
                               'ID ${r.user!.shortId} · applied ${Fmt.ago(r.createdAt)}',
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: 'Decline',
-                                icon: const Icon(
-                                  Icons.close,
-                                  color: BBColors.danger,
+                          trailing: busy.contains('req:${r.id}')
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox.square(
+                                    dimension: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Decline',
+                                      icon: const Icon(
+                                        Icons.close,
+                                        color: BBColors.danger,
+                                      ),
+                                      onPressed: () =>
+                                          _decide(context, ref, r, false),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Approve',
+                                      icon: const Icon(
+                                        Icons.check,
+                                        color: BBColors.success,
+                                      ),
+                                      onPressed: () =>
+                                          _decide(context, ref, r, true),
+                                    ),
+                                  ],
                                 ),
-                                onPressed: () =>
-                                    _decide(context, ref, r, false),
-                              ),
-                              IconButton(
-                                tooltip: 'Approve',
-                                icon: const Icon(
-                                  Icons.check,
-                                  color: BBColors.success,
-                                ),
-                                onPressed: () => _decide(context, ref, r, true),
-                              ),
-                            ],
-                          ),
                         ),
                   ],
                 ),
@@ -704,14 +756,16 @@ class AgencyRequestsScreen extends ConsumerWidget {
     bool approve,
   ) async {
     try {
-      await ref.read(agencyRepo).decideRequest(r.id, approve: approve);
-      refreshAgency(ref);
-      if (context.mounted) {
-        showMessage(
-          context,
-          approve ? 'Host approved' : 'Application declined',
-        );
-      }
+      await ref.read(_busyProvider.notifier).run('req:${r.id}', () async {
+        await ref.read(agencyRepo).decideRequest(r.id, approve: approve);
+        refreshAgency(ref);
+        if (context.mounted) {
+          showMessage(
+            context,
+            approve ? 'Host approved' : 'Application declined',
+          );
+        }
+      });
     } catch (e) {
       if (context.mounted) showError(context, e);
     }
@@ -725,6 +779,8 @@ class AgencyInvitationsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final invites = ref.watch(agencySentInvitationsProvider);
+    final busy = ref.watch(_busyProvider);
+    final dash = _live(ref, this.dash);
     return Scaffold(
       appBar: AppBar(title: const Text('Invitations')),
       floatingActionButton: dash.suspended
@@ -741,6 +797,7 @@ class AgencyInvitationsScreen extends ConsumerWidget {
           onRefresh: () => ref.refresh(agencySentInvitationsProvider.future),
           child: items.isEmpty
               ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   children: const [
                     SizedBox(height: 80),
                     EmptyState(
@@ -757,20 +814,29 @@ class AgencyInvitationsScreen extends ConsumerWidget {
                       if (inv.user != null)
                         UserTile(
                           user: inv.user!,
+                          key: ValueKey(inv.id),
                           subtitle:
                               'Invited by ${inv.invitedBy?.displayName ?? '—'} · '
-                              'expires ${Fmt.ago(inv.expiresAt)}',
+                              'expires ${Fmt.relative(inv.expiresAt)}',
                           trailing: TextButton(
-                            onPressed: () async {
-                              try {
-                                await ref
-                                    .read(agencyRepo)
-                                    .cancelInvitation(inv.id);
-                                refreshAgency(ref);
-                              } catch (e) {
-                                if (context.mounted) showError(context, e);
-                              }
-                            },
+                            onPressed: busy.contains('inv:${inv.id}')
+                                ? null
+                                : () async {
+                                    try {
+                                      await ref
+                                          .read(_busyProvider.notifier)
+                                          .run('inv:${inv.id}', () async {
+                                            await ref
+                                                .read(agencyRepo)
+                                                .cancelInvitation(inv.id);
+                                            refreshAgency(ref);
+                                          });
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        showError(context, e);
+                                      }
+                                    }
+                                  },
                             child: const Text('Cancel'),
                           ),
                         ),
@@ -862,7 +928,7 @@ class _AgencyAnalyticsScreenState extends ConsumerState<AgencyAnalyticsScreen> {
               data: (a) => ListView(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                 children: [
-                  _StatGrid(
+                  AgencyStatGrid(
                     children: [
                       AgencyStat(
                         label: 'Beans',
@@ -956,7 +1022,10 @@ class _AgencyTopHostsScreenState extends ConsumerState<AgencyTopHostsScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: DropdownButtonFormField<String>(
-                initialValue: b.periodKey,
+                // The value must be one of the items, or the dropdown asserts.
+                initialValue: b.periods.contains(b.periodKey)
+                    ? b.periodKey
+                    : b.periods.firstOrNull,
                 decoration: const InputDecoration(labelText: 'Month'),
                 items: [
                   for (final p in b.periods)
@@ -1000,7 +1069,9 @@ class _AgencyTopHostsScreenState extends ConsumerState<AgencyTopHostsScreen> {
                           '${r.rank}',
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
-                            color: r.rank <= 3 ? Colors.white : BBColors.ink,
+                            color: r.rank <= 3
+                                ? BBColors.onAccent
+                                : BBColors.ink,
                           ),
                         ),
                       ),
@@ -1088,11 +1159,14 @@ class _AgencySettingsScreenState extends ConsumerState<AgencySettingsScreen> {
   }
 
   Future<void> _save() async {
+    final name = _name.text.trim();
+    if (name.length < 2) {
+      return showMessage(context, 'Enter an agency name (at least 2 letters)');
+    }
     setState(() => _busy = true);
     try {
       final repo = ref.read(agencyRepo);
       final logoUrl = _logo == null ? null : await repo.uploadLogo(_logo!);
-      final name = _name.text.trim();
       await repo.updateProfile(
         name: name == widget.dash.agency.name ? null : name,
         logoUrl: logoUrl,
@@ -1123,12 +1197,20 @@ class _AgencySettingsScreenState extends ConsumerState<AgencySettingsScreen> {
               onTap: !owner
                   ? null
                   : () async {
-                      final x = await ImagePicker().pickImage(
-                        source: ImageSource.gallery,
-                        maxWidth: 512,
-                        imageQuality: 85,
-                      );
-                      if (x != null) setState(() => _logo = File(x.path));
+                      try {
+                        final x = await ImagePicker().pickImage(
+                          source: ImageSource.gallery,
+                          maxWidth: 512,
+                          imageQuality: 85,
+                        );
+                        if (x != null && mounted) {
+                          setState(() => _logo = File(x.path));
+                        }
+                      } catch (_) {
+                        if (context.mounted) {
+                          showMessage(context, 'Couldn\'t open your photos');
+                        }
+                      }
                     },
               child: Stack(
                 children: [
@@ -1148,7 +1230,7 @@ class _AgencySettingsScreenState extends ConsumerState<AgencySettingsScreen> {
                         child: Icon(
                           Icons.camera_alt,
                           size: 16,
-                          color: Colors.white,
+                          color: BBColors.onAccent,
                         ),
                       ),
                     ),

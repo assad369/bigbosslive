@@ -574,6 +574,7 @@ class ChatMessage {
     this.mediaUrl,
     this.createdAt,
     this.pending = false,
+    this.failed = false,
   });
   final String id;
   final String conversationId;
@@ -582,7 +583,24 @@ class ChatMessage {
   final String? text;
   final String? mediaUrl;
   final DateTime? createdAt;
+
+  /// Optimistic copy, not yet confirmed by the server.
   final bool pending;
+
+  /// Optimistic copy whose send failed; tapping it retries with the same client id.
+  final bool failed;
+
+  ChatMessage asFailed({required bool failed}) => ChatMessage(
+    id: id,
+    conversationId: conversationId,
+    senderId: senderId,
+    type: type,
+    text: text,
+    mediaUrl: mediaUrl,
+    createdAt: createdAt,
+    pending: true,
+    failed: failed,
+  );
 
   factory ChatMessage.fromJson(Json j) => ChatMessage(
     id: j.str('id'),

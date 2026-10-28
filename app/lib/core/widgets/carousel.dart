@@ -41,6 +41,9 @@ class _BBCarouselState extends State<BBCarousel> {
   int _index = 0;
   bool _touching = false;
 
+  /// Read in build (where the dependency belongs), used by the timer.
+  bool _visible = true;
+
   bool get _loops => widget.itemCount > 1;
 
   @override
@@ -52,8 +55,19 @@ class _BBCarouselState extends State<BBCarousel> {
   @override
   void didUpdateWidget(covariant BBCarousel old) {
     super.didUpdateWidget(old);
+    if (old.itemCount != widget.itemCount) {
+      // The page index means a different item now, and a carousel that just started
+      // looping (1 → N) must move off page 0 to be able to go backwards.
+      _index = 0;
+      if (_loops) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _controller.hasClients) {
+            _controller.jumpToPage(_loopBase * widget.itemCount);
+          }
+        });
+      }
+    }
     if (old.itemCount != widget.itemCount || old.interval != widget.interval) {
-      if (_index >= widget.itemCount) _index = 0;
       _restart();
     }
   }
@@ -62,9 +76,8 @@ class _BBCarouselState extends State<BBCarousel> {
     _timer?.cancel();
     if (!_loops) return;
     _timer = Timer.periodic(widget.interval, (_) {
-      if (_touching || !_controller.hasClients) return;
-      // Skip ticks while the route is covered or the app is in the background.
-      if (!(TickerMode.valuesOf(context).enabled)) return;
+      // Skip ticks while touched, covered by another route or in the background.
+      if (_touching || !_visible || !_controller.hasClients) return;
       final page = _controller.page?.round() ?? 0;
       unawaited(
         _controller.animateToPage(
@@ -85,6 +98,7 @@ class _BBCarouselState extends State<BBCarousel> {
 
   @override
   Widget build(BuildContext context) {
+    _visible = TickerMode.valuesOf(context).enabled;
     if (widget.itemCount == 0) return const SizedBox.shrink();
     return Column(
       mainAxisSize: MainAxisSize.min,

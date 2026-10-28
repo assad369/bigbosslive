@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,7 +26,7 @@ class GamesScreen extends ConsumerWidget {
     'fortune_ferris': ('🎡', BBColors.bronzeGradient),
     'teen_patti': (
       '🂡',
-      LinearGradient(colors: [Color(0xFF3C6B4A), Color(0xFF18301F)]),
+      LinearGradient(colors: [BBColors.feltGreen, BBColors.feltGreenDeep]),
     ),
   };
 
@@ -110,6 +111,7 @@ class GameWebViewScreen extends ConsumerStatefulWidget {
 class _GameWebViewScreenState extends ConsumerState<GameWebViewScreen> {
   WebViewController? _controller;
   bool _loading = true;
+  Object? _error;
 
   @override
   void initState() {
@@ -117,32 +119,63 @@ class _GameWebViewScreenState extends ConsumerState<GameWebViewScreen> {
     unawaited(_init());
   }
 
+  /// The ID token rides in the fragment, but the page's scripts read it, so a page served
+  /// over plain http could be swapped by anyone on the network. Release builds only load
+  /// https (debug builds allow a local dev server).
+  static bool _allowed(Uri uri) =>
+      uri.scheme == 'https' || (!kReleaseMode && uri.scheme == 'http');
+
   Future<void> _init() async {
-    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-    final base = Uri.parse(widget.game.url);
-    final url = base.replace(
-      fragment:
-          'token=${Uri.encodeComponent(token ?? '')}&api=${Uri.encodeComponent(Env.apiUrl)}',
-    );
-    final c = WebViewController();
-    await c.setJavaScriptMode(JavaScriptMode.unrestricted);
-    await c.setBackgroundColor(BBColors.espresso);
-    await c.addJavaScriptChannel(
-      'BigBossBridge',
-      onMessageReceived: (m) => _onMessage(m.message),
-    );
-    await c.setNavigationDelegate(
-      NavigationDelegate(
-        onPageFinished: (_) =>
-            mounted ? setState(() => _loading = false) : null,
-        // Keep the WebView on the game's own origin.
-        onNavigationRequest: (r) => Uri.parse(r.url).host == base.host
-            ? NavigationDecision.navigate
-            : NavigationDecision.prevent,
-      ),
-    );
-    await c.loadRequest(url);
-    if (mounted) setState(() => _controller = c);
+    if (_error != null) {
+      // A retry; the first run comes from initState, where setState isn't allowed.
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final base = Uri.parse(widget.game.url);
+      if (!_allowed(base)) {
+        throw const FormatException('This game is unavailable right now.');
+      }
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      final url = base.replace(
+        fragment:
+            'token=${Uri.encodeComponent(token ?? '')}&api=${Uri.encodeComponent(Env.apiUrl)}',
+      );
+      final c = WebViewController();
+      // Set before loading: the page may post a message as soon as it starts.
+      _controller = c;
+      await c.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await c.setBackgroundColor(BBColors.espresso);
+      await c.addJavaScriptChannel(
+        'BigBossBridge',
+        onMessageReceived: (m) => _onMessage(m.message),
+      );
+      await c.setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) =>
+              mounted ? setState(() => _loading = false) : null,
+          onWebResourceError: (e) {
+            // Only a failed page counts; a missing image inside the game doesn't.
+            if (e.isForMainFrame ?? true) {
+              if (mounted) setState(() => _error = e.description);
+            }
+          },
+          // Keep the WebView on the game's own origin, over an allowed scheme.
+          onNavigationRequest: (r) {
+            final next = Uri.tryParse(r.url);
+            return next != null && next.host == base.host && _allowed(next)
+                ? NavigationDecision.navigate
+                : NavigationDecision.prevent;
+          },
+        ),
+      );
+      await c.loadRequest(url);
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (mounted) setState(() => _error = e);
+    }
   }
 
   Future<void> _onMessage(String raw) async {
@@ -154,22 +187,23 @@ class _GameWebViewScreenState extends ConsumerState<GameWebViewScreen> {
     }
     switch (msg['type']) {
       case 'token_expired':
-        final token = await FirebaseAuth.instance.currentUser?.getIdToken(true);
-        await _controller?.runJavaScript(
-          'window.bbSetToken && window.bbSetToken(${jsonEncode(token ?? '')})',
-        );
+        try {
+          final token = await FirebaseAuth.instance.currentUser?.getIdToken(
+            true,
+          );
+          await _controller?.runJavaScript(
+            'window.bbSetToken && window.bbSetToken(${jsonEncode(token ?? '')})',
+          );
+        } catch (_) {
+          /* the game shows its own sign-in error */
+        }
       case 'close':
         if (mounted) context.pop();
       case 'recharge':
         if (mounted) unawaited(context.push('/wallet'));
       case 'balance':
-        final diamonds = msg['diamonds'];
-        final me = ref.read(sessionProvider).value;
-        if (diamonds is num && me != null) {
-          ref
-              .read(sessionProvider.notifier)
-              .replace(me.withDiamonds(diamonds.toInt()));
-        }
+        // The page's word is only a hint that the balance moved; the server is the source.
+        if (mounted) unawaited(ref.read(sessionProvider.notifier).refresh());
     }
   }
 
@@ -177,12 +211,54 @@ class _GameWebViewScreenState extends ConsumerState<GameWebViewScreen> {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: BBColors.espresso,
     body: SafeArea(
-      child: Stack(
-        children: [
-          if (_controller != null) WebViewWidget(controller: _controller!),
-          if (_loading) const Center(child: CircularProgressIndicator()),
-        ],
-      ),
+      child: _error != null
+          ? Column(
+              children: [
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => context.pop(),
+                    icon: const Icon(Icons.close, color: BBColors.ivory),
+                  ),
+                ),
+                Expanded(
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.wifi_off_rounded,
+                            color: BBColors.goldLight,
+                            size: 48,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'The game didn\'t load',
+                            style: TextStyle(
+                              color: BBColors.ivory,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          GoldButton(label: 'Try again', onPressed: _init),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Stack(
+              children: [
+                if (_controller != null)
+                  WebViewWidget(controller: _controller!),
+                if (_loading) const Center(child: CircularProgressIndicator()),
+              ],
+            ),
     ),
   );
 }

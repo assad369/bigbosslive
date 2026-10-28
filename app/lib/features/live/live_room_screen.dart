@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
+import '../../core/utils/json.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import 'active_live.dart';
@@ -48,24 +49,31 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
   /// Null when the user is hosting another live and can't join this one.
   LiveRoomController? _c;
   LiveRoomController get c => _c!;
+  int _lease = 0;
   StreamSubscription<String>? _notices;
   final _hearts = GlobalKey<HeartLayerState>();
   bool _composing = false;
   ChatLine? _replyTo;
 
+  /// Set while this screen itself closes the session, so it doesn't also react to it.
+  bool _leaving = false;
+  bool _popScheduled = false;
+  bool _kickShown = false;
+
   @override
   void initState() {
     super.initState();
     _active = ref.read(activeLiveProvider.notifier);
-    _attach(widget.password);
+    _attach(widget.password, hostSession: widget.hostSession);
   }
 
-  void _attach(String? password) {
+  void _attach(String? password, {LiveSession? hostSession}) {
     _c = _active.attach(
       widget.roomId,
-      hostSession: widget.hostSession,
+      hostSession: hostSession,
       password: password,
     );
+    _lease = _active.lease;
     if (_c == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -87,16 +95,35 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
     if (current == null) return;
     unawaited(_notices?.cancel());
     current.removeListener(_onChange);
-    _active.detach(current);
+    _active.detach(current, lease: _lease);
+  }
+
+  /// The session this screen shows was closed or replaced elsewhere (another live opened
+  /// from a profile or a push, the PiP window dismissed). Its controller is disposed.
+  bool get _orphaned =>
+      _c != null && !identical(_active.current?.controller, _c);
+
+  /// Pop this screen after the current frame, and only while it is the top route; popping
+  /// from inside the controller's notifyListeners would dispose it mid-notification.
+  void _popSoon() {
+    if (_popScheduled) return;
+    _popScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _popScheduled = false;
+      if (!mounted || _leaving) return;
+      if (ModalRoute.of(context)?.isCurrent ?? false) context.pop();
+    });
   }
 
   void _onChange() {
     if (!mounted) return;
     setState(() {});
     if (c.status == LiveStatus.kicked &&
+        !_kickShown &&
         (ModalRoute.of(context)?.isCurrent ?? false)) {
+      _kickShown = true;
       showMessage(context, 'You were removed from this live');
-      context.pop();
+      _popSoon();
     }
   }
 
@@ -106,6 +133,16 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
     super.dispose();
   }
 
+  /// Join again from scratch: a password for a locked room, or a retry after a failure.
+  void _rejoin({String? password}) {
+    _detach();
+    _active.close();
+    setState(() {
+      _kickShown = false;
+      _attach(password ?? widget.password);
+    });
+  }
+
   /// Locked room: ask for the password and join again with it.
   Future<void> _unlock() async {
     final pw = await showRoomPasswordDialog(
@@ -113,19 +150,27 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
       wrong: c.lockedOut?.wrong ?? false,
     );
     if (pw == null || !mounted) return;
-    _detach();
-    _active.close();
-    setState(() => _attach(pw));
+    _rejoin(password: pw);
   }
 
   /// Leaving for good (the X), unlike back, which minimizes. Hosts confirm and end.
   Future<void> _leave() async {
     if (c.isHost && c.status != LiveStatus.ended) {
       if (!await confirmEndLive(context)) return;
-      final summary = await _active.endHosting();
+      final Json? summary;
+      _leaving = true;
+      try {
+        summary = await _active.endHosting();
+      } catch (e) {
+        // The live is still running; stay so the host can try again.
+        _leaving = false;
+        if (mounted) showError(context, e);
+        return;
+      }
       if (!mounted) return;
       await showLiveSummary(context, summary);
     } else {
+      _leaving = true;
       _active.close();
     }
     if (mounted) context.pop();
@@ -168,11 +213,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
             content: const Text('You’ll keep watching as a viewer.'),
             actions: [
               TextButton(
-                onPressed: () => ctx.pop(false),
+                onPressed: () => Navigator.pop(ctx, false),
                 child: const Text('Stay'),
               ),
               FilledButton(
-                onPressed: () => ctx.pop(true),
+                onPressed: () => Navigator.pop(ctx, true),
                 child: const Text('Leave'),
               ),
             ],
@@ -182,6 +227,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
       } else if (c.seatRequestPending) {
         await c.cancelSeatRequest();
       } else {
+        if (!await ensureStagePermissions(context, video: c.isVideoRoom)) {
+          return;
+        }
         await c.requestSeat();
         if (mounted) showMessage(context, 'Request sent to the host');
       }
@@ -197,8 +245,22 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the active session changes, to notice being orphaned.
+    ref.watch(activeLiveProvider);
     if (_c == null) {
       return const Scaffold(backgroundColor: BBColors.espresso);
+    }
+    if (_orphaned) {
+      // Nothing to show any more: leave if on top, otherwise explain when the user
+      // comes back to this screen.
+      if (!_leaving) _popSoon();
+      return const Scaffold(
+        backgroundColor: BBColors.espresso,
+        body: _Ended(
+          title: 'You left this live',
+          message: 'Open it again from the home screen to keep watching.',
+        ),
+      );
     }
     final d = c.detail;
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
@@ -230,10 +292,21 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
           LiveStatus.failed => _Ended(
             title: 'Could not join',
             message: c.error ?? '',
+            action: GoldButton(label: 'Try again', onPressed: _rejoin),
           ),
-          LiveStatus.ended when !c.isHost => const _Ended(
+          LiveStatus.kicked => const _Ended(
+            icon: Icons.block_rounded,
+            title: 'You were removed from this live',
+            message: 'The host or a room admin removed you.',
+          ),
+          LiveStatus.ended when c.isHost => _Ended(
+            title: 'Your live has ended',
+            message: c.error ?? 'Thanks for going live.',
+          ),
+          LiveStatus.ended => _Ended(
             title: 'This live has ended',
-            message: 'Follow the host to know when they go live again.',
+            message:
+                c.error ?? 'Follow the host to know when they go live again.',
           ),
           _ => Stack(
             fit: StackFit.expand,
@@ -379,6 +452,7 @@ class _Ended extends StatelessWidget {
         Align(
           alignment: Alignment.topRight,
           child: IconButton(
+            tooltip: 'Close',
             onPressed: () => context.pop(),
             icon: const Icon(Icons.close, color: BBColors.ivory),
           ),

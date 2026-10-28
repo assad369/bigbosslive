@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
@@ -21,11 +21,11 @@ Future<bool> confirmEndLive(BuildContext context) async =>
         title: const Text('End your live?'),
         actions: [
           TextButton(
-            onPressed: () => ctx.pop(false),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Keep going'),
           ),
           FilledButton(
-            onPressed: () => ctx.pop(true),
+            onPressed: () => Navigator.pop(ctx, true),
             child: const Text('End live'),
           ),
         ],
@@ -50,7 +50,10 @@ Future<void> showLiveSummary(BuildContext context, Json? s) => showDialog<void>(
       ],
     ),
     actions: [
-      FilledButton(onPressed: () => ctx.pop(), child: const Text('Done')),
+      FilledButton(
+        onPressed: () => Navigator.pop(ctx),
+        child: const Text('Done'),
+      ),
     ],
   ),
 );
@@ -62,7 +65,8 @@ Future<void> showPkInviteDialog(
   LiveRepository repo,
   PkBattle battle,
 ) async {
-  final from = battle.host(battle.invitedBy) ?? battle.hosts.first;
+  final from = battle.host(battle.invitedBy) ?? battle.hosts.firstOrNull;
+  if (from == null) return;
   final rounds = battle.maxRounds > 1 ? '${battle.maxRounds}-round ' : '';
   final accept = await showDialog<bool>(
     context: context,
@@ -106,6 +110,36 @@ Future<bool> showSeatInviteDialog(
       ),
     ) ??
     false;
+
+/// Asks for what being on stage needs before joining it: the microphone, and the camera in
+/// a video room. Without the mic there is no point joining, so that returns false (with a
+/// way to Settings when it is blocked for good). A missing camera only means audio.
+Future<bool> ensureStagePermissions(
+  BuildContext context, {
+  required bool video,
+}) async {
+  final statuses = await [
+    Permission.microphone,
+    if (video) Permission.camera,
+  ].request();
+  final mic = statuses[Permission.microphone];
+  if (mic?.isGranted ?? false) return true;
+  if (!context.mounted) return false;
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: const Text('Allow microphone access to join the stage'),
+        action: (mic?.isPermanentlyDenied ?? false)
+            ? const SnackBarAction(
+                label: 'Settings',
+                onPressed: openAppSettings,
+              )
+            : null,
+      ),
+    );
+  return false;
+}
 
 /// Asks for a locked room's password. Returns null when cancelled.
 Future<String?> showRoomPasswordDialog(
@@ -154,13 +188,16 @@ class _PasswordDialogState extends State<_PasswordDialog> {
       ),
       onChanged: (_) => setState(() {}),
       onSubmitted: (v) {
-        if (_valid) context.pop(v);
+        if (_valid) Navigator.pop(context, v);
       },
     ),
     actions: [
-      TextButton(onPressed: () => context.pop(), child: const Text('Cancel')),
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
       FilledButton(
-        onPressed: _valid ? () => context.pop(_field.text) : null,
+        onPressed: _valid ? () => Navigator.pop(context, _field.text) : null,
         child: const Text('Enter'),
       ),
     ],
@@ -201,11 +238,24 @@ class _ExpiringDialogState extends State<_ExpiringDialog> {
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_left <= 0) {
         _tick?.cancel();
-        if (mounted) context.pop(false);
+        _close(false);
       } else {
         setState(() {});
       }
     });
+  }
+
+  /// Closes *this* dialog. With two invites stacked, a plain pop from the older one's timer
+  /// would close (and answer) the newer one instead.
+  void _close(bool result) {
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route == null) return;
+    if (route.isCurrent) {
+      Navigator.of(context).pop(result);
+    } else if (route.isActive) {
+      Navigator.of(context).removeRoute(route, result);
+    }
   }
 
   @override
@@ -233,14 +283,8 @@ class _ExpiringDialogState extends State<_ExpiringDialog> {
       ],
     ),
     actions: [
-      TextButton(
-        onPressed: () => context.pop(false),
-        child: Text(widget.decline),
-      ),
-      FilledButton(
-        onPressed: () => context.pop(true),
-        child: Text(widget.accept),
-      ),
+      TextButton(onPressed: () => _close(false), child: Text(widget.decline)),
+      FilledButton(onPressed: () => _close(true), child: Text(widget.accept)),
     ],
   );
 }

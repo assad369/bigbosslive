@@ -8,6 +8,7 @@ import '../../core/providers.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
+import '../../core/utils/json.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 
@@ -19,17 +20,25 @@ class NotificationsScreen extends ConsumerStatefulWidget {
 }
 
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
-  @override
-  void initState() {
-    super.initState();
-    // Opening the inbox marks everything read.
-    unawaited(
-      ref
-          .read(socialRepo)
-          .markAllNotificationsRead()
-          .then((_) => ref.invalidate(unreadProvider))
-          .catchError((Object _) {}),
-    );
+  bool _marked = false;
+
+  /// Opening the inbox marks everything read, but only after the first page has loaded, so
+  /// that page still shows which items are new.
+  Future<Paged<AppNotification>> _load(String? cursor) async {
+    // The container outlives this screen; the badge must update even if it closes first.
+    final container = ProviderScope.containerOf(context, listen: false);
+    final page = await ref.read(socialRepo).notifications(cursor: cursor);
+    if (!_marked && mounted) {
+      _marked = true;
+      unawaited(
+        ref
+            .read(socialRepo)
+            .markAllNotificationsRead()
+            .then((_) => container.invalidate(unreadProvider))
+            .catchError((Object _) {}),
+      );
+    }
+    return page;
   }
 
   static IconData _icon(String type) => switch (type) {
@@ -48,7 +57,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     appBar: AppBar(title: const Text('Notifications')),
     body: PagedList<AppNotification>(
       separator: true,
-      load: (cursor) => ref.read(socialRepo).notifications(cursor: cursor),
+      load: _load,
       empty: const EmptyState(
         icon: Icons.notifications_none_rounded,
         title: 'You\'re all caught up',

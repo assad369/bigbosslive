@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -66,7 +68,7 @@ class AgencyLogo extends StatelessWidget {
 /// Podium colours for the top three; the brand gold for everyone else.
 abstract final class AgencyPodium {
   static const _silver = LinearGradient(
-    colors: [Color(0xFFE3E3E3), Color(0xFFA9A9A9)],
+    colors: [BBColors.silverLight, BBColors.silver],
   );
 
   static Gradient gradient(int rank) => switch (rank) {
@@ -78,7 +80,7 @@ abstract final class AgencyPodium {
 
   static Color accent(int rank) => switch (rank) {
     1 => BBColors.goldDeep,
-    2 => const Color(0xFF8E8E8E),
+    2 => BBColors.silverDeep,
     3 => BBColors.bronze,
     _ => BBColors.goldDeep,
   };
@@ -193,12 +195,12 @@ class AgencyRankCard extends StatelessWidget {
                     Icon(
                       Icons.workspace_premium,
                       size: 16,
-                      color: podium ? Colors.white : BBColors.goldDeep,
+                      color: podium ? BBColors.onAccent : BBColors.goldDeep,
                     ),
                     Text(
                       '#${top.rank}',
                       style: TextStyle(
-                        color: podium ? Colors.white : BBColors.goldDeep,
+                        color: podium ? BBColors.onAccent : BBColors.goldDeep,
                         fontWeight: FontWeight.w900,
                         fontSize: 13,
                       ),
@@ -215,6 +217,42 @@ class AgencyRankCard extends StatelessWidget {
 }
 
 /// A labelled number in a dashboard grid.
+/// Two-column grid of [AgencyStat]s or [AgencyActionTile]s. Row height follows the content
+/// at the user's text size; a fixed aspect ratio squashed the tiles on narrow phones and
+/// overflowed them with larger text.
+class AgencyStatGrid extends StatelessWidget {
+  const AgencyStatGrid({
+    super.key,
+    required this.children,
+    this.actions = false,
+  });
+  final List<Widget> children;
+
+  /// [AgencyActionTile]s (icon + up to two lines) rather than [AgencyStat]s.
+  final bool actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = MediaQuery.textScalerOf(context);
+    // Padding and border, plus the content: a 38 px icon beside two label lines, or a
+    // 12 px label over an 18 px value.
+    final extent = actions
+        ? 30.0 + math.max(38.0, text.scale(40))
+        : 28.0 + text.scale(44);
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        mainAxisExtent: extent,
+      ),
+      children: children,
+    );
+  }
+}
+
 class AgencyStat extends StatelessWidget {
   const AgencyStat({
     super.key,
@@ -301,12 +339,14 @@ class AgencyActionTile extends StatelessWidget {
                 gradient: BBColors.goldGradient,
                 borderRadius: BorderRadius.circular(11),
               ),
-              child: Icon(icon, color: Colors.white, size: 20),
+              child: Icon(icon, color: BBColors.onAccent, size: 20),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),

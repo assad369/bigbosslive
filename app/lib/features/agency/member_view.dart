@@ -30,7 +30,8 @@ class AgencyMemberView extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            for (final inv in invites) _InvitationCard(inv: inv),
+            for (final inv in invites)
+              _InvitationCard(key: ValueKey(inv.id), inv: inv),
             if (m != null) _Membership(m: m) else const _Browse(),
           ],
         ),
@@ -40,7 +41,7 @@ class AgencyMemberView extends ConsumerWidget {
 }
 
 class _InvitationCard extends ConsumerStatefulWidget {
-  const _InvitationCard({required this.inv});
+  const _InvitationCard({super.key, required this.inv});
   final AgencyInvitation inv;
   @override
   ConsumerState<_InvitationCard> createState() => _InvitationCardState();
@@ -94,7 +95,7 @@ class _InvitationCardState extends ConsumerState<_InvitationCard> {
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       Text(
-                        '${a.code} · ${a.memberCount} hosts · expires ${Fmt.ago(widget.inv.expiresAt)}',
+                        '${a.code} · ${a.memberCount} hosts · expires ${Fmt.relative(widget.inv.expiresAt)}',
                         style: const TextStyle(
                           color: BBColors.inkSubtle,
                           fontSize: 12,
@@ -199,10 +200,13 @@ class _Membership extends ConsumerWidget {
           ),
         )
       else
-        OutlinedButton.icon(
-          onPressed: () => _leave(context, ref),
-          icon: const Icon(Icons.logout),
-          label: const Text('Leave agency'),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => _leave(context, ref),
+            icon: const Icon(Icons.logout),
+            label: const Text('Leave agency'),
+          ),
         ),
     ],
   );

@@ -14,6 +14,21 @@ import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../profile/profile_screens.dart';
 
+/// Bumped when the user posts, so the feed tabs pick up the new moment.
+final feedRevisionProvider = NotifierProvider<FeedRevision, int>(
+  FeedRevision.new,
+);
+
+class FeedRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+  void bump() => state++;
+}
+
+final _postProvider = FutureProvider.autoDispose.family<FeedPost, String>(
+  (ref, id) => ref.watch(socialRepo).post(id),
+);
+
 class FeedScreen extends ConsumerWidget {
   const FeedScreen({super.key});
 
@@ -34,6 +49,7 @@ class FeedScreen extends ConsumerWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton(
+        tooltip: 'New moment',
         backgroundColor: BBColors.gold,
         foregroundColor: BBColors.ink,
         onPressed: () => context.push('/post/new'),
@@ -67,6 +83,10 @@ class _FeedTabState extends ConsumerState<_FeedTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    ref.listen(
+      feedRevisionProvider,
+      (_, _) => unawaited(_list.refresh(keepItems: true)),
+    );
     return PagedList<FeedPost>(
       controller: _list,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
@@ -82,41 +102,89 @@ class _FeedTabState extends ConsumerState<_FeedTab>
           post: p,
           onChanged: (next) =>
               _list.replaceWhere((x) => x.id == next.id, (_) => next),
+          onDeleted: () => _list.removeWhere((x) => x.id == p.id),
         ),
       ),
     );
   }
 }
 
-class PostCard extends ConsumerWidget {
+class PostCard extends ConsumerStatefulWidget {
   const PostCard({
     super.key,
     required this.post,
     required this.onChanged,
+    this.onDeleted,
     this.inDetail = false,
   });
   final FeedPost post;
   final ValueChanged<FeedPost> onChanged;
+  final VoidCallback? onDeleted;
   final bool inDetail;
 
-  Future<void> _toggleLike(WidgetRef ref) async {
-    final liked = !post.likedByMe;
-    onChanged(
-      post.copyWith(
+  @override
+  ConsumerState<PostCard> createState() => _PostCardState();
+}
+
+class _PostCardState extends ConsumerState<PostCard> {
+  bool _liking = false;
+
+  FeedPost get post => widget.post;
+
+  Future<void> _toggleLike() async {
+    // One request at a time: a second tap mid-flight would race and revert the first.
+    if (_liking) return;
+    _liking = true;
+    final before = post;
+    final liked = !before.likedByMe;
+    widget.onChanged(
+      before.copyWith(
         likedByMe: liked,
-        likeCount: post.likeCount + (liked ? 1 : -1),
+        likeCount: before.likeCount + (liked ? 1 : -1),
       ),
     );
     try {
-      final count = await ref.read(socialRepo).like(post.id, liked);
-      onChanged(post.copyWith(likedByMe: liked, likeCount: count));
-    } catch (_) {
-      onChanged(post);
+      final count = await ref.read(socialRepo).like(before.id, liked);
+      widget.onChanged(before.copyWith(likedByMe: liked, likeCount: count));
+    } catch (e) {
+      widget.onChanged(before);
+      if (mounted) showError(context, e);
+    } finally {
+      _liking = false;
+    }
+  }
+
+  Future<void> _delete() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete this moment?'),
+        content: const Text('It will be removed for everyone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: BBColors.danger),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ref.read(socialRepo).deletePost(post.id);
+      widget.onDeleted?.call();
+      if (mounted) showMessage(context, 'Post deleted');
+    } catch (e) {
+      if (mounted) showError(context, e);
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final isMine = post.author?.id == ref.watch(meProvider).id;
     return Card(
       child: Padding(
@@ -126,11 +194,17 @@ class PostCard extends ConsumerWidget {
           children: [
             Row(
               children: [
-                GestureDetector(
-                  onTap: post.author == null
+                Semantics(
+                  button: post.author != null,
+                  label: post.author == null
                       ? null
-                      : () => context.push('/user/${post.author!.id}'),
-                  child: BBAvatar.user(post.author, size: 40),
+                      : 'Open ${post.author!.displayName}\'s profile',
+                  child: GestureDetector(
+                    onTap: post.author == null
+                        ? null
+                        : () => context.push('/user/${post.author!.id}'),
+                    child: BBAvatar.user(post.author, size: 40),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -167,6 +241,7 @@ class PostCard extends ConsumerWidget {
                   ),
                 ),
                 PopupMenuButton<String>(
+                  tooltip: 'More',
                   icon: const Icon(Icons.more_horiz, color: BBColors.inkSubtle),
                   onSelected: (v) async {
                     if (v == 'report') {
@@ -176,10 +251,7 @@ class PostCard extends ConsumerWidget {
                         targetId: post.id,
                       );
                     }
-                    if (v == 'delete') {
-                      await ref.read(socialRepo).deletePost(post.id);
-                      if (context.mounted) showMessage(context, 'Post deleted');
-                    }
+                    if (v == 'delete') await _delete();
                   },
                   itemBuilder: (_) => [
                     if (isMine)
@@ -212,7 +284,7 @@ class PostCard extends ConsumerWidget {
             Row(
               children: [
                 TextButton.icon(
-                  onPressed: () => _toggleLike(ref),
+                  onPressed: _toggleLike,
                   icon: Icon(
                     post.likedByMe
                         ? Icons.favorite_rounded
@@ -225,7 +297,7 @@ class PostCard extends ConsumerWidget {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: inDetail
+                  onPressed: widget.inDetail
                       ? null
                       : () => context.push('/post/${post.id}', extra: post),
                   icon: const Icon(
@@ -299,10 +371,12 @@ class _PostScreenState extends ConsumerState<PostScreen> {
 
   Future<void> _comment() async {
     final text = _input.text.trim();
-    if (text.isEmpty) return;
+    // The keyboard's send action ignores the disabled button, so guard here too.
+    if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     try {
       final c = await ref.read(socialRepo).comment(_post.id, text);
+      if (!mounted) return;
       _input.clear();
       _comments.prepend(c);
       setState(
@@ -320,18 +394,29 @@ class _PostScreenState extends ConsumerState<PostScreen> {
     appBar: AppBar(title: const Text('Moment')),
     body: Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: PostCard(
-            post: _post,
-            inDetail: true,
-            onChanged: (p) => setState(() => _post = p),
-          ),
-        ),
-        const Divider(),
         Expanded(
+          // The post scrolls with its comments; on a small phone with the keyboard up a
+          // fixed post would leave the comments no room at all.
           child: PagedList<FeedComment>(
             controller: _comments,
+            header: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: PostCard(
+                    post: _post,
+                    inDetail: true,
+                    onChanged: (p) {
+                      if (mounted) setState(() => _post = p);
+                    },
+                    onDeleted: () {
+                      if (mounted) context.pop();
+                    },
+                  ),
+                ),
+                const Divider(),
+              ],
+            ),
             load: (cursor) =>
                 ref.read(socialRepo).comments(_post.id, cursor: cursor),
             empty: const Text(
@@ -343,6 +428,8 @@ class _PostScreenState extends ConsumerState<PostScreen> {
               leading: BBAvatar.user(c.author, size: 34),
               title: Text(
                 c.author?.displayName ?? 'User',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 13,
@@ -369,6 +456,7 @@ class _PostScreenState extends ConsumerState<PostScreen> {
                   child: TextField(
                     controller: _input,
                     maxLength: 500,
+                    textInputAction: TextInputAction.send,
                     decoration: const InputDecoration(
                       hintText: 'Add a comment',
                       counterText: '',
@@ -377,6 +465,7 @@ class _PostScreenState extends ConsumerState<PostScreen> {
                   ),
                 ),
                 IconButton(
+                  tooltip: 'Send comment',
                   onPressed: _sending ? null : _comment,
                   icon: const Icon(
                     Icons.send_rounded,
@@ -390,6 +479,31 @@ class _PostScreenState extends ConsumerState<PostScreen> {
       ],
     ),
   );
+}
+
+/// `/post/:id` opened from a link, without the post in hand.
+class PostByIdScreen extends ConsumerWidget {
+  const PostByIdScreen({super.key, required this.postId});
+  final String postId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final post = ref.watch(_postProvider(postId));
+    return post.when(
+      data: (p) => PostScreen(post: p),
+      loading: () => Scaffold(
+        appBar: AppBar(title: const Text('Moment')),
+        body: const Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) => Scaffold(
+        appBar: AppBar(title: const Text('Moment')),
+        body: ErrorView(
+          error: e,
+          onRetry: () => ref.invalidate(_postProvider(postId)),
+        ),
+      ),
+    );
+  }
 }
 
 class CreatePostScreen extends ConsumerStatefulWidget {
@@ -409,7 +523,38 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
     super.dispose();
   }
 
+  static const _maxImages = 9;
+
+  Future<void> _pickImages() async {
+    final room = _maxImages - _images.length;
+    if (room <= 0) return;
+    try {
+      // pickMultiImage rejects a limit below 2, and some Android pickers treat the limit as
+      // a hint, so cap the result as well.
+      final picked = room == 1
+          ? [
+              ?await ImagePicker().pickImage(
+                source: ImageSource.gallery,
+                maxWidth: 1600,
+                imageQuality: 85,
+              ),
+            ]
+          : await ImagePicker().pickMultiImage(
+              maxWidth: 1600,
+              imageQuality: 85,
+              limit: room,
+            );
+      if (!mounted) return;
+      setState(
+        () => _images.addAll(picked.take(room).map((x) => File(x.path))),
+      );
+    } catch (e) {
+      if (mounted) showError(context, 'Couldn\'t open your photos');
+    }
+  }
+
   Future<void> _post() async {
+    if (_posting) return;
     if (_text.text.trim().isEmpty && _images.isEmpty) return;
     setState(() => _posting = true);
     try {
@@ -417,6 +562,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
         _images.map((f) => ref.read(contentRepo).upload('post', f)),
       );
       await ref.read(socialRepo).createPost(_text.text.trim(), urls);
+      ref.read(feedRevisionProvider.notifier).bump();
       if (mounted) {
         showMessage(context, 'Shared to Moments');
         context.pop();
@@ -478,14 +624,27 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                     ),
                   ),
                   Positioned(
-                    right: 2,
-                    top: 2,
-                    child: InkWell(
-                      onTap: () => setState(() => _images.removeAt(i)),
-                      child: const CircleAvatar(
-                        radius: 12,
-                        backgroundColor: BBColors.scrim,
-                        child: Icon(Icons.close, size: 14, color: Colors.white),
+                    right: 0,
+                    top: 0,
+                    // 40 px hit area around a 24 px badge.
+                    child: Semantics(
+                      button: true,
+                      label: 'Remove photo',
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () => setState(() => _images.removeAt(i)),
+                        child: const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: CircleAvatar(
+                            radius: 12,
+                            backgroundColor: BBColors.scrim,
+                            child: Icon(
+                              Icons.close,
+                              size: 14,
+                              color: BBColors.surface,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -494,16 +653,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
             if (_images.length < 9)
               InkWell(
                 borderRadius: BorderRadius.circular(12),
-                onTap: () async {
-                  final picked = await ImagePicker().pickMultiImage(
-                    maxWidth: 1600,
-                    imageQuality: 85,
-                    limit: 9 - _images.length,
-                  );
-                  setState(
-                    () => _images.addAll(picked.map((x) => File(x.path))),
-                  );
-                },
+                onTap: _pickImages,
                 child: Container(
                   width: 100,
                   height: 100,

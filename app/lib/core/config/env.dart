@@ -22,6 +22,15 @@ abstract final class Env {
     defaultValue: 'https://bigbosslive.app/terms',
   );
 
+  /// Numeric App Store id, used by the force-update screen on iOS.
+  static const iosAppStoreId = String.fromEnvironment('IOS_APP_STORE_ID');
+
+  /// Android application id, used by the force-update screen.
+  static const androidPackage = String.fromEnvironment(
+    'ANDROID_PACKAGE',
+    defaultValue: 'com.bigbosslive.bigboss_live',
+  );
+
   /// Firebase Auth emulator host:port for local development, e.g. 10.0.2.2:9099.
   static const authEmulator = String.fromEnvironment('AUTH_EMULATOR');
 }

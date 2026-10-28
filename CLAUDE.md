@@ -158,7 +158,17 @@ cd app && flutter analyze && flutter test && dart format lib test
 - Colours: `BBColors` only (`lib/core/theme/bb_colors.dart`). It mirrors
   `packages/shared/src/theme.ts`, so change both together.
 - API calls go through repositories (`lib/data/repositories.dart`), never `ApiClient` from
-  widgets. Money-moving calls pass `idempotent: true`.
+  widgets. Money-moving calls pass `idempotent: true`, and screens keep one
+  `ApiClient.newIdempotencyKey()` per user *intent* (passed as `idempotencyKey:`), reused
+  when the user retries after an error and dropped on success. A timeout on a keyed
+  request may have gone through; minting a new key per tap would charge twice.
+- In-app purchases go through `IapService` (`lib/core/iap/`), which listens for the app's
+  lifetime. Never `completePurchase` on iOS before the server credited the purchase
+  (finishing a transaction is final); on Android acknowledging is safe and unconsumed
+  purchases are re-verified on start.
+- The router's redirect (`redirectFor`) shows the splash only while nothing has loaded.
+  A provider reloading with a value is not "booting": treating it as such sent users
+  through `/splash` on every token refresh and dropped the live room.
 - Define providers at top level. A provider created inside `build()` is a new provider every
   frame.
 - `flutter analyze` must be clean and `dart format` stable. Both are enforced in CI.

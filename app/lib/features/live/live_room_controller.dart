@@ -177,6 +177,12 @@ class LiveRoomController extends ChangeNotifier {
   bool _disposed = false;
   bool _recovering = false;
 
+  /// Bumped by every `bb.seats` event, so a slower poll can't overwrite newer seats.
+  int _seatsVersion = 0;
+  int _systemSeq = 0;
+  Future<void>? _publishing;
+  bool _publishAgain = false;
+
   LiveStatus status = LiveStatus.connecting;
   String? error;
 
@@ -294,19 +300,28 @@ class LiveRoomController extends ChangeNotifier {
 
   bool isSpeaking(String uid) => _participant(uid)?.isSpeaking ?? false;
 
+  /// Who is speaking right now. Changes several times a second, so it has its own
+  /// listenable: only the tiles that draw the speaking ring rebuild, not the whole screen.
+  final speakers = ValueNotifier<int>(0);
+
   Future<void> start() async {
     try {
       final session = _initial ?? await _repo.join(roomId, password: _password);
+      // Closed while joining (back pressed, another live opened): never connect, and never
+      // start timers or the wakelock that dispose() has already cleaned up.
+      if (_disposed) return;
       detail = session.detail;
       credentials = session.credentials;
       _listen();
       await room.connect(session.credentials.url, session.credentials.token);
+      if (_disposed) return unawaited(_disconnectQuietly());
       await _syncPublishing();
+      if (_disposed) return unawaited(_disconnectQuietly());
       status = LiveStatus.live;
       _system(
         'Welcome to ${detail!.room.host.displayName}\'s live. Be kind — harassment gets you removed.',
       );
-      unawaited(WakelockPlus.enable());
+      _wakelock(on: true);
       if (isHost) {
         _heartbeat = Timer.periodic(
           const Duration(seconds: 25),
@@ -318,10 +333,12 @@ class LiveRoomController extends ChangeNotifier {
       // Data-channel events keep state current; the poll only repairs anything missed.
       _poll = Timer.periodic(
         const Duration(seconds: 30),
-        (_) => _refreshDetail(),
+        (_) => refreshDetail(),
       );
       await Future.wait([_loadPk(), _loadSeatRequests(), _loadTopViewers()]);
     } on ApiException catch (e) {
+      if (_disposed) return;
+      unawaited(_teardown());
       status = e.status == 410 ? LiveStatus.ended : LiveStatus.failed;
       error = e.message;
       if (e.code == 'room_locked' || e.code == 'wrong_password') {
@@ -332,6 +349,9 @@ class LiveRoomController extends ChangeNotifier {
         );
       }
     } catch (e) {
+      if (_disposed) return;
+      // It may have connected (and be publishing) before failing.
+      unawaited(_teardown());
       status = LiveStatus.failed;
       error = 'Could not connect to the live';
       debugPrint('live connect failed: $e');
@@ -339,11 +359,50 @@ class LiveRoomController extends ChangeNotifier {
     _notify();
   }
 
+  /// Best effort: a missing or failing wakelock plugin must not surface as a crash.
+  static void _wakelock({required bool on}) {
+    unawaited(
+      (on ? WakelockPlus.enable() : WakelockPlus.disable()).catchError(
+        (Object e) => debugPrint('wakelock ${on ? 'on' : 'off'} failed: $e'),
+      ),
+    );
+  }
+
+  Future<void> _disconnectQuietly() async {
+    try {
+      await room.disconnect();
+    } catch (_) {}
+  }
+
   /// Publish while on stage (host or seated guest), stop when not. Seat mutes set by the
   /// host or an admin win over the guest's own toggles.
-  Future<void> _syncPublishing() async {
+  ///
+  /// Runs one at a time: seat events, permission updates, the poll and the user's toggles
+  /// all ask for it, and overlapping calls would publish and unpublish against each other.
+  /// A request that arrives mid-run makes it run once more with the latest state.
+  Future<void> _syncPublishing() {
+    final running = _publishing;
+    if (running != null) {
+      _publishAgain = true;
+      return running;
+    }
+    final run = () async {
+      try {
+        do {
+          _publishAgain = false;
+          await _applyPublishing();
+        } while (_publishAgain && !_disposed);
+      } finally {
+        _publishing = null;
+      }
+    }();
+    _publishing = run;
+    return run;
+  }
+
+  Future<void> _applyPublishing() async {
     final local = room.localParticipant;
-    if (local == null) return;
+    if (local == null || _disposed) return;
     final staged = isHost || onSeat;
     final allowed = local.permissions.canPublish;
     final seat = isHost ? null : mySeat;
@@ -352,8 +411,12 @@ class LiveRoomController extends ChangeNotifier {
       if (micOn || cameraOn) {
         micOn = false;
         cameraOn = false;
-        await local.setMicrophoneEnabled(false);
-        await local.setCameraEnabled(false);
+        try {
+          await local.setMicrophoneEnabled(false);
+          await local.setCameraEnabled(false);
+        } catch (e) {
+          debugPrint('unpublish failed: $e');
+        }
       }
       return;
     }
@@ -367,13 +430,39 @@ class LiveRoomController extends ChangeNotifier {
     final wantCam =
         isVideoRoom && !(seat?.videoMuted ?? false) && !_cameraOffByMe;
     if (wantMic != micOn) {
-      micOn = wantMic;
-      await local.setMicrophoneEnabled(wantMic);
+      try {
+        await local.setMicrophoneEnabled(wantMic);
+        micOn = wantMic;
+      } catch (e) {
+        // Usually a denied permission. Treat it as the user's own "off" so we don't retry
+        // on every seat event, and say why.
+        debugPrint('mic ${wantMic ? 'on' : 'off'} failed: $e');
+        if (wantMic) {
+          _micOffByMe = true;
+          _notice(
+            'Couldn\'t turn on your microphone. Check that BigBoss Live may use it.',
+          );
+        }
+      }
     }
     if (wantCam != cameraOn) {
-      cameraOn = wantCam;
-      await local.setCameraEnabled(wantCam);
+      try {
+        await local.setCameraEnabled(wantCam);
+        cameraOn = wantCam;
+      } catch (e) {
+        debugPrint('camera ${wantCam ? 'on' : 'off'} failed: $e');
+        if (wantCam) {
+          _cameraOffByMe = true;
+          _notice(
+            'Couldn\'t turn on your camera. Check that BigBoss Live may use it.',
+          );
+        }
+      }
     }
+  }
+
+  void _notice(String message) {
+    if (!_notices.isClosed) _notices.add(message);
   }
 
   void _listen() {
@@ -385,7 +474,9 @@ class LiveRoomController extends ChangeNotifier {
       ..on<TrackMutedEvent>((_) => _notify())
       ..on<TrackUnmutedEvent>((_) => _notify())
       ..on<LocalTrackPublishedEvent>((_) => _notify())
-      ..on<ActiveSpeakersChangedEvent>((_) => _notify())
+      ..on<ActiveSpeakersChangedEvent>((_) {
+        if (!_disposed) speakers.value++;
+      })
       ..on<ParticipantConnectedEvent>((_) => _notify())
       ..on<ParticipantPermissionsUpdatedEvent>((e) {
         // The server grants publish just before broadcasting the seat change.
@@ -420,8 +511,9 @@ class LiveRoomController extends ChangeNotifier {
       case DisconnectReason.roomDeleted:
         _ended();
       case DisconnectReason.clientInitiated:
+        _ended();
       case DisconnectReason.duplicateIdentity:
-        // Left on purpose, or this account joined from another device.
+        error = 'You joined this live from another device.';
         _ended();
       default:
         unawaited(_recover());
@@ -441,22 +533,31 @@ class LiveRoomController extends ChangeNotifier {
         if (_disposed) return;
         try {
           final session = await _repo.join(roomId, password: _password);
+          if (_disposed) return;
           detail = session.detail;
           credentials = session.credentials;
           micOn = false;
           cameraOn = false;
+          // The rejoin publishes a fresh camera track, which opens on the front camera.
+          frontCamera = true;
           await room.connect(
             session.credentials.url,
             session.credentials.token,
           );
+          if (_disposed) return unawaited(_disconnectQuietly());
           await _syncPublishing();
+          if (_disposed) return;
           status = LiveStatus.live;
           _notify();
+          // Events missed while offline: a PK that ended, requests that came or went.
+          unawaited(Future.wait([_loadPk(), _loadSeatRequests()]));
           return;
         } on ApiException catch (e) {
+          if (_disposed) return;
           if (e.status == 410) return _ended();
           if (e.status == 403) {
             status = LiveStatus.kicked;
+            unawaited(_teardown());
             _notify();
             return;
           }
@@ -464,6 +565,7 @@ class LiveRoomController extends ChangeNotifier {
           debugPrint('live rejoin $attempt failed: $e');
         }
       }
+      if (_disposed) return;
       status = LiveStatus.failed;
       error = 'Lost connection to the live';
       await _teardown();
@@ -476,21 +578,23 @@ class LiveRoomController extends ChangeNotifier {
   void _onData(DataReceivedEvent e) {
     // Only trust packets the server sent (participant == null); clients cannot forge events.
     if (e.participant != null) return;
-    Json packet;
+    if (_disposed) return;
     try {
-      packet = jsonDecode(utf8.decode(e.data)) as Json;
-    } catch (_) {
-      return;
+      final packet = jsonDecode(utf8.decode(e.data)) as Json;
+      handleServerPacket(
+        packet.str('topic', e.topic ?? ''),
+        packet.obj('payload'),
+      );
+    } catch (err) {
+      // A malformed or unexpected packet must not take the room down with it.
+      debugPrint('live packet dropped: $err');
     }
-    handleServerPacket(
-      packet.str('topic', e.topic ?? ''),
-      packet.obj('payload'),
-    );
   }
 
   /// Applies one server event. Public for tests; production input is [_onData].
   @visibleForTesting
   void handleServerPacket(String topic, Json p) {
+    if (_disposed) return;
     switch (topic) {
       case 'bb.chat':
         if (p.str('id').isEmpty) return;
@@ -507,7 +611,7 @@ class LiveRoomController extends ChangeNotifier {
             (r) => r.str('displayName', 'Host'),
           ),
         );
-        _gifts.add(event);
+        if (!_gifts.isClosed) _gifts.add(event);
         _addChat(
           ChatLine(
             id: 'g${event.id}',
@@ -517,10 +621,16 @@ class LiveRoomController extends ChangeNotifier {
             user: event.sender,
           ),
         );
+      // Stream-only events: their widgets listen to the streams, nothing else changes, so
+      // they don't rebuild the room.
       case 'bb.entry':
-        _entries.add(EntryEvent.fromJson(p));
+        if (!_entries.isClosed) _entries.add(EntryEvent.fromJson(p));
+        return;
       case 'bb.reaction':
-        if (p.str('uid') != myUid) _reactions.add(p.integer('count', 1));
+        if (p.str('uid') != myUid && !_reactions.isClosed) {
+          _reactions.add(p.integer('count', 1));
+        }
+        return;
       case 'bb.kick':
         if (p.str('uid') == myUid) {
           status = LiveStatus.kicked;
@@ -533,7 +643,10 @@ class LiveRoomController extends ChangeNotifier {
       case 'bb.room.ended':
         _ended();
       case 'bb.pk.invitation':
-        _pkInvites.add(PkBattle.fromJson(p.obj('battle')));
+        if (!_pkInvites.isClosed) {
+          _pkInvites.add(PkBattle.fromJson(p.obj('battle')));
+        }
+        return;
       case 'bb.pk.started' ||
           'bb.pk.score' ||
           'bb.pk.round_ended' ||
@@ -552,6 +665,7 @@ class LiveRoomController extends ChangeNotifier {
     switch (p.str('kind', p['seats'] is List ? 'seats' : '')) {
       case 'seats':
         if (d == null) return;
+        _seatsVersion++;
         detail = d.copyWith(seats: p.list('seats', Seat.fromJson));
         if (onSeat) seatRequestPending = false;
         unawaited(_syncPublishing());
@@ -569,14 +683,18 @@ class LiveRoomController extends ChangeNotifier {
           seatRequestPending = false;
           _requestExpiry?.cancel();
           if (!p.flag('accepted')) {
-            _notices.add('Your request to join the stage was declined');
+            _notice('Your request to join the stage was declined');
           }
         }
       case 'invite':
+        if (_seatInvites.isClosed) return;
         _seatInvites.add(
           SeatInvite(
             from: UserBrief.fromJson(p.obj('from')),
-            expiresAt: p.date('expiresAt'),
+            // Server time; the dialog counts down on this device's clock.
+            expiresAt: p
+                .date('expiresAt')
+                ?.subtract(d?.clockOffset ?? Duration.zero),
           ),
         );
       case 'invite_declined':
@@ -669,7 +787,7 @@ class LiveRoomController extends ChangeNotifier {
         if (pkOutgoing?.id == b.id) pkOutgoing = null;
         if (pk?.id == b.id) pk = null;
         if (isHost && b.invitedBy == myUid) {
-          _notices.add(switch (topic) {
+          _notice(switch (topic) {
             'bb.pk.rejected' =>
               '${opponent?.displayName ?? 'The host'} declined your PK',
             'bb.pk.expired' => 'No answer to your PK challenge',
@@ -712,7 +830,7 @@ class LiveRoomController extends ChangeNotifier {
   ) => j.map(
     (k, v) => MapEntry(
       k,
-      (v as List<dynamic>)
+      (v is List<dynamic> ? v : const <dynamic>[])
           .whereType<Json>()
           .map(
             (c) => (
@@ -729,16 +847,27 @@ class LiveRoomController extends ChangeNotifier {
   Future<void> _loadPk() async {
     try {
       final j = await _repo.pkForRoom(roomId);
-      if (j != null && j.objOrNull('battle') != null) {
-        final b = PkBattle.fromJson(j.obj('battle'));
-        if (b.isActive) {
-          pk = b;
-        } else if (b.status == 'pending' && b.invitedBy == myUid) {
-          pkOutgoing = b;
+      if (_disposed) return;
+      if (j == null || j.objOrNull('battle') == null) {
+        // Nothing running (e.g. it ended while we were reconnecting).
+        if (pk != null && !pk!.isEnded) {
+          pk = null;
+          _notify();
         }
-        pkContributors = _parseContributors(j.obj('contributors'));
-        _notify();
+        return;
       }
+      final b = PkBattle.fromJson(j.obj('battle'));
+      if (b.isActive) {
+        pk = b;
+      } else if (b.status == 'pending' && b.invitedBy == myUid) {
+        pkOutgoing = b;
+      } else if (pk?.id == b.id) {
+        // Ended while we weren't listening: show the result rather than a frozen arena.
+        pk = b;
+      }
+      if (pkOutgoing?.id == b.id && b.status != 'pending') pkOutgoing = null;
+      pkContributors = _parseContributors(j.obj('contributors'));
+      _notify();
     } catch (_) {
       /* PK is optional */
     }
@@ -748,6 +877,7 @@ class LiveRoomController extends ChangeNotifier {
     if (!isModerator) return;
     try {
       final rows = await _repo.seatRequests(roomId);
+      if (_disposed) return;
       seatRequests
         ..clear()
         ..addAll(rows);
@@ -759,17 +889,25 @@ class LiveRoomController extends ChangeNotifier {
   Future<void> _loadTopViewers() async {
     try {
       final rows = await _repo.viewers(roomId);
-      if (topViewers.isNotEmpty) return;
+      if (_disposed || topViewers.isNotEmpty) return;
       topViewers = rows.take(_topViewers).toList();
       _notify();
     } catch (_) {}
   }
 
-  Future<void> _refreshDetail() async {
+  /// Repairs room state from the server (the 30 s poll, and after leaving a seat).
+  @visibleForTesting
+  Future<void> refreshDetail() async {
     try {
+      final version = _seatsVersion;
       final next = await _repo.detail(roomId);
+      if (_disposed) return;
       if (next.room.status == 'ended') return _ended();
-      detail = next;
+      // A seats event that arrived while this was in flight is newer than the poll.
+      final current = detail;
+      detail = version != _seatsVersion && current != null
+          ? next.copyWith(seats: current.seats)
+          : next;
       await _syncPublishing();
       _notify();
     } catch (_) {}
@@ -787,7 +925,7 @@ class LiveRoomController extends ChangeNotifier {
     if (chat.isNotEmpty && chat.last.kind == ChatKind.join) chat.removeLast();
     _addChat(
       ChatLine(
-        id: 'j${u.id}${DateTime.now().microsecondsSinceEpoch}',
+        id: 'j${u.id}-${_systemSeq++}',
         kind: ChatKind.join,
         text: 'joined',
         user: u,
@@ -796,11 +934,7 @@ class LiveRoomController extends ChangeNotifier {
   }
 
   void _system(String text) => _addChat(
-    ChatLine(
-      id: 's${DateTime.now().microsecondsSinceEpoch}',
-      text: text,
-      kind: ChatKind.system,
-    ),
+    ChatLine(id: 's${_systemSeq++}', text: text, kind: ChatKind.system),
   );
 
   void _ended() {
@@ -816,36 +950,43 @@ class LiveRoomController extends ChangeNotifier {
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
+  /// The user's own choice, applied through [_syncPublishing] so it can't race seat
+  /// events, and a failure (denied permission) leaves the button showing the truth.
   Future<void> toggleMic() async {
+    if (_disposed) return;
     if (!micOn && (mySeat?.muted ?? false)) {
-      _notices.add('An admin muted your mic');
+      _notice('An admin muted your mic');
       return;
     }
-    micOn = !micOn;
-    _micOffByMe = !micOn;
-    await room.localParticipant?.setMicrophoneEnabled(micOn);
+    _micOffByMe = micOn;
+    await _syncPublishing();
     _notify();
   }
 
   Future<void> toggleCamera() async {
+    if (_disposed) return;
     if (!cameraOn && (mySeat?.videoMuted ?? false)) {
-      _notices.add('An admin turned your camera off');
+      _notice('An admin turned your camera off');
       return;
     }
-    cameraOn = !cameraOn;
-    _cameraOffByMe = !cameraOn;
-    await room.localParticipant?.setCameraEnabled(cameraOn);
+    _cameraOffByMe = cameraOn;
+    await _syncPublishing();
     _notify();
   }
 
   Future<void> flipCamera() async {
     final track =
         room.localParticipant?.videoTrackPublications.firstOrNull?.track;
-    if (track == null) return;
-    frontCamera = !frontCamera;
-    await track.setCameraPosition(
-      frontCamera ? CameraPosition.front : CameraPosition.back,
-    );
+    if (track == null || _disposed) return;
+    final next = !frontCamera;
+    try {
+      await track.setCameraPosition(
+        next ? CameraPosition.front : CameraPosition.back,
+      );
+      frontCamera = next;
+    } catch (e) {
+      _notice('Couldn\'t switch cameras');
+    }
     _notify();
   }
 
@@ -891,7 +1032,7 @@ class LiveRoomController extends ChangeNotifier {
 
   Future<void> leaveSeat() async {
     await _repo.leaveSeat(roomId);
-    await _refreshDetail();
+    await refreshDetail();
   }
 
   Future<void> respondToSeatInvite(bool accept) =>
@@ -954,11 +1095,16 @@ class LiveRoomController extends ChangeNotifier {
     if (b != null) await _repo.pkEnd(b.id);
   }
 
+  /// Ends a hosted live. Throws when the server didn't end it (it is still running), so the
+  /// host can retry instead of believing it ended.
   Future<Json?> end() async {
     if (isHost) {
       try {
         endSummary = await _repo.end(roomId);
-      } catch (_) {}
+      } on ApiException catch (e) {
+        // Already ended on the server: nothing left to do.
+        if (e.status != 404 && e.status != 410) rethrow;
+      }
     }
     status = LiveStatus.ended;
     await _teardown();
@@ -970,13 +1116,19 @@ class LiveRoomController extends ChangeNotifier {
     _heartbeat?.cancel();
     _poll?.cancel();
     _requestExpiry?.cancel();
-    unawaited(WakelockPlus.disable());
-    await room.disconnect();
+    _wakelock(on: false);
+    await _disconnectQuietly();
   }
 
   @override
   void dispose() {
+    // A host whose live never got going (failed to connect) closes it on the server too,
+    // instead of leaving it listed until the stale-room sweep.
+    if (isHost && status == LiveStatus.failed) {
+      unawaited(_repo.end(roomId).then((_) {}, onError: (Object _) {}));
+    }
     _disposed = true;
+    speakers.dispose();
     _heartbeat?.cancel();
     _poll?.cancel();
     _pkClear?.cancel();
@@ -984,7 +1136,7 @@ class LiveRoomController extends ChangeNotifier {
     _requestExpiry?.cancel();
     unawaited(_listener?.dispose());
     unawaited(room.disconnect().then((_) => room.dispose()));
-    unawaited(WakelockPlus.disable());
+    _wakelock(on: false);
     _gifts.close();
     _entries.close();
     _pkInvites.close();

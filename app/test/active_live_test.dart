@@ -163,6 +163,21 @@ void main() {
     expect(a.disposed, isTrue);
   });
 
+  test('an old screen going away cannot close the session a new one shows', () {
+    // Back (minimize), then the mini player is tapped before the old screen's pop
+    // animation ends: the old screen's detach arrives after the new screen attached.
+    final a = notifier().attach('r1')! as _FakeController;
+    final oldLease = notifier().lease;
+    notifier().minimizeOrClose(a);
+    expect(notifier().attach('r1'), same(a));
+    notifier().detach(a, lease: oldLease);
+    expect(a.disposed, isFalse);
+    expect(notifier().current?.controller, same(a));
+
+    notifier().detach(a, lease: notifier().lease);
+    expect(a.disposed, isTrue);
+  });
+
   test('ending a hosted live closes the session', () async {
     hostRooms.add('mine');
     final mine = notifier().attach('mine')! as _FakeController;

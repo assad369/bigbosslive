@@ -30,7 +30,8 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     _sub = ref
         .read(socketProvider)
         .on('chat:message')
-        .listen((_) => _list.refresh());
+        // Keep the rows on screen; only the order and previews change.
+        .listen((_) => _list.refresh(keepItems: true));
   }
 
   @override
@@ -63,7 +64,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
       itemBuilder: (context, c) => ListTile(
         onTap: () async {
           await context.push('/chat/${c.id}', extra: c.peer);
-          await _list.refresh();
+          await _list.refresh(keepItems: true);
           ref.invalidate(unreadProvider);
         },
         leading: BBAvatar.user(c.peer),
@@ -108,9 +109,14 @@ class ConversationScreen extends ConsumerStatefulWidget {
     super.key,
     required this.conversationId,
     this.peer,
+    this.peerId,
   });
   final String conversationId;
+
+  /// Who we're talking to. Deep links (push taps) carry only [peerId], and the profile is
+  /// loaded here.
   final UserBrief? peer;
+  final String? peerId;
 
   @override
   ConsumerState<ConversationScreen> createState() => _ConversationScreenState();
@@ -119,13 +125,21 @@ class ConversationScreen extends ConsumerStatefulWidget {
 class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   final _messages = <ChatMessage>[];
   final _input = TextEditingController();
+  late UserBrief? _peer = widget.peer;
+  bool _peerLoading = false;
   String? _cursor;
   bool _loading = true;
+  bool _loadingMore = false;
   bool _done = false;
+  Object? _error;
   bool _peerTyping = false;
   Timer? _typingTimer;
   DateTime _lastTypingSent = DateTime(2000);
   final _subs = <StreamSubscription<Map<String, dynamic>>>[];
+
+  /// What a failed optimistic message was, so a retry resends it with the same client id
+  /// (the server dedupes on it).
+  final _outbox = <String, ({String? text, File? image})>{};
 
   String get _me => ref.read(meProvider).id;
 
@@ -133,6 +147,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   void initState() {
     super.initState();
     unawaited(_loadMore());
+    unawaited(_loadPeer());
     unawaited(
       ref
           .read(socialRepo)
@@ -144,14 +159,22 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       ..add(
         socket.on('chat:message').listen((data) {
           final m = ChatMessage.fromJson(data);
-          if (m.conversationId != widget.conversationId) return;
+          if (!mounted || m.conversationId != widget.conversationId) return;
+          // Our own message echoes back on the socket, usually before the HTTP response.
+          // While an optimistic copy is in flight, the response replaces it instead.
+          final ownInFlight =
+              m.senderId == _me &&
+              _messages.any(
+                (x) =>
+                    x.pending &&
+                    !x.failed &&
+                    x.type == m.type &&
+                    x.text == m.text,
+              );
+          if (ownInFlight) return;
           setState(() {
-            // Replace our optimistic copy (same client id) or append.
-            _messages.removeWhere(
-              (x) => x.pending && x.senderId == m.senderId && x.text == m.text,
-            );
             if (!_messages.any((x) => x.id == m.id)) _messages.insert(0, m);
-            _peerTyping = false;
+            if (m.senderId != _me) _peerTyping = false;
           });
           if (m.senderId != _me) {
             unawaited(
@@ -165,7 +188,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       )
       ..add(
         socket.on('chat:typing').listen((data) {
-          if (data['conversationId'] != widget.conversationId) return;
+          if (!mounted || data['conversationId'] != widget.conversationId) {
+            return;
+          }
           setState(() => _peerTyping = true);
           _typingTimer?.cancel();
           _typingTimer = Timer(
@@ -186,28 +211,56 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     super.dispose();
   }
 
-  Future<void> _loadMore() async {
-    if (_done) return;
+  Future<void> _loadPeer() async {
+    final id = widget.peerId;
+    if (_peer != null || id == null) return;
+    setState(() => _peerLoading = true);
+    try {
+      final user = await ref.read(accountRepo).user(id);
+      if (mounted) setState(() => _peer = user.brief);
+    } catch (_) {
+      /* the header shows "Chat"; sending explains it can't */
+    } finally {
+      if (mounted) setState(() => _peerLoading = false);
+    }
+  }
+
+  Future<void> _loadMore({bool retry = false}) async {
+    if (_done || _loadingMore || (_error != null && !retry)) return;
+    _loadingMore = true;
+    if (retry) setState(() => _error = null);
     try {
       final page = await ref
           .read(socialRepo)
           .messages(widget.conversationId, cursor: _cursor);
+      if (!mounted) return;
       setState(() {
-        _messages.addAll(page.items);
+        final seen = {for (final m in _messages) m.id};
+        _messages.addAll(page.items.where((m) => !seen.contains(m.id)));
         _cursor = page.nextCursor;
         _done = page.nextCursor == null;
       });
     } catch (e) {
-      if (mounted) showError(context, e);
+      if (mounted) setState(() => _error = e);
     } finally {
+      _loadingMore = false;
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _send({String? text, File? image}) async {
-    final peer = widget.peer;
-    if (peer == null) return;
-    final clientId = const Uuid().v4();
+  Future<void> _send({String? text, File? image, String? retryId}) async {
+    final peer = _peer;
+    if (peer == null) {
+      showMessage(
+        context,
+        _peerLoading
+            ? 'One moment, loading the conversation…'
+            : 'You can\'t reply in this conversation',
+      );
+      return;
+    }
+    final clientId = retryId ?? const Uuid().v4();
+    _outbox[clientId] = (text: text, image: image);
     final optimistic = ChatMessage(
       id: clientId,
       conversationId: widget.conversationId,
@@ -217,7 +270,14 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       createdAt: DateTime.now(),
       pending: true,
     );
-    setState(() => _messages.insert(0, optimistic));
+    setState(() {
+      final i = _messages.indexWhere((m) => m.id == clientId);
+      if (i >= 0) {
+        _messages[i] = optimistic;
+      } else {
+        _messages.insert(0, optimistic);
+      }
+    });
     try {
       String? mediaUrl;
       if (image != null) {
@@ -231,22 +291,104 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             mediaUrl: mediaUrl,
             clientId: clientId,
           );
+      _outbox.remove(clientId);
+      if (!mounted) return;
       setState(() {
+        // The socket echo may already have added the confirmed copy.
+        _messages.removeWhere((m) => m.id == sent.id);
         final i = _messages.indexWhere((m) => m.id == clientId);
-        if (i >= 0) _messages[i] = sent;
-        _messages.removeWhere(
-          (m) => m.id == sent.id && !identical(m, sent) && m.pending,
-        );
+        if (i >= 0) {
+          _messages[i] = sent;
+        } else {
+          _messages.insert(0, sent);
+        }
       });
     } catch (e) {
-      setState(() => _messages.removeWhere((m) => m.id == clientId));
-      if (mounted) showError(context, e);
+      if (!mounted) return;
+      // Keep what the user wrote; the bubble offers a retry.
+      setState(() {
+        final i = _messages.indexWhere((m) => m.id == clientId);
+        if (i >= 0) _messages[i] = _messages[i].asFailed(failed: true);
+      });
+      showError(context, e);
     }
+  }
+
+  void _retry(ChatMessage m) {
+    final draft = _outbox[m.id];
+    if (draft == null) return;
+    unawaited(_send(text: draft.text, image: draft.image, retryId: m.id));
+  }
+
+  void _discard(ChatMessage m) {
+    _outbox.remove(m.id);
+    setState(() => _messages.removeWhere((x) => x.id == m.id));
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final x = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1600,
+        imageQuality: 85,
+      );
+      if (x != null && mounted) unawaited(_send(image: File(x.path)));
+    } catch (e) {
+      if (mounted) showError(context, 'Couldn\'t open your photos');
+    }
+  }
+
+  void _submit() {
+    final v = _input.text.trim();
+    if (v.isEmpty) return;
+    _input.clear();
+    unawaited(_send(text: v));
+  }
+
+  Widget _body() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_messages.isEmpty && _error != null) {
+      return ErrorView(error: _error!, onRetry: () => _loadMore(retry: true));
+    }
+    if (_messages.isEmpty) {
+      return const EmptyState(
+        icon: Icons.waving_hand_outlined,
+        title: 'Say hello',
+        message: 'Messages you send appear here.',
+      );
+    }
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (n.metrics.extentAfter < 300) unawaited(_loadMore());
+        return false;
+      },
+      child: ListView.builder(
+        reverse: true,
+        padding: const EdgeInsets.all(12),
+        itemCount: _messages.length + (_error != null ? 1 : 0),
+        itemBuilder: (_, i) {
+          if (i >= _messages.length) {
+            return TextButton(
+              onPressed: () => _loadMore(retry: true),
+              child: const Text('Couldn\'t load older messages — tap to retry'),
+            );
+          }
+          final m = _messages[i];
+          return _Bubble(
+            key: ValueKey(m.id),
+            message: m,
+            mine: m.senderId == _me,
+            onRetry: m.failed ? () => _retry(m) : null,
+            onDiscard: m.failed ? () => _discard(m) : null,
+          );
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final peer = widget.peer;
+    final peer = _peer;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -256,19 +398,27 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             children: [
               BBAvatar.user(peer, size: 34),
               const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    peer?.displayName ?? 'Chat',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  if (_peerTyping)
-                    const Text(
-                      'typing…',
-                      style: TextStyle(fontSize: 12, color: BBColors.goldDeep),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      peer?.displayName ?? 'Chat',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16),
                     ),
-                ],
+                    if (_peerTyping)
+                      const Text(
+                        'typing…',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: BBColors.goldDeep,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -276,25 +426,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       ),
       body: Column(
         children: [
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : NotificationListener<ScrollNotification>(
-                    onNotification: (n) {
-                      if (n.metrics.extentAfter < 300) unawaited(_loadMore());
-                      return false;
-                    },
-                    child: ListView.builder(
-                      reverse: true,
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _messages.length,
-                      itemBuilder: (_, i) => _Bubble(
-                        message: _messages[i],
-                        mine: _messages[i].senderId == _me,
-                      ),
-                    ),
-                  ),
-          ),
+          Expanded(child: _body()),
           SafeArea(
             top: false,
             child: Padding(
@@ -307,14 +439,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                       Icons.image_outlined,
                       color: BBColors.bronze,
                     ),
-                    onPressed: () async {
-                      final x = await ImagePicker().pickImage(
-                        source: ImageSource.gallery,
-                        maxWidth: 1600,
-                        imageQuality: 85,
-                      );
-                      if (x != null) unawaited(_send(image: File(x.path)));
-                    },
+                    onPressed: _pickImage,
                   ),
                   Expanded(
                     child: TextField(
@@ -338,24 +463,16 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                           });
                         }
                       },
-                      onSubmitted: (v) {
-                        if (v.trim().isEmpty) return;
-                        _input.clear();
-                        unawaited(_send(text: v.trim()));
-                      },
+                      onSubmitted: (_) => _submit(),
                     ),
                   ),
                   const SizedBox(width: 6),
                   IconButton.filled(
+                    tooltip: 'Send',
                     style: IconButton.styleFrom(
                       backgroundColor: BBColors.goldDeep,
                     ),
-                    onPressed: () {
-                      final v = _input.text.trim();
-                      if (v.isEmpty) return;
-                      _input.clear();
-                      unawaited(_send(text: v));
-                    },
+                    onPressed: _submit,
                     icon: const Icon(
                       Icons.send_rounded,
                       color: BBColors.surface,
@@ -372,12 +489,48 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, required this.mine});
+  const _Bubble({
+    super.key,
+    required this.message,
+    required this.mine,
+    this.onRetry,
+    this.onDiscard,
+  });
   final ChatMessage message;
   final bool mine;
+  final VoidCallback? onRetry;
+  final VoidCallback? onDiscard;
 
   @override
-  Widget build(BuildContext context) => Align(
+  Widget build(BuildContext context) {
+    final bubble = _bubble(context);
+    if (!message.failed) return bubble;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        bubble,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 14,
+              color: BBColors.danger,
+            ),
+            const SizedBox(width: 4),
+            const Text(
+              'Not sent',
+              style: TextStyle(color: BBColors.danger, fontSize: 12),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+            TextButton(onPressed: onDiscard, child: const Text('Delete')),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _bubble(BuildContext context) => Align(
     alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
     child: Container(
       constraints: BoxConstraints(
@@ -399,7 +552,7 @@ class _Bubble extends StatelessWidget {
         ),
       ),
       child: Opacity(
-        opacity: message.pending ? 0.6 : 1,
+        opacity: message.pending && !message.failed ? 0.6 : 1,
         child: message.mediaUrl != null
             ? ClipRRect(
                 borderRadius: BorderRadius.circular(14),
@@ -410,11 +563,10 @@ class _Bubble extends StatelessWidget {
                 ),
               )
             : Text(
-                message.text ?? '',
-                style: TextStyle(
-                  color: mine ? BBColors.ink : BBColors.ink,
-                  fontSize: 15,
-                ),
+                message.type == 'image' && message.text == null
+                    ? (message.failed ? '📷 Photo' : '📷 Sending photo…')
+                    : message.text ?? '',
+                style: const TextStyle(color: BBColors.ink, fontSize: 15),
               ),
       ),
     ),

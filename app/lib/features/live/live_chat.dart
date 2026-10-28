@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
 import '../../core/theme/bb_colors.dart';
@@ -441,6 +442,12 @@ class _ChatComposerState extends State<ChatComposer> {
   bool _sending = false;
   bool _recording = false;
   bool _cancelVoice = false;
+
+  /// The finger is on the record button. Checked after every await: the first-use
+  /// permission dialog cancels the long press, and recording must not then start (and send
+  /// itself 60 s later) with nobody holding the button.
+  bool _holding = false;
+  bool _starting = false;
   DateTime? _recordStart;
   Timer? _recordTick;
 
@@ -480,22 +487,50 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<void> _startRecording() async {
-    if (_recording || _sending) return;
-    if (!await _recorder.hasPermission()) {
-      if (mounted) showMessage(context, 'Allow microphone access to record');
+    if (_recording || _sending || _starting) return;
+    _holding = true;
+    _starting = true;
+    try {
+      // Asking for permission shows a system dialog, which steals the long press (and may
+      // swallow its end). So a press that has to ask never records; the next one does.
+      if (!await Permission.microphone.isGranted) {
+        final granted = await Permission.microphone.request().isGranted;
+        if (mounted) {
+          showMessage(
+            context,
+            granted
+                ? 'Microphone ready. Hold the button to record.'
+                : 'Allow microphone access to record',
+          );
+        }
+        return;
+      }
+      if (!mounted || !_holding) return;
+      final path =
+          '${Directory.systemTemp.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 64000,
+          sampleRate: 44100,
+          numChannels: 1,
+        ),
+        path: path,
+      );
+      if (!mounted || !_holding) {
+        // Let go while the recorder was starting.
+        final stray = await _recorder.stop();
+        if (stray != null) {
+          await File(stray).delete().catchError((Object _) => File(stray));
+        }
+        return;
+      }
+    } catch (e) {
+      if (mounted) showMessage(context, 'Couldn\'t start recording');
       return;
+    } finally {
+      _starting = false;
     }
-    final path =
-        '${Directory.systemTemp.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _recorder.start(
-      const RecordConfig(
-        encoder: AudioEncoder.aacLc,
-        bitRate: 64000,
-        sampleRate: 44100,
-        numChannels: 1,
-      ),
-      path: path,
-    );
     unawaited(HapticFeedback.mediumImpact());
     setState(() {
       _recording = true;
@@ -505,7 +540,7 @@ class _ChatComposerState extends State<ChatComposer> {
     _recordTick = Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (_elapsed >= _maxVoiceSec) {
         unawaited(_stopRecording());
-      } else {
+      } else if (mounted) {
         setState(() {});
       }
     });
@@ -515,18 +550,31 @@ class _ChatComposerState extends State<ChatComposer> {
       ? 0
       : DateTime.now().difference(_recordStart!).inSeconds;
 
-  Future<void> _stopRecording() async {
+  Future<void> _stopRecording({bool cancel = false}) async {
+    _holding = false;
     if (!_recording) return;
+    if (cancel) _cancelVoice = true;
     _recordTick?.cancel();
     final seconds = _elapsed.clamp(0, _maxVoiceSec);
-    final path = await _recorder.stop();
-    setState(() => _recording = false);
+    _recording = false;
+    final String? path;
+    try {
+      path = await _recorder.stop();
+    } catch (_) {
+      if (mounted) setState(() {});
+      return;
+    }
+    if (mounted) setState(() {});
     if (path == null) return;
     final file = File(path);
     if (_cancelVoice || seconds < 1) {
       if (seconds < 1 && !_cancelVoice && mounted) {
         showMessage(context, 'Hold to record a voice message');
       }
+      await file.delete().catchError((Object _) => file);
+      return;
+    }
+    if (!mounted) {
       await file.delete().catchError((Object _) => file);
       return;
     }
@@ -653,6 +701,8 @@ class _ChatComposerState extends State<ChatComposer> {
                     }
                   },
                   onLongPressEnd: (_) => _stopRecording(),
+                  // The system took the gesture (a permission dialog, a call): discard.
+                  onLongPressCancel: () => _stopRecording(cancel: true),
                   onTap: () =>
                       showMessage(context, 'Hold to record a voice message'),
                   child: _RoundIcon(

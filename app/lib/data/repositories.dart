@@ -279,16 +279,20 @@ class EconomyRepository {
   Future<List<Gift>> gifts() async =>
       (await _api.get('/gifts')).list('items', Gift.fromJson);
 
-  /// Idempotent: the key is generated per tap, so a network retry never double-charges.
+  // Money-moving calls take the caller's [idempotencyKey] (one per user intent, reused on a
+  // manual retry). Without one, a key is minted per call, which only covers network retries.
+
   Future<int> sendGift({
     required String giftId,
     required int quantity,
     required List<String> receiverIds,
     String? roomId,
+    String? idempotencyKey,
   }) async {
     final j = await _api.post(
       '/gifts/send',
       idempotent: true,
+      idempotencyKey: idempotencyKey,
       body: {
         'giftId': giftId,
         'quantity': quantity,
@@ -311,24 +315,41 @@ class EconomyRepository {
   Future<List<RechargePackage>> packages() async =>
       (await _api.get('/wallet/packages'))
           .list('items', RechargePackage.fromJson);
-  Future<Json> verifyGoogle(String productId, String token) => _api.post(
+
+  /// Store receipts are verified with a key derived from the purchase itself, so every
+  /// redelivery of the same purchase is the same request to the server.
+  Future<Json> verifyGoogle(
+    String productId,
+    String token, {
+    required String idempotencyKey,
+  }) => _api.post(
     '/wallet/iap/verify',
+    idempotencyKey: idempotencyKey,
     body: {'store': 'google', 'productId': productId, 'purchaseToken': token},
   );
-  Future<Json> verifyApple(String transactionId) => _api.post(
+  Future<Json> verifyApple(
+    String transactionId, {
+    required String idempotencyKey,
+  }) => _api.post(
     '/wallet/iap/verify',
+    idempotencyKey: idempotencyKey,
     body: {'store': 'apple', 'transactionId': transactionId},
   );
 
   Future<UserBrief> agentLookup(String shortId) async => UserBrief.fromJson(
-    (await _api.get('/agent/lookup/$shortId')).obj('user'),
+    (await _api.get('/agent/lookup/${Uri.encodeComponent(shortId)}'))
+        .obj('user'),
   );
-  Future<int> agentRecharge(String target, int diamonds) async =>
-      (await _api.post(
-        '/agent/recharge',
-        idempotent: true,
-        body: {'target': target, 'diamonds': diamonds},
-      )).integer('agentStock');
+  Future<int> agentRecharge(
+    String target,
+    int diamonds, {
+    String? idempotencyKey,
+  }) async => (await _api.post(
+    '/agent/recharge',
+    idempotent: true,
+    idempotencyKey: idempotencyKey,
+    body: {'target': target, 'diamonds': diamonds},
+  )).integer('agentStock');
   Future<Paged<AgentRecharge>> agentHistory({
     String? cursor,
     String? shortId,
@@ -341,14 +362,20 @@ class EconomyRepository {
 
   Future<List<VipPackage>> vipPackages() async =>
       (await _api.get('/store/vip')).list('items', VipPackage.fromJson);
-  Future<Json> buyVip(String id) =>
-      _api.post('/store/vip/$id/purchase', idempotent: true);
+  Future<Json> buyVip(String id, {String? idempotencyKey}) => _api.post(
+    '/store/vip/$id/purchase',
+    idempotent: true,
+    idempotencyKey: idempotencyKey,
+  );
   Future<List<StoreItem>> storeItems({String? type}) async => (await _api.get(
     '/store/items',
     query: {'type': type},
   )).list('items', StoreItem.fromJson);
-  Future<Json> buyItem(String id) =>
-      _api.post('/store/items/$id/purchase', idempotent: true);
+  Future<Json> buyItem(String id, {String? idempotencyKey}) => _api.post(
+    '/store/items/$id/purchase',
+    idempotent: true,
+    idempotencyKey: idempotencyKey,
+  );
   Future<List<({StoreItem item, DateTime? expiresAt, bool equipped})>>
   owned() async => (await _api.get('/store/mine')).list(
     'items',
@@ -365,9 +392,11 @@ class EconomyRepository {
     required int beans,
     required String method,
     required Map<String, String> account,
+    String? idempotencyKey,
   }) => _api.post(
     '/withdrawals',
     idempotent: true,
+    idempotencyKey: idempotencyKey,
     body: {'beans': beans, 'method': method, 'account': account},
   );
   Future<List<Json>> withdrawals() async =>
@@ -555,6 +584,8 @@ class SocialRepository {
           },
         )).obj('post'),
       );
+  Future<FeedPost> post(String id) async =>
+      FeedPost.fromJson((await _api.get('/feed/$id')).obj('post'));
   Future<void> deletePost(String id) => _api.delete('/feed/$id');
   Future<int> like(String id, bool like) async =>
       (like

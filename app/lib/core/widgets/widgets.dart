@@ -29,51 +29,58 @@ class GoldButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onPressed != null && !loading;
-    return Opacity(
-      opacity: enabled ? 1 : 0.6,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: BBColors.goldGradient,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x40B8860B),
-              blurRadius: 14,
-              offset: Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
+    // One announced button (not an InkWell plus a text node) that says when it is busy.
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: loading ? '$label, in progress' : label,
+      excludeSemantics: true,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.6,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: BBColors.goldGradient,
             borderRadius: BorderRadius.circular(16),
-            onTap: enabled ? onPressed : null,
-            child: SizedBox(
-              height: height,
-              child: Center(
-                child: loading
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.4,
-                          color: BBColors.ink,
-                        ),
-                      )
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (icon != null) ...[
-                            Icon(icon, color: BBColors.ink, size: 20),
-                            const SizedBox(width: 8),
-                          ],
-                          Text(
-                            label,
-                            style: Theme.of(context).textTheme.labelLarge
-                                ?.copyWith(color: BBColors.ink, fontSize: 16),
+            boxShadow: const [
+              BoxShadow(
+                color: BBColors.goldShadow,
+                blurRadius: 14,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: enabled ? onPressed : null,
+              child: SizedBox(
+                height: height,
+                child: Center(
+                  child: loading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.4,
+                            color: BBColors.ink,
                           ),
-                        ],
-                      ),
+                        )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (icon != null) ...[
+                              Icon(icon, color: BBColors.ink, size: 20),
+                              const SizedBox(width: 8),
+                            ],
+                            Text(
+                              label,
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(color: BBColors.ink, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                ),
               ),
             ),
           ),
@@ -228,7 +235,7 @@ class BBAvatar extends StatelessWidget {
                   child: const Text(
                     'LIVE',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: BBColors.onAccent,
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
                     ),
@@ -249,17 +256,9 @@ class LevelBadge extends StatelessWidget {
   final bool dense;
 
   static Gradient gradientFor(int level) {
-    if (level >= 70) {
-      return const LinearGradient(
-        colors: [Color(0xFF8B5A00), Color(0xFF5C3A00)],
-      );
-    }
+    if (level >= 70) return BBColors.umberGradient;
     if (level >= 40) return BBColors.goldGradient;
-    if (level >= 20) {
-      return const LinearGradient(
-        colors: [Color(0xFFBFBFBF), Color(0xFF8E8E8E)],
-      );
-    }
+    if (level >= 20) return BBColors.silverBadgeGradient;
     if (level >= 1) return BBColors.bronzeGradient;
     return const LinearGradient(
       colors: [BBColors.inkSubtle, BBColors.inkMuted],
@@ -279,7 +278,7 @@ class LevelBadge extends StatelessWidget {
     child: Text(
       'Lv $level',
       style: TextStyle(
-        color: Colors.white,
+        color: BBColors.onAccent,
         fontSize: dense ? 9 : 11,
         fontWeight: FontWeight.w800,
       ),
@@ -321,13 +320,13 @@ class VipBadge extends StatelessWidget {
           Icon(
             king ? Icons.emoji_events : Icons.workspace_premium,
             size: dense ? 10 : 12,
-            color: Colors.white,
+            color: BBColors.onAccent,
           ),
           const SizedBox(width: 2),
           Text(
             label,
             style: TextStyle(
-              color: Colors.white,
+              color: BBColors.onAccent,
               fontSize: dense ? 9 : 10,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.3,
@@ -357,11 +356,12 @@ class VipTag extends StatelessWidget {
       ),
       child: Text(
         label,
+        // The smallest size that stays readable; it is shown under small avatars.
         style: const TextStyle(
-          color: Colors.white,
-          fontSize: 7,
+          color: BBColors.onAccent,
+          fontSize: 8,
           fontWeight: FontWeight.w800,
-          height: 1.3,
+          height: 1.25,
         ),
       ),
     );
@@ -553,9 +553,13 @@ class PagedList<T> extends StatefulWidget {
     this.separator = false,
     this.reverse = false,
     this.controller,
+    this.header,
   });
 
   final Future<Paged<T>> Function(String? cursor) load;
+
+  /// Scrolls with the rows (e.g. the post above its comments), in every state.
+  final Widget? header;
   final Widget Function(BuildContext, T) itemBuilder;
   final Widget? empty;
   final EdgeInsets? padding;
@@ -569,10 +573,15 @@ class PagedList<T> extends StatefulWidget {
 
 class PagedListController<T> {
   _PagedListState<T>? _state;
-  Future<void> refresh() async => _state?._refresh();
+
+  /// Reload from the first page. With [keepItems] the current rows stay on screen until the
+  /// new page lands (and a failure leaves them in place), for background refreshes.
+  Future<void> refresh({bool keepItems = false}) async =>
+      _state?._refresh(keepItems: keepItems, quiet: keepItems);
   void prepend(T item) => _state?._prepend(item);
   void replaceWhere(bool Function(T) test, T Function(T) update) =>
       _state?._replaceWhere(test, update);
+  void removeWhere(bool Function(T) test) => _state?._removeWhere(test);
   List<T> get items => _state?._items ?? const [];
 }
 
@@ -583,11 +592,34 @@ class _PagedListState<T> extends State<PagedList<T>> {
   bool _done = false;
   Object? _error;
 
+  /// Bumped by every refresh. A page requested under an older generation is dropped when it
+  /// arrives, so a refresh during an in-flight load can't append a stale page.
+  int _generation = 0;
+
   @override
   void initState() {
     super.initState();
     widget.controller?._state = this;
     _more();
+  }
+
+  @override
+  void didUpdateWidget(PagedList<T> old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.controller, widget.controller)) {
+      if (identical(old.controller?._state, this)) {
+        old.controller?._state = null;
+      }
+      widget.controller?._state = this;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (identical(widget.controller?._state, this)) {
+      widget.controller?._state = null;
+    }
+    super.dispose();
   }
 
   void _prepend(T item) => setState(() => _items.insert(0, item));
@@ -597,57 +629,100 @@ class _PagedListState<T> extends State<PagedList<T>> {
           if (test(_items[i])) _items[i] = update(_items[i]);
         }
       });
+  void _removeWhere(bool Function(T) test) =>
+      setState(() => _items.removeWhere(test));
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({required bool keepItems, bool quiet = false}) {
+    if (!mounted) return Future.value();
+    _generation++;
     setState(() {
-      _items.clear();
-      _cursor = null;
-      _done = false;
+      // Kept rows keep their cursor too, so a failed refresh can still page on from them.
+      if (!keepItems) {
+        _items.clear();
+        _cursor = null;
+        _done = false;
+      }
       _error = null;
+      _loading = false;
     });
-    await _more();
+    return _fetch(replace: true, quiet: quiet);
   }
 
-  Future<void> _more() async {
+  /// Next page. While a page error is showing, only the retry button loads again; scrolling
+  /// doesn't hammer a failing endpoint.
+  Future<void> _more({bool retry = false}) async {
     if (!mounted || _loading || _done) return;
-    setState(() => _loading = true);
+    if (_error != null && !retry) return;
+    await _fetch(replace: false);
+  }
+
+  Future<void> _fetch({required bool replace, bool quiet = false}) async {
+    final generation = _generation;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final page = await widget.load(_cursor);
-      if (!mounted) return;
+      final page = await widget.load(replace ? null : _cursor);
+      if (!mounted || generation != _generation) return;
       setState(() {
+        if (replace) _items.clear();
         _items.addAll(page.items);
         _cursor = page.nextCursor;
         _done = page.nextCursor == null;
-        _error = null;
       });
     } catch (e) {
-      if (mounted) setState(() => _error = e);
+      if (!mounted || generation != _generation) return;
+      if (replace && _items.isNotEmpty) {
+        // A refresh over rows already on screen: keep them, they are still useful.
+        if (!quiet) showError(context, e);
+      } else {
+        setState(() => _error = e);
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && generation == _generation) {
+        setState(() => _loading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_items.isEmpty && _error != null) {
-      return ErrorView(error: _error!, onRetry: _refresh);
-    }
-    if (_items.isEmpty && _loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_items.isEmpty && _done) {
+    final header = widget.header;
+    if (_items.isEmpty && (_error != null || _loading || _done)) {
+      final Widget state;
+      if (_error != null) {
+        state = ErrorView(
+          error: _error!,
+          onRetry: () => _refresh(keepItems: false),
+        );
+      } else if (_loading) {
+        state = const Padding(
+          padding: EdgeInsets.all(32),
+          child: Center(child: CircularProgressIndicator()),
+        );
+      } else {
+        state = Padding(
+          padding: const EdgeInsets.only(top: 80),
+          child: widget.empty ?? const SizedBox(),
+        );
+      }
+      if (header == null && _error != null) return state;
+      if (header == null && _loading) {
+        return const Center(child: CircularProgressIndicator());
+      }
       return RefreshIndicator(
-        onRefresh: _refresh,
+        onRefresh: () => _refresh(keepItems: true),
         child: ListView(
-          children: [
-            const SizedBox(height: 80),
-            widget.empty ?? const SizedBox(),
-          ],
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: widget.padding,
+          children: [?header, state],
         ),
       );
     }
+    final lead = header == null ? 0 : 1;
     return RefreshIndicator(
-      onRefresh: _refresh,
+      onRefresh: () => _refresh(keepItems: true),
       child: NotificationListener<ScrollNotification>(
         onNotification: (n) {
           if (n.metrics.extentAfter < 400) _more();
@@ -656,11 +731,13 @@ class _PagedListState<T> extends State<PagedList<T>> {
         child: ListView.separated(
           reverse: widget.reverse,
           padding: widget.padding,
-          itemCount: _items.length + (_done ? 0 : 1),
-          separatorBuilder: (_, _) => widget.separator
+          itemCount: lead + _items.length + (_done ? 0 : 1),
+          separatorBuilder: (_, i) => widget.separator && i >= lead
               ? const Divider(indent: 72)
               : const SizedBox.shrink(),
-          itemBuilder: (context, i) {
+          itemBuilder: (context, index) {
+            if (index < lead) return header!;
+            final i = index - lead;
             if (i >= _items.length) {
               // The footer is only built once the user is near the end — or when the first
               // page is too short to scroll at all — so this is where the next page loads.
@@ -669,7 +746,7 @@ class _PagedListState<T> extends State<PagedList<T>> {
               }
               if (_error != null) {
                 return TextButton(
-                  onPressed: _more,
+                  onPressed: () => _more(retry: true),
                   child: const Text('Couldn\'t load more — tap to retry'),
                 );
               }

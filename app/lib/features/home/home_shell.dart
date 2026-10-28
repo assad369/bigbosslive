@@ -83,7 +83,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x40B8860B),
+                    color: BBColors.goldShadow,
                     blurRadius: 10,
                     offset: Offset(0, 4),
                   ),

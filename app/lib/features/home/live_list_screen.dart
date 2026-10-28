@@ -21,13 +21,24 @@ final _liveTabProvider = FutureProvider.family<List<LiveRoom>, String>((
   ref,
   tab,
 ) async {
+  ref.watch(sessionUidProvider); // the Following tab is per account
   final socket = ref.watch(socketProvider);
   socket.subscribeRooms();
-  // Re-fetch when rooms open or close anywhere (debounced by Riverpod's single in-flight load).
+  // Rooms open, close and update in bursts. Refetch at most once per window instead of once
+  // per event; a trailing timer (not a debounce) so a steady stream still refreshes.
+  Timer? pending;
   final sub = socket.events
       .where((e) => e.name == 'rooms:upserted' || e.name == 'rooms:ended')
-      .listen((_) => ref.invalidateSelf());
-  ref.onDispose(sub.cancel);
+      .listen((_) {
+        pending ??= Timer(
+          const Duration(milliseconds: 1500),
+          ref.invalidateSelf,
+        );
+      });
+  ref.onDispose(() {
+    pending?.cancel();
+    unawaited(sub.cancel());
+  });
   final type = tab == 'audio' ? 'audio' : null;
   final realTab = tab == 'audio' ? 'popular' : tab;
   return (await ref.watch(liveRepo).list(tab: realTab, type: type)).items;
@@ -215,6 +226,8 @@ class LiveCard extends ConsumerWidget {
       await context.push('/live/${room.id}');
       return;
     }
+    // The snackbar outlives this card (it may scroll away), so don't use its context later.
+    final router = GoRouter.of(context);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -222,7 +235,7 @@ class LiveCard extends ConsumerWidget {
           content: const Text('This live is locked'),
           action: SnackBarAction(
             label: 'Try anyway',
-            onPressed: () => context.push('/live/${room.id}'),
+            onPressed: () => unawaited(router.push('/live/${room.id}')),
           ),
         ),
       );
@@ -272,7 +285,7 @@ class LiveCard extends ConsumerWidget {
                   Text(
                     Fmt.compact(room.viewerCount),
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: BBColors.onAccent,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -331,7 +344,7 @@ class LiveCard extends ConsumerWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: BBColors.onAccent,
                     fontWeight: FontWeight.w700,
                   ),
                 ),

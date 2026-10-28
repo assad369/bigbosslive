@@ -24,6 +24,17 @@ export const palette = {
   warning: '#D08A1E',
   danger: '#B4443A',
   info: '#3C6E8F',
+  /** Pale wash behind an inline error message. */
+  dangerTint: '#FBEAE8',
+  /** Text and icons on saturated fills (live pill, tier badges, podium ranks). */
+  onAccent: '#FFFFFF',
+  /** Silver: second place on podiums, the level 20–39 band. */
+  silverLight: '#E3E3E3',
+  silver: '#A9A9A9',
+  silverDeep: '#8E8E8E',
+  /** Deep umber for the top level band (70+). */
+  umber: '#8B5A00',
+  umberDeep: '#5C3A00',
   /** Warm scrim used over live video and game canvases. */
   scrim: 'rgba(43, 33, 24, 0.55)',
   /** Darkens a room background image under the audio seat grid. */
@@ -49,6 +60,8 @@ export const gradients = {
   gold: `linear-gradient(135deg, ${palette.goldLight} 0%, ${palette.gold} 45%, ${palette.goldDeep} 100%)`,
   /** Soft champagne wash for hero areas. */
   champagne: `linear-gradient(180deg, ${palette.surface} 0%, ${palette.champagne} 100%)`,
+  silver: `linear-gradient(135deg, ${palette.silverLight} 0%, ${palette.silver} 100%)`,
+  umber: `linear-gradient(135deg, ${palette.umber} 0%, ${palette.umberDeep} 100%)`,
   /** Bronze for secondary emphasis. */
   bronze: `linear-gradient(135deg, #B07D4F 0%, ${palette.bronze} 60%, ${palette.bronzeDeep} 100%)`,
 } as const;

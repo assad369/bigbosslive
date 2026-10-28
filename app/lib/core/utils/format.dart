@@ -5,12 +5,19 @@ abstract final class Fmt {
   static final _compact = NumberFormat.compact();
   static final _full = NumberFormat.decimalPattern();
   static final _dateTime = DateFormat('d MMM y, HH:mm');
+  static final _date = DateFormat('d MMM y');
   static final _monthYear = DateFormat('MMMM y');
 
   static String compact(num n) => _compact.format(n);
   static String full(num n) => _full.format(n);
   static String ago(DateTime? d) => d == null ? '' : timeago.format(d);
+
+  /// Relative time that also reads the future correctly ("a month from now"); [ago] turns
+  /// every future date into "a moment ago".
+  static String relative(DateTime? d, {DateTime? clock}) =>
+      d == null ? '' : timeago.format(d, clock: clock, allowFromNow: true);
   static String dateTime(DateTime d) => _dateTime.format(d.toLocal());
+  static String date(DateTime d) => _date.format(d.toLocal());
 
   /// "October 2026" for a "YYYY-MM" period key; the key itself if it doesn't parse.
   static String monthKey(String key) {

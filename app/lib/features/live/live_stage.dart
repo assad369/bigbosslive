@@ -256,7 +256,6 @@ class StageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = seat.user!;
     final track = c.videoOf(user.id);
-    final speaking = c.isSpeaking(user.id);
     final micOff =
         seat.muted || (c.isConnected(user.id) && !c.isMicOn(user.id));
     final mirror = user.id == c.myUid && c.frontCamera;
@@ -275,17 +274,26 @@ class StageTile extends StatelessWidget {
     if (fullScreen) return media;
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        decoration: BoxDecoration(
-          color: BBColors.espresso,
-          borderRadius: BorderRadius.circular(compact ? 10 : 6),
-          border: Border.all(
-            color: speaking ? BBColors.goldLight : BBColors.champagneTint,
-            width: speaking ? 2.5 : 1,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
+      // Only the speaking border follows the (frequent) speaker updates; the video and
+      // overlays are built once and passed through.
+      child: ListenableBuilder(
+        listenable: c.speakers,
+        builder: (context, child) {
+          final speaking = c.isSpeaking(user.id);
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            decoration: BoxDecoration(
+              color: BBColors.espresso,
+              borderRadius: BorderRadius.circular(compact ? 10 : 6),
+              border: Border.all(
+                color: speaking ? BBColors.goldLight : BBColors.champagneTint,
+                width: speaking ? 2.5 : 1,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: child,
+          );
+        },
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -494,20 +502,24 @@ class SeatGrid extends StatelessWidget {
             onTap: () => s.user != null ? onTapUser(s.user!) : onTapEmpty(s),
             child: Column(
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: s.user != null && c.isSpeaking(s.user!.id)
-                        ? const [
-                            BoxShadow(
-                              color: BBColors.goldLight,
-                              blurRadius: 14,
-                              spreadRadius: 2,
-                            ),
-                          ]
-                        : null,
+                ListenableBuilder(
+                  listenable: c.speakers,
+                  builder: (context, child) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: s.user != null && c.isSpeaking(s.user!.id)
+                          ? const [
+                              BoxShadow(
+                                color: BBColors.goldLight,
+                                blurRadius: 14,
+                                spreadRadius: 2,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: child,
                   ),
                   child: s.user != null
                       ? BBAvatar.user(s.user, size: 58, ring: s.index == 0)

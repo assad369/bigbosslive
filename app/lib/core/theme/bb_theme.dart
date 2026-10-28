@@ -87,7 +87,10 @@ abstract final class BBTheme {
         style: FilledButton.styleFrom(
           backgroundColor: BBColors.goldDeep,
           foregroundColor: BBColors.surface,
-          minimumSize: const Size.fromHeight(50),
+          // Tall but not infinitely wide: `Size.fromHeight` made every button demand the
+          // full width, which stacks dialog actions and breaks buttons in rows and list
+          // tiles. Call sites that want a full-width button say so.
+          minimumSize: const Size(64, 50),
           shape: RoundedRectangleBorder(borderRadius: radius),
           textStyle: text.labelLarge,
         ),
@@ -95,7 +98,7 @@ abstract final class BBTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: BBColors.bronzeDeep,
-          minimumSize: const Size.fromHeight(48),
+          minimumSize: const Size(64, 48),
           side: const BorderSide(color: BBColors.champagneDeep),
           shape: RoundedRectangleBorder(borderRadius: radius),
         ),

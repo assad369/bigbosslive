@@ -210,7 +210,9 @@ class _EntryBannerState extends State<EntryBanner> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: u.vipTier > 0 ? Colors.white : BBColors.ink,
+                          color: u.vipTier > 0
+                              ? BBColors.onAccent
+                              : BBColors.ink,
                           fontWeight: FontWeight.w800,
                           fontSize: 12,
                         ),

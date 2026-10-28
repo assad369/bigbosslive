@@ -50,6 +50,8 @@ class PipService {
         'denominator': denominator,
       });
     } on PlatformException catch (e) {
+      // Forget the state so the next sync tries again instead of being deduped.
+      if (_armed == next) _armed = null;
       debugPrint('pip setAutoEnter failed: $e');
     } on MissingPluginException {
       /* engine without MainActivity (e.g. add-to-app) */

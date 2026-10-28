@@ -245,8 +245,12 @@ class _EffectViewState extends State<EffectView> with TickerProviderStateMixin {
     final c = _svga = SVGAAnimationController(vsync: this);
     try {
       final movie = await SvgaMovieCache.instance.retain(widget.url);
+      if (!mounted) {
+        // Disposed while it loaded (e.g. the guard fired): dispose() saw nothing retained.
+        SvgaMovieCache.instance.release(widget.url);
+        return;
+      }
       _retainedSvga = true;
-      if (!mounted) return;
       c.videoItem = movie;
       await c.forward(from: 0);
       _finish();
@@ -256,11 +260,15 @@ class _EffectViewState extends State<EffectView> with TickerProviderStateMixin {
   }
 
   Future<void> _playVideo() async {
-    final v = _video = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    final v = _video = VideoPlayerController.networkUrl(
+      Uri.parse(widget.url),
+      // Without this, iOS switches the audio session category and Android requests audio
+      // focus for the clip, which can cut the host's microphone even with volume at 0.
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+    );
     try {
       await v.initialize();
-      // Muted: a room's audio belongs to the live session, and the plugin must not take
-      // over the audio session LiveKit configured for the microphone.
+      // Muted: a room's audio belongs to the live session.
       await v.setVolume(0);
       if (!mounted) return;
       setState(() {});

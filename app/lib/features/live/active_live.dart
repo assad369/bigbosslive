@@ -58,6 +58,12 @@ class ActiveLiveNotifier extends Notifier<ActiveLive?> {
   ActiveLive? _current;
   bool _publishScheduled = false;
 
+  /// Bumped by every [attach]. A screen keeps the lease it attached with, so the [detach] of
+  /// an old screen (say, minimized and then re-opened before its pop animation finished)
+  /// can't close the session the new screen is showing.
+  int _lease = 0;
+  int get lease => _lease;
+
   /// Where the user last dropped the mini-player; kept for the app session.
   Offset? miniPosition;
 
@@ -91,6 +97,7 @@ class ActiveLiveNotifier extends Notifier<ActiveLive?> {
   }) {
     final cur = _current;
     if (cur != null && cur.roomId == roomId) {
+      _lease++;
       _set(ActiveLive(cur.controller));
       return cur.controller;
     }
@@ -106,16 +113,20 @@ class ActiveLiveNotifier extends Notifier<ActiveLive?> {
       password: password,
     );
     c.addListener(_onControllerChanged);
+    _lease++;
     _set(ActiveLive(c));
     unawaited(c.start());
     return c;
   }
 
   /// The screen for [c] went away. Unless it was minimized, the session ends with it
-  /// (route replaced, auth redirect, …).
-  void detach(LiveRoomController c) {
+  /// (route replaced, auth redirect, …). With [lease], only if no newer screen has
+  /// attached since.
+  void detach(LiveRoomController c, {int? lease}) {
     final cur = _current;
-    if (cur != null && identical(cur.controller, c) && !cur.minimized) close();
+    if (cur == null || !identical(cur.controller, c) || cur.minimized) return;
+    if (lease != null && lease != _lease) return;
+    close();
   }
 
   /// Back from the full screen: keep watching in the mini-player, unless it's over.

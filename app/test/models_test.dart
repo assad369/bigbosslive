@@ -69,6 +69,34 @@ void main() {
     expect(room.startedAt, isNull);
   });
 
+  test('JSON readers coerce or fall back instead of throwing', () {
+    final j = <String, dynamic>{
+      'n': '42',
+      'id': 7,
+      'b': 1,
+      'bad': <int>[1],
+      'obj': <dynamic, dynamic>{'a': 1},
+      'items': [
+        {'id': 'ok', 'displayName': 'Fine'},
+        {'id': 'bad', 'level': <String, dynamic>{}},
+      ],
+    };
+    expect(j.integer('n'), 42);
+    expect(j.str('id'), '7');
+    expect(j.flag('b'), isTrue);
+    expect(j.str('bad', 'x'), 'x');
+    expect(j.integer('bad', 3), 3);
+    expect(j.obj('obj')['a'], 1);
+    expect(j.obj('n'), isEmpty);
+    expect(j.list('n', (e) => e), isEmpty);
+    // One item the parser rejects doesn't cost the rest of the list.
+    final names = j.list('items', (e) {
+      if (e['level'] is Map) throw const FormatException('level');
+      return e.str('displayName');
+    });
+    expect(names, ['Fine']);
+  });
+
   test('RoomDetail parses seats and credentials', () {
     final s = LiveSession.fromJson({
       'room': {

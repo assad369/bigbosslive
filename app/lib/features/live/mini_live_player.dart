@@ -51,7 +51,11 @@ class _LiveOverlayHostState extends ConsumerState<LiveOverlayHost> {
     _seatInvites = c?.seatInvites.listen((invite) async {
       final ctx = _navContext;
       if (ctx == null || !ctx.mounted) return;
-      final accept = await showSeatInviteDialog(ctx, invite);
+      var accept = await showSeatInviteDialog(ctx, invite);
+      final now = _navContext;
+      if (accept && now != null && now.mounted) {
+        accept = await ensureStagePermissions(now, video: c.isVideoRoom);
+      }
       try {
         await c.respondToSeatInvite(accept);
       } catch (e) {
@@ -334,21 +338,27 @@ class _SpeakingAvatar extends StatelessWidget {
   final bool large;
 
   @override
-  Widget build(BuildContext context) {
-    final speaking = c.isSpeaking(host.id);
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: speaking ? BBColors.gold : BBColors.ivory.withValues(alpha: 0),
-          width: 2,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: c.speakers,
+    builder: (context, child) {
+      final speaking = c.isSpeaking(host.id);
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: speaking
+                ? BBColors.gold
+                : BBColors.ivory.withValues(alpha: 0),
+            width: 2,
+          ),
         ),
-      ),
-      child: BBAvatar.user(host, size: large ? 72 : 48),
-    );
-  }
+        child: child,
+      );
+    },
+    child: BBAvatar.user(host, size: large ? 72 : 48),
+  );
 }
 
 const _pillText = TextStyle(

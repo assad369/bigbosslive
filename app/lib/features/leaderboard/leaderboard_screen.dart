@@ -75,52 +75,67 @@ class _Board extends ConsumerWidget {
       onRetry: () => ref.invalidate(_boardProvider((kind, period))),
       data: (rows) {
         final entries = rows.where((r) => r.user != null).toList();
+        Future<void> refresh() =>
+            ref.refresh(_boardProvider((kind, period)).future);
         if (entries.isEmpty) {
-          return const EmptyState(
-            icon: Icons.emoji_events_outlined,
-            title: 'No rankings yet',
-            message: 'Send or receive gifts to get on the board.',
+          return RefreshIndicator(
+            onRefresh: refresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 60),
+                EmptyState(
+                  icon: Icons.emoji_events_outlined,
+                  title: 'No rankings yet',
+                  message: 'Send or receive gifts to get on the board.',
+                ),
+              ],
+            ),
           );
         }
         final top = entries.take(3).toList();
-        return ListView(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  for (final i in [1, 0, 2])
-                    if (i < top.length)
-                      Expanded(
-                        child: _Podium(
-                          entry: top[i],
-                          height: [130.0, 100.0, 84.0][i],
-                        ),
-                      ),
-                ],
-              ),
-            ),
-            for (final e in entries.skip(3))
-              UserTile(
-                user: e.user!,
-                onTap: () => context.push('/user/${e.user!.id}'),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
+        return RefreshIndicator(
+          onRefresh: refresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    DiamondAmount(e.diamonds, compact: true),
-                    const SizedBox(width: 12),
-                    Text(
-                      '#${e.rank}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: BBColors.inkSubtle,
-                      ),
-                    ),
+                    for (final i in [1, 0, 2])
+                      if (i < top.length)
+                        Expanded(
+                          child: _Podium(
+                            entry: top[i],
+                            height: [130.0, 100.0, 84.0][i],
+                          ),
+                        ),
                   ],
                 ),
               ),
-          ],
+              for (final e in entries.skip(3))
+                UserTile(
+                  user: e.user!,
+                  onTap: () => context.push('/user/${e.user!.id}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DiamondAmount(e.diamonds, compact: true),
+                      const SizedBox(width: 12),
+                      Text(
+                        '#${e.rank}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: BBColors.inkSubtle,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         );
       },
     );
@@ -138,7 +153,7 @@ class _Podium extends StatelessWidget {
     final gradient = entry.rank == 1
         ? BBColors.goldGradient
         : entry.rank == 2
-        ? const LinearGradient(colors: [Color(0xFFE3E3E3), Color(0xFFA9A9A9)])
+        ? BBColors.silverGradient
         : BBColors.bronzeGradient;
     return GestureDetector(
       onTap: () => context.push('/user/${u.id}'),

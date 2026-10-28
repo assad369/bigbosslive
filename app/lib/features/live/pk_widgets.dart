@@ -25,10 +25,21 @@ class _Ticker extends StatefulWidget {
 }
 
 class _TickerState extends State<_Ticker> {
-  late final Timer _t = Timer.periodic(widget.period, (_) => setState(() {}));
+  // Started in initState: a `late final` initializer would only run on first read, which
+  // was dispose(), so the countdowns never ticked on their own.
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(widget.period, (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   void dispose() {
-    _t.cancel();
+    _t?.cancel();
     super.dispose();
   }
 
@@ -49,8 +60,10 @@ class PkArena extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hostId = c.detail!.room.host.id;
-    final ours = battle.host(hostId) ?? battle.hosts.first;
+    final hostId = c.detail?.room.host.id;
+    final ours = battle.host(hostId ?? '') ?? battle.hosts.firstOrNull;
+    // A battle without both hosts can't be drawn; it is never a valid server state.
+    if (ours == null || battle.hosts.length < 2) return const SizedBox.shrink();
     final theirs = battle.hosts.firstWhere(
       (h) => h.uid != ours.uid,
       orElse: () => battle.hosts.last,
@@ -593,7 +606,7 @@ class PkWaitingBanner extends StatelessWidget {
             Expanded(
               child: Text(
                 'Waiting for ${opponent?.displayName ?? 'opponent'}… '
-                '${_secondsUntil(b, b.inviteExpiresAt)}s',
+                '${_secondsUntil(b, b.inviteExpiresAt).clamp(0, 999)}s',
                 style: const TextStyle(color: BBColors.ivory, fontSize: 12),
               ),
             ),

@@ -2,6 +2,10 @@ import 'package:bigboss_live/core/theme/bb_colors.dart';
 import 'package:bigboss_live/core/widgets/widgets.dart';
 import 'package:bigboss_live/core/utils/json.dart';
 import 'package:bigboss_live/features/live/live_controls.dart';
+
+import 'dart:async';
+
+import 'package:bigboss_live/core/utils/format.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -116,5 +120,96 @@ void main() {
       _wrap(LiveElapsed(since: since, offset: const Duration(minutes: 10))),
     );
     expect(find.text('01:00'), findsOneWidget);
+  });
+
+  testWidgets('a refresh during a page load drops the stale page', (
+    tester,
+  ) async {
+    final controller = PagedListController<String>();
+    final stale = Completer<Paged<String>>();
+    var refreshed = false;
+    await tester.pumpWidget(
+      _wrap(
+        SizedBox(
+          height: 400,
+          child: PagedList<String>(
+            controller: controller,
+            load: (cursor) {
+              if (cursor == null) {
+                return Future.value(
+                  refreshed
+                      ? const Paged(items: ['fresh'])
+                      : const Paged(items: ['a'], nextCursor: 'n'),
+                );
+              }
+              return stale.future; // page 2 hangs
+            },
+            itemBuilder: (_, s) => SizedBox(height: 40, child: Text(s)),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(); // the footer asks for page 2, which is now in flight
+
+    refreshed = true;
+    await controller.refresh();
+    await tester.pump();
+    stale.complete(const Paged(items: ['stale']));
+    await tester.pumpAndSettle();
+
+    expect(find.text('fresh'), findsOneWidget);
+    expect(find.text('stale'), findsNothing);
+    expect(find.text('a'), findsNothing);
+  });
+
+  testWidgets('a failed page waits for the retry tap', (tester) async {
+    var calls = 0;
+    await tester.pumpWidget(
+      _wrap(
+        SizedBox(
+          height: 400,
+          child: PagedList<String>(
+            load: (cursor) async {
+              calls++;
+              if (cursor != null) throw Exception('down');
+              return Paged(
+                items: [for (var i = 0; i < 20; i++) 'row $i'],
+                nextCursor: 'n',
+              );
+            },
+            itemBuilder: (_, s) => SizedBox(height: 40, child: Text(s)),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -2000));
+    await tester.pumpAndSettle();
+    final afterFailure = calls;
+    expect(find.textContaining('tap to retry'), findsOneWidget);
+
+    // Scrolling around the error must not keep hitting the failing endpoint.
+    await tester.drag(find.byType(ListView), const Offset(0, 200));
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    expect(calls, afterFailure);
+
+    await tester.tap(find.textContaining('tap to retry'));
+    await tester.pumpAndSettle();
+    expect(calls, afterFailure + 1);
+  });
+
+  test('relative time reads the future as the future', () {
+    final now = DateTime(2026, 10, 28, 12);
+    expect(
+      Fmt.relative(now.add(const Duration(days: 30)), clock: now),
+      contains('from now'),
+    );
+    expect(
+      Fmt.relative(now.subtract(const Duration(days: 2)), clock: now),
+      contains('ago'),
+    );
+    expect(Fmt.relative(null), '');
   });
 }

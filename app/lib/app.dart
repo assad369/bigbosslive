@@ -4,19 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/providers.dart';
-import 'core/push/push_service.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/bb_theme.dart';
 import 'features/live/active_live.dart';
 import 'features/live/mini_live_player.dart';
 
-final pushProvider = Provider<PushService>(
-  (ref) => PushService(ref.watch(accountRepo)),
-);
-
 class BigBossApp extends ConsumerStatefulWidget {
-  const BigBossApp({super.key, this.enablePush = true});
-  final bool enablePush;
+  const BigBossApp({super.key, this.enablePlatformServices = true});
+
+  /// Push notifications and in-app purchases; off in widget tests.
+  final bool enablePlatformServices;
 
   @override
   ConsumerState<BigBossApp> createState() => _BigBossAppState();
@@ -24,34 +21,47 @@ class BigBossApp extends ConsumerStatefulWidget {
 
 class _BigBossAppState extends ConsumerState<BigBossApp> {
   StreamSubscription<Map<String, dynamic>>? _taps;
+  late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
     super.initState();
     // Keep the realtime connection alive for the whole signed-in session.
     ref.read(socketProvider);
-    if (widget.enablePush) {
+    if (widget.enablePlatformServices) {
       _taps = ref.read(pushProvider).taps.listen((data) {
         final route = routeForLink(data);
         if (route != null) unawaited(ref.read(routerProvider).push(route));
       });
+      // From launch: StoreKit redelivers unfinished purchases as soon as anyone listens.
+      ref.read(iapProvider).attach();
     }
+    // Maintenance mode and force-update are re-checked whenever the app comes back.
+    _lifecycle = AppLifecycleListener(
+      onResume: () => ref.invalidate(appConfigProvider),
+    );
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     _taps?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.enablePush) {
-      ref.listen(sessionProvider, (prev, next) {
+    if (widget.enablePlatformServices) {
+      ref.listen(sessionUidProvider, (prev, uid) {
         final push = ref.read(pushProvider);
-        if (prev?.value == null && next.value != null) unawaited(push.start());
-        if (prev?.value != null && next.hasValue && next.value == null) {
+        final iap = ref.read(iapProvider);
+        if (uid != null && prev != uid) {
+          unawaited(push.start());
+          unawaited(iap.start());
+        }
+        if (uid == null && prev != null) {
           unawaited(push.stop());
+          iap.stop();
         }
       });
     }

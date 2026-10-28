@@ -35,6 +35,11 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
   bool _starting = false;
   bool _permissionDenied = false;
 
+  /// Bumped whenever the wanted preview changes, so a camera track that finishes opening
+  /// after the user switched to Party (or back) is released instead of leaking.
+  int _previewGen = 0;
+  AppLifecycleListener? _lifecycle;
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +55,12 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
       return;
     }
     active.close();
+    // Back from Settings with access granted: pick up the preview without a restart.
+    _lifecycle = AppLifecycleListener(
+      onResume: () {
+        if (_permissionDenied) unawaited(_initPreview());
+      },
+    );
     unawaited(_initPreview());
   }
 
@@ -59,35 +70,69 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
   }
 
   Future<void> _pickCover() async {
-    final x = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1080,
-      imageQuality: 85,
-    );
-    if (x != null && mounted) setState(() => _cover = File(x.path));
+    try {
+      final x = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1080,
+        imageQuality: 85,
+      );
+      if (x != null && mounted) setState(() => _cover = File(x.path));
+    } catch (_) {
+      if (mounted) showMessage(context, 'Couldn\'t open your photos');
+    }
   }
 
+  /// Asks for what this kind of live needs (a Party room is audio only, so no camera) and
+  /// opens the camera preview for a video live.
   Future<void> _initPreview() async {
-    final statuses = await [Permission.camera, Permission.microphone].request();
-    if (statuses.values.any((s) => !s.isGranted)) {
-      if (mounted) setState(() => _permissionDenied = true);
-      return;
-    }
-    if (_type != 'video') return;
+    final gen = ++_previewGen;
+    final video = _type == 'video';
+    final statuses = await [
+      Permission.microphone,
+      if (video) Permission.camera,
+    ].request();
+    if (!mounted || gen != _previewGen) return;
+    final denied = statuses.values.any((s) => !s.isGranted);
+    setState(() => _permissionDenied = denied);
+    if (denied || !video || _preview != null) return;
     try {
       final track = await LocalVideoTrack.createCameraTrack(
         const CameraCaptureOptions(cameraPosition: CameraPosition.front),
       );
-      if (!mounted) return unawaited(track.stop());
+      if (!mounted || gen != _previewGen || _preview != null) {
+        return unawaited(_release(track));
+      }
       setState(() => _preview = track);
     } catch (_) {
       /* preview is best-effort */
     }
   }
 
+  void _setType(String type) {
+    if (type == _type) return;
+    final preview = _preview;
+    setState(() {
+      _type = type;
+      if (type != 'video') _preview = null;
+    });
+    // The camera turns off in Party mode rather than staying open behind the gradient.
+    if (type != 'video') unawaited(_release(preview));
+    unawaited(_initPreview());
+  }
+
+  static Future<void> _release(LocalVideoTrack? track) async {
+    if (track == null) return;
+    try {
+      await track.stop();
+      await track.dispose();
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
-    unawaited(_preview?.stop());
+    _previewGen++;
+    unawaited(_release(_preview));
+    _lifecycle?.dispose();
     _title.dispose();
     super.dispose();
   }
@@ -105,8 +150,10 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
       final session = await ref
           .read(liveRepo)
           .start(title: title, type: _type, coverUrl: coverUrl);
-      await _preview?.stop();
+      final preview = _preview;
       _preview = null;
+      _previewGen++;
+      await _release(preview);
       if (mounted) {
         context.pushReplacement(
           '/live/${session.detail.room.id}',
@@ -136,7 +183,7 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
           const DecoratedBox(
             decoration: BoxDecoration(
               gradient: RadialGradient(
-                colors: [Color(0xFF4A3722), BBColors.espresso],
+                colors: [BBColors.espressoGlow, BBColors.espresso],
                 radius: 1.1,
               ),
             ),
@@ -152,6 +199,7 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
                 Row(
                   children: [
                     IconButton(
+                      tooltip: 'Close',
                       onPressed: () => context.pop(),
                       icon: const Icon(
                         Icons.close_rounded,
@@ -179,12 +227,7 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
                         ),
                       ],
                       selected: {_type},
-                      onSelectionChanged: (s) {
-                        setState(() => _type = s.first);
-                        if (_type == 'video' && _preview == null) {
-                          unawaited(_initPreview());
-                        }
-                      },
+                      onSelectionChanged: (s) => _setType(s.first),
                     ),
                   ],
                 ),
@@ -230,16 +273,18 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
                 ),
                 const Spacer(),
                 if (_permissionDenied)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 16),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
                     child: Column(
                       children: [
                         Text(
-                          'Camera and microphone access is needed to go live.',
+                          _type == 'video'
+                              ? 'Camera and microphone access is needed to go live.'
+                              : 'Microphone access is needed to open a party room.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: BBColors.champagne),
+                          style: const TextStyle(color: BBColors.champagne),
                         ),
-                        TextButton(
+                        const TextButton(
                           onPressed: openAppSettings,
                           child: Text('Open settings'),
                         ),
@@ -310,7 +355,7 @@ class _CoverTile extends StatelessWidget {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: ColoredBox(color: const Color(0x33F3E5C3), child: image),
+                child: ColoredBox(color: BBColors.champagneVeil, child: image),
               ),
               if (file != null || avatarUrl != null)
                 Positioned(

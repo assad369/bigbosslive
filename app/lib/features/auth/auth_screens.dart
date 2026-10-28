@@ -27,7 +27,7 @@ class BrandMark extends StatelessWidget {
       borderRadius: BorderRadius.circular(size * 0.24),
       boxShadow: const [
         BoxShadow(
-          color: Color(0x406B4826),
+          color: BBColors.bronzeShadow,
           blurRadius: 30,
           offset: Offset(0, 12),
         ),
@@ -175,8 +175,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       timeout: const Duration(seconds: 60),
       // Android can auto-retrieve the SMS and sign in without the code screen.
       verificationCompleted: (credential) async {
-        await FirebaseAuth.instance.signInWithCredential(credential);
-        if (!sent.isCompleted) sent.complete();
+        try {
+          await FirebaseAuth.instance.signInWithCredential(credential);
+          if (!sent.isCompleted) sent.complete();
+        } catch (e) {
+          // Otherwise `sent` never completes and the buttons stay disabled.
+          if (!sent.isCompleted) sent.completeError(e);
+        }
       },
       verificationFailed: (e) {
         if (!sent.isCompleted) sent.completeError(e);
@@ -226,7 +231,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               const SizedBox(height: 40),
               if (session.hasError) ...[
                 Card(
-                  color: const Color(0xFFFBEAE8),
+                  color: BBColors.dangerTint,
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Text(
@@ -341,21 +346,36 @@ class OtpScreen extends StatefulWidget {
 
 class _OtpScreenState extends State<OtpScreen> {
   final _code = TextEditingController();
+  late String _verificationId = widget.args.verificationId;
+  late int? _resendToken = widget.args.resendToken;
   bool _busy = false;
+  bool _resending = false;
+  DateTime _resendAt = DateTime.now().add(const Duration(seconds: 30));
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
+    _tick?.cancel();
     _code.dispose();
     super.dispose();
   }
 
   Future<void> _verify() async {
-    if (_code.text.trim().length < 6) return;
+    // Typing the sixth digit and tapping Verify must not submit twice.
+    if (_busy || _code.text.trim().length < 6) return;
     setState(() => _busy = true);
     try {
       await FirebaseAuth.instance.signInWithCredential(
         PhoneAuthProvider.credential(
-          verificationId: widget.args.verificationId,
+          verificationId: _verificationId,
           smsCode: _code.text.trim(),
         ),
       );
@@ -368,48 +388,146 @@ class _OtpScreenState extends State<OtpScreen> {
               : (e.message ?? 'Verification failed'),
         );
       }
+    } catch (e) {
+      if (mounted) showError(context, e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  Future<void> _resend() async {
+    setState(() => _resending = true);
+    final done = Completer<void>();
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: widget.args.phone,
+        forceResendingToken: _resendToken,
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: (credential) async {
+          try {
+            await FirebaseAuth.instance.signInWithCredential(credential);
+            if (!done.isCompleted) done.complete();
+          } catch (e) {
+            if (!done.isCompleted) done.completeError(e);
+          }
+        },
+        verificationFailed: (e) {
+          if (!done.isCompleted) done.completeError(e);
+        },
+        codeSent: (verificationId, resendToken) {
+          _verificationId = verificationId;
+          _resendToken = resendToken;
+          if (!done.isCompleted) done.complete();
+        },
+        codeAutoRetrievalTimeout: (_) {},
+      );
+      await done.future;
+      _resendAt = DateTime.now().add(const Duration(seconds: 30));
+      if (mounted) showMessage(context, 'A new code is on its way');
+    } on FirebaseAuthException catch (e) {
+      if (mounted) showError(context, e.message ?? 'Could not resend the code');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _resending = false);
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(),
-    body: ListView(
-      padding: const EdgeInsets.all(24),
-      children: [
-        Text(
-          'Enter the code',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'We sent a 6-digit code to ${widget.args.phone}',
-          style: const TextStyle(color: BBColors.inkMuted),
-        ),
-        const SizedBox(height: 24),
-        TextField(
-          controller: _code,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          maxLength: 6,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 28,
-            letterSpacing: 12,
-            fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) {
+    final wait = _resendAt.difference(DateTime.now()).inSeconds;
+    return Scaffold(
+      appBar: AppBar(),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Text(
+            'Enter the code',
+            style: Theme.of(context).textTheme.headlineSmall,
           ),
-          onChanged: (v) {
-            if (v.length == 6) unawaited(_verify());
-          },
-          decoration: const InputDecoration(counterText: ''),
+          const SizedBox(height: 8),
+          Text(
+            'We sent a 6-digit code to ${widget.args.phone}',
+            style: const TextStyle(color: BBColors.inkMuted),
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: _code,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            autofillHints: const [AutofillHints.oneTimeCode],
+            maxLength: 6,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 28,
+              letterSpacing: 12,
+              fontWeight: FontWeight.w700,
+            ),
+            onChanged: (v) {
+              if (v.length == 6) unawaited(_verify());
+            },
+            decoration: const InputDecoration(counterText: ''),
+          ),
+          const SizedBox(height: 16),
+          GoldButton(label: 'Verify', loading: _busy, onPressed: _verify),
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton(
+              onPressed: _busy || _resending || wait > 0 ? null : _resend,
+              child: Text(wait > 0 ? 'Resend code in ${wait}s' : 'Resend code'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The account is fine but the server couldn't be reached (or failed) while starting the
+/// session. Firebase is still signed in, so this retries instead of asking to sign in again.
+class OfflineScreen extends ConsumerWidget {
+  const OfflineScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(sessionProvider);
+    final err = session.error;
+    return Scaffold(
+      body: _ChampagneBackground(
+        child: SafeArea(
+          child: EmptyState(
+            icon: Icons.wifi_off_rounded,
+            title: err is ApiException && !err.isNetwork
+                ? 'Something went wrong'
+                : 'You\'re offline',
+            message: err is ApiException && !err.isNetwork
+                ? err.message
+                : 'Check your internet connection and try again.',
+            action: session.isLoading
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2.4),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton(
+                        onPressed: () => ref.invalidate(sessionProvider),
+                        child: const Text('Try again'),
+                      ),
+                      TextButton(
+                        onPressed: () =>
+                            ref.read(sessionProvider.notifier).signOut(),
+                        child: const Text('Sign out'),
+                      ),
+                    ],
+                  ),
+          ),
         ),
-        const SizedBox(height: 16),
-        GoldButton(label: 'Verify', loading: _busy, onPressed: _verify),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class BannedScreen extends ConsumerWidget {
@@ -471,21 +589,36 @@ class MaintenanceScreen extends ConsumerWidget {
 class ForceUpdateScreen extends StatelessWidget {
   const ForceUpdateScreen({super.key});
 
+  /// The store listing, or null on iOS when the build has no `IOS_APP_STORE_ID`.
+  static Uri? get storeUri {
+    if (Platform.isIOS) {
+      return Env.iosAppStoreId.isEmpty
+          ? null
+          : Uri.parse('https://apps.apple.com/app/id${Env.iosAppStoreId}');
+    }
+    return Uri.parse(
+      'https://play.google.com/store/apps/details?id=${Env.androidPackage}',
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: EmptyState(
-      icon: Icons.system_update_rounded,
-      title: 'Update required',
-      message: 'A new version of BigBoss Live is available with important improvements.',
-      action: FilledButton(
-        onPressed: () => launchUrl(
-          Uri.parse(
-            Platform.isIOS ? 'https://apps.apple.com/app/bigboss-live' : 'https://play.google.com/store/apps/details?id=com.bigbosslive.bigboss_live',
-          ),
-          mode: LaunchMode.externalApplication,
-        ),
-        child: const Text('Update now'),
+  Widget build(BuildContext context) {
+    final uri = storeUri;
+    return Scaffold(
+      body: EmptyState(
+        icon: Icons.system_update_rounded,
+        title: 'Update required',
+        message: uri == null
+            ? 'A new version of BigBoss Live is available. Update it from the App Store to continue.'
+            : 'A new version of BigBoss Live is available with important improvements.',
+        action: uri == null
+            ? null
+            : FilledButton(
+                onPressed: () =>
+                    launchUrl(uri, mode: LaunchMode.externalApplication),
+                child: const Text('Update now'),
+              ),
       ),
-    ),
-  );
+    );
+  }
 }

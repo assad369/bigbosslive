@@ -15,6 +15,9 @@ class SocketService {
 
   io.Socket? _socket;
   final _events = StreamController<SocketEvent>.broadcast();
+  Timer? _retry;
+  int _failures = 0;
+  bool _roomsWanted = false;
 
   Stream<SocketEvent> get events => _events.stream;
   Stream<Map<String, dynamic>> on(String name) =>
@@ -44,8 +47,10 @@ class SocketService {
           .setReconnectionDelay(1000)
           .setReconnectionDelayMax(10000)
           .setAuthFn((cb) {
-            FirebaseAuth.instance.currentUser
-                ?.getIdToken()
+            final user = FirebaseAuth.instance.currentUser;
+            if (user == null) return cb({});
+            user
+                .getIdToken()
                 .then((t) => cb({'token': t}))
                 .catchError((Object _) => cb({}));
           })
@@ -58,19 +63,50 @@ class SocketService {
         }
       });
     }
-    socket.onConnectError((e) => debugPrint('socket connect error: $e'));
-    socket.connect();
+    socket.onConnect((_) {
+      _failures = 0;
+      // Server-side room membership is per connection; restore it after every reconnect.
+      if (_roomsWanted) socket.emit('rooms:subscribe');
+    });
+    socket.onConnectError((e) {
+      debugPrint('socket connect error: $e');
+      // A handshake the server rejects (e.g. a token that failed to verify) destroys the
+      // socket and the client stops reconnecting. Retry it ourselves with backoff.
+      if (socket.active || !identical(_socket, socket)) return;
+      _retry?.cancel();
+      final delay = Duration(seconds: 1 << _failures.clamp(0, 5));
+      _failures++;
+      _retry = Timer(delay, () {
+        if (identical(_socket, socket)) socket.connect();
+      });
+    });
     _socket = socket;
+    socket.connect();
   }
 
   void emit(String event, [Object? data]) => _socket?.emit(event, data);
 
-  void subscribeRooms() => emit('rooms:subscribe');
-  void unsubscribeRooms() => emit('rooms:unsubscribe');
+  /// Follow the live directory (`rooms:*`). Kept across reconnects.
+  void subscribeRooms() {
+    if (_roomsWanted) return;
+    _roomsWanted = true;
+    emit('rooms:subscribe');
+  }
+
+  void unsubscribeRooms() {
+    if (!_roomsWanted) return;
+    _roomsWanted = false;
+    emit('rooms:unsubscribe');
+  }
 
   void disconnect() {
-    _socket?.dispose();
+    _retry?.cancel();
+    _retry = null;
+    _failures = 0;
+    _roomsWanted = false;
+    final socket = _socket;
     _socket = null;
+    socket?.dispose();
   }
 
   Future<void> dispose() async {

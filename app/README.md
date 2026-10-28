@@ -72,7 +72,12 @@ flutter test
 
 ```bash
 flutter build appbundle --release --obfuscate --split-debug-info=build/symbols --dart-define=API_URL=https://bigbossapi.asadsoft.cloud
-flutter build ipa --release --obfuscate --split-debug-info=build/symbols --dart-define=API_URL=https://bigbossapi.asadsoft.cloud
+flutter build ipa --release --obfuscate --split-debug-info=build/symbols --dart-define=API_URL=https://bigbossapi.asadsoft.cloud --dart-define=IOS_APP_STORE_ID=<numeric-app-id>
 ```
+
+`IOS_APP_STORE_ID` is the number in the App Store URL (`apps.apple.com/app/id<number>`).
+The force-update screen links to it; without it, iOS users are told to update from the
+App Store but get no button. `ANDROID_PACKAGE` overrides the Play Store id
+(default `com.bigbosslive.bigboss_live`).
 
 Upload `build/symbols` to Crashlytics so obfuscated stack traces are readable.

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
@@ -17,7 +18,8 @@ final giftsProvider = FutureProvider<List<Gift>>(
   (ref) => ref.watch(economyRepo).gifts(),
 );
 
-/// Bottom sheet for sending gifts in a room. Each tap is its own idempotent transaction.
+/// Bottom sheet for sending gifts in a room. Each tap is its own idempotent transaction; a
+/// retry of a send that got no answer reuses its key, so it can't be charged twice.
 class GiftPanel extends ConsumerStatefulWidget {
   const GiftPanel({super.key, required this.roomId, required this.receivers});
   final String roomId;
@@ -44,10 +46,19 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
   bool _sending = false;
   late String _receiver = widget.receivers.first.id;
 
+  /// The last send that got no answer (network or timeout). Tapping Send again with the same
+  /// gift, quantity and receiver retries *that* send; anything else is a new gift.
+  ({String intent, String key})? _unanswered;
+
   Future<void> _send() async {
     final gift = _selected;
-    if (gift == null) return;
+    if (gift == null || _sending) return;
     setState(() => _sending = true);
+    final intent = '${gift.id}:$_qty:$_receiver';
+    final key = _unanswered?.intent == intent
+        ? _unanswered!.key
+        : ApiClient.newIdempotencyKey();
+    _unanswered = null;
     try {
       final diamonds = await ref
           .read(economyRepo)
@@ -56,12 +67,14 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
             quantity: _qty,
             receiverIds: [_receiver],
             roomId: widget.roomId,
+            idempotencyKey: key,
           );
       final me = ref.read(sessionProvider).value;
       if (me != null) {
         ref.read(sessionProvider.notifier).replace(me.withDiamonds(diamonds));
       }
     } on ApiException catch (e) {
+      if (e.isNetwork) _unanswered = (intent: intent, key: key);
       if (!mounted) return;
       if (e.insufficientBalance) {
         final go = await showDialog<bool>(
@@ -71,11 +84,11 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
             content: const Text('Recharge to keep the gifts flowing.'),
             actions: [
               TextButton(
-                onPressed: () => c.pop(false),
+                onPressed: () => Navigator.pop(c, false),
                 child: const Text('Later'),
               ),
               FilledButton(
-                onPressed: () => c.pop(true),
+                onPressed: () => Navigator.pop(c, true),
                 child: const Text('Recharge'),
               ),
             ],
@@ -85,6 +98,8 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
       } else {
         showError(context, e);
       }
+    } catch (e) {
+      if (mounted) showError(context, e);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -123,9 +138,19 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
               child: gifts.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(
-                  child: Text(
-                    e.toString(),
-                    style: const TextStyle(color: BBColors.champagne),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        e.toString(),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: BBColors.champagne),
+                      ),
+                      TextButton(
+                        onPressed: () => ref.invalidate(giftsProvider),
+                        child: const Text('Retry'),
+                      ),
+                    ],
                   ),
                 ),
                 data: (items) => GridView.builder(
@@ -134,7 +159,7 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                     crossAxisCount: 4,
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
-                    childAspectRatio: 0.78,
+                    childAspectRatio: 0.72,
                   ),
                   itemCount: items.length,
                   itemBuilder: (_, i) {
@@ -148,12 +173,12 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
                           color: selected
-                              ? const Color(0x33E9CF7A)
+                              ? BBColors.goldTint
                               : Colors.transparent,
                           border: Border.all(
                             color: selected
                                 ? BBColors.goldLight
-                                : const Color(0x22F3E5C3),
+                                : BBColors.champagneTint,
                           ),
                         ),
                         padding: const EdgeInsets.all(6),
@@ -261,9 +286,32 @@ class _GiftOverlayState extends State<GiftOverlay> {
   void initState() {
     super.initState();
     _sub = widget.gifts.listen((g) {
-      _queue.add(g);
+      _enqueue(g);
       if (_current == null) _next();
     });
+  }
+
+  /// Each celebration takes seconds, so a busy room would fall minutes behind. A combo of the
+  /// same gift from the same sender folds into one, and past [_maxQueued] the oldest waiting
+  /// celebration is dropped.
+  static const _maxQueued = 8;
+
+  void _enqueue(GiftEvent g) {
+    final last = _queue.isEmpty ? null : _queue.last;
+    if (last != null &&
+        last.gift.id == g.gift.id &&
+        last.sender?.id == g.sender?.id) {
+      _queue[_queue.length - 1] = GiftEvent(
+        id: last.id,
+        sender: last.sender,
+        gift: last.gift,
+        quantity: last.quantity + g.quantity,
+        receiverNames: {...last.receiverNames, ...g.receiverNames}.toList(),
+      );
+      return;
+    }
+    _queue.add(g);
+    if (_queue.length > _maxQueued) _queue.removeAt(0);
   }
 
   // A gift stays up until its banner beat and its animation (if any) have both finished.
@@ -374,12 +422,19 @@ class _GiftOverlayState extends State<GiftOverlay> {
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      g.sender?.displayName ?? 'Someone',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        color: BBColors.ink,
-                                        fontSize: 13,
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 140,
+                                      ),
+                                      child: Text(
+                                        g.sender?.displayName ?? 'Someone',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          color: BBColors.ink,
+                                          fontSize: 13,
+                                        ),
                                       ),
                                     ),
                                     if ((g.sender?.vipTier ?? 0) > 0) ...[
@@ -390,6 +445,8 @@ class _GiftOverlayState extends State<GiftOverlay> {
                                 ),
                                 Text(
                                   'sent ${g.gift.name}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                     color: BBColors.bronzeDeep,
                                     fontSize: 11,

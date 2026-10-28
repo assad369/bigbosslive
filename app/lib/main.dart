@@ -20,9 +20,10 @@ Future<void> main() async {
 
   // Firebase reads google-services.json / GoogleService-Info.plist (see app/README.md).
   await Firebase.initializeApp();
-  if (Env.authEmulator.isNotEmpty) {
-    final [host, port] = Env.authEmulator.split(':');
-    await FirebaseAuth.instance.useAuthEmulator(host, int.parse(port));
+  final emulator = Env.authEmulator.split(':');
+  final emulatorPort = emulator.length == 2 ? int.tryParse(emulator[1]) : null;
+  if (emulatorPort != null) {
+    await FirebaseAuth.instance.useAuthEmulator(emulator[0], emulatorPort);
   }
   await GoogleSignIn.instance.initialize(
     serverClientId: Env.googleServerClientId.isEmpty
@@ -45,6 +46,7 @@ Future<void> main() async {
   final deviceId = await DeviceId.load();
   runApp(
     ProviderScope(
+      retry: providerRetry,
       overrides: [deviceIdProvider.overrideWithValue(deviceId.value)],
       child: const BigBossApp(),
     ),

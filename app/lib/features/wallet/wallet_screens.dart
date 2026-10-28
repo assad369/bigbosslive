@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
+import '../../core/iap/iap_service.dart';
+import '../../core/network/api_client.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
@@ -27,50 +28,57 @@ class WalletScreen extends ConsumerStatefulWidget {
   ConsumerState<WalletScreen> createState() => _WalletScreenState();
 }
 
+enum _StoreState { loading, ready, unavailable }
+
 class _WalletScreenState extends ConsumerState<WalletScreen> {
-  final _iap = InAppPurchase.instance;
-  StreamSubscription<List<PurchaseDetails>>? _purchases;
+  StreamSubscription<IapEvent>? _events;
   Map<String, ProductDetails> _products = {};
-  bool _storeAvailable = false;
-  String? _buying;
+  _StoreState _store = _StoreState.loading;
+
+  IapService get _iap => ref.read(iapProvider);
 
   @override
   void initState() {
     super.initState();
-    _purchases = _iap.purchaseStream.listen(
-      _onPurchases,
-      onError: (Object e) => _done(error: e),
-    );
+    // Purchases are processed by the app-wide IapService (so none are lost when this screen
+    // closes); the screen only reports what happened to the one the user started here.
+    _events = _iap.events.listen(_onEvent);
     unawaited(_loadStore());
   }
 
   @override
   void dispose() {
-    _purchases?.cancel();
+    _events?.cancel();
     super.dispose();
   }
 
   Future<void> _loadStore() async {
-    final available = await _iap.isAvailable();
-    final packages = await ref
-        .read(_packagesProvider.future)
-        .catchError((Object _) => <RechargePackage>[]);
-    if (!available || packages.isEmpty) {
-      if (mounted) setState(() => _storeAvailable = available);
-      return;
+    if (_store != _StoreState.loading) {
+      setState(() => _store = _StoreState.loading);
     }
-    final res = await _iap.queryProductDetails(
-      packages.map((p) => p.sku).toSet(),
-    );
-    if (mounted) {
+    try {
+      if (!await _iap.isAvailable()) {
+        if (mounted) setState(() => _store = _StoreState.unavailable);
+        return;
+      }
+      final packages = await ref.read(_packagesProvider.future);
+      final res = packages.isEmpty
+          ? null
+          : await _iap.products(packages.map((p) => p.sku).toSet());
+      if (!mounted) return;
       setState(() {
-        _storeAvailable = true;
-        _products = {for (final p in res.productDetails) p.id: p};
+        _store = _StoreState.ready;
+        _products = {
+          for (final p in res?.productDetails ?? const <ProductDetails>[])
+            p.id: p,
+        };
       });
+    } catch (e) {
+      if (mounted) setState(() => _store = _StoreState.unavailable);
     }
   }
 
-  Future<void> _buy(RechargePackage pkg) async {
+  void _buy(RechargePackage pkg) {
     final product = _products[pkg.sku];
     if (product == null) {
       return showMessage(
@@ -78,57 +86,26 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
         'This package is not available in your store',
       );
     }
-    setState(() => _buying = pkg.sku);
-    // The server verifies and consumes the purchase; never consume on the client first.
-    final started = await _iap.buyConsumable(
-      purchaseParam: PurchaseParam(productDetails: product),
-      autoConsume: !Platform.isAndroid,
-    );
-    if (!started) _done();
+    unawaited(_iap.buy(product));
   }
 
-  /// Every purchase update — including ones interrupted by an app kill — is verified by the
-  /// server before diamonds appear, then completed so the store stops redelivering it.
-  Future<void> _onPurchases(List<PurchaseDetails> updates) async {
-    for (final p in updates) {
-      switch (p.status) {
-        case PurchaseStatus.pending:
-          continue;
-        case PurchaseStatus.canceled:
-          _done();
-        case PurchaseStatus.error:
-          _done(error: p.error?.message ?? 'Purchase failed');
-        case PurchaseStatus.purchased || PurchaseStatus.restored:
-          try {
-            final repo = ref.read(economyRepo);
-            final res = Platform.isAndroid
-                ? await repo.verifyGoogle(
-                    p.productID,
-                    p.verificationData.serverVerificationData,
-                  )
-                : await repo.verifyApple(p.purchaseID ?? '');
-            await ref.read(sessionProvider.notifier).refresh();
-            if (mounted && res.integer('credited') > 0) {
-              showMessage(
-                context,
-                '💎 ${Fmt.full(res.integer('credited'))} diamonds added',
-              );
-            }
-            _done();
-          } catch (e) {
-            _done(error: e);
-          }
-      }
-      if (p.pendingCompletePurchase) {
-        await _iap.completePurchase(p).catchError((Object _) {});
-      }
-    }
-  }
-
-  void _done({Object? error}) {
+  void _onEvent(IapEvent event) {
     if (!mounted) return;
-    setState(() => _buying = null);
-    if (error != null) showError(context, error);
+    switch (event) {
+      case IapCredited(:final diamonds):
+        if (diamonds > 0) {
+          showMessage(context, '💎 ${Fmt.full(diamonds)} diamonds added');
+        }
+      case IapPending():
+        showMessage(
+          context,
+          'Payment pending. Your diamonds arrive as soon as it clears.',
+        );
+      case IapCancelled():
+        break;
+      case IapFailed(:final error):
+        showError(context, error);
+    }
   }
 
   @override
@@ -157,7 +134,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 borderRadius: BorderRadius.circular(22),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x40B8860B),
+                    color: BBColors.goldShadow,
                     blurRadius: 20,
                     offset: Offset(0, 8),
                   ),
@@ -174,9 +151,12 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  DiamondAmount(
-                    me.wallet.diamonds,
-                    style: const TextStyle(fontSize: 32, color: BBColors.ink),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: DiamondAmount(
+                      me.wallet.diamonds,
+                      style: const TextStyle(fontSize: 32, color: BBColors.ink),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Row(
@@ -185,12 +165,19 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                         'Beans  ',
                         style: TextStyle(color: BBColors.bronzeDeep),
                       ),
-                      DiamondAmount(
-                        me.wallet.beans,
-                        beans: true,
-                        style: const TextStyle(color: BBColors.ink),
+                      Expanded(
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: DiamondAmount(
+                              me.wallet.beans,
+                              beans: true,
+                              style: const TextStyle(color: BBColors.ink),
+                            ),
+                          ),
+                        ),
                       ),
-                      const Spacer(),
                       TextButton(
                         style: TextButton.styleFrom(
                           foregroundColor: BBColors.ink,
@@ -206,7 +193,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
             const SizedBox(height: 20),
             Text('Recharge', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
-            if (!_storeAvailable)
+            if (_store == _StoreState.unavailable)
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(14),
@@ -223,71 +210,35 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
               ),
               error: (e, _) => ErrorView(
                 error: e,
-                onRetry: () => ref.invalidate(_packagesProvider),
+                onRetry: () {
+                  ref.invalidate(_packagesProvider);
+                  unawaited(_loadStore());
+                },
               ),
-              data: (items) => GridView.count(
-                crossAxisCount: 3,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 0.9,
-                children: [
-                  for (final p in items)
-                    InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: _buying != null || !_storeAvailable
-                          ? null
-                          : () => _buy(p),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: BBColors.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: BBColors.champagneDeep),
-                        ),
-                        padding: const EdgeInsets.all(8),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text('💎', style: TextStyle(fontSize: 26)),
-                            Text(
-                              Fmt.full(p.diamonds),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                              ),
-                            ),
-                            if (p.bonusDiamonds > 0)
-                              Text(
-                                '+${Fmt.full(p.bonusDiamonds)} bonus',
-                                style: const TextStyle(
-                                  color: BBColors.success,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            const SizedBox(height: 4),
-                            _buying == p.sku
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Text(
-                                    _products[p.sku]?.price ??
-                                        Fmt.usd(p.priceUsd),
-                                    style: const TextStyle(
-                                      color: BBColors.bronze,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
+              data: (items) => ValueListenableBuilder<String?>(
+                valueListenable: _iap.buying,
+                builder: (context, buying, _) => GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: items.length,
+                  // Height from the content and the user's text size, not a fixed aspect
+                  // ratio, so tiles don't overflow on narrow phones or with large text.
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    mainAxisExtent:
+                        24 + MediaQuery.textScalerOf(context).scale(96),
+                  ),
+                  itemBuilder: (context, i) => _PackageTile(
+                    package: items[i],
+                    price: _products[items[i].sku]?.price,
+                    buying: buying == items[i].sku,
+                    onTap: buying != null || _store != _StoreState.ready
+                        ? null
+                        : () => _buy(items[i]),
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -300,6 +251,86 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
       ),
     );
   }
+}
+
+class _PackageTile extends StatelessWidget {
+  const _PackageTile({
+    required this.package,
+    required this.price,
+    required this.buying,
+    required this.onTap,
+  });
+  final RechargePackage package;
+  final String? price;
+  final bool buying;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    enabled: onTap != null,
+    label:
+        '${Fmt.full(package.diamonds)} diamonds, ${price ?? Fmt.usd(package.priceUsd)}',
+    excludeSemantics: true,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: BBColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: BBColors.champagneDeep),
+        ),
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('💎', style: TextStyle(fontSize: 26)),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                Fmt.full(package.diamonds),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            if (package.bonusDiamonds > 0)
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '+${Fmt.full(package.bonusDiamonds)} bonus',
+                  style: const TextStyle(
+                    color: BBColors.success,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 4),
+            if (buying)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  price ?? Fmt.usd(package.priceUsd),
+                  style: const TextStyle(
+                    color: BBColors.bronze,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class LedgerScreen extends ConsumerStatefulWidget {
@@ -344,7 +375,11 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
                 backgroundColor: BBColors.champagne,
                 child: Text(e.currency == 'beans' ? '🫘' : '💎'),
               ),
-              title: Text(e.label[0].toUpperCase() + e.label.substring(1)),
+              title: Text(
+                e.label.isEmpty
+                    ? 'Transaction'
+                    : e.label[0].toUpperCase() + e.label.substring(1),
+              ),
               subtitle: Text(Fmt.ago(e.createdAt)),
               trailing: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -388,6 +423,28 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
   String _method = 'mobile_wallet';
   bool _busy = false;
 
+  /// One key per withdrawal the user means to make: kept across their retries (a timed-out
+  /// request may already be on the server), dropped once it succeeds or the form changes.
+  String? _opKey;
+
+  static final _email = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
+  static String _defaultProvider(String method) => switch (method) {
+    'mobile_wallet' => 'bKash',
+    'paypal' => 'PayPal',
+    _ => '',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [_beans, _provider, _number, _name]) {
+      c.addListener(_formChanged);
+    }
+  }
+
+  void _formChanged() => _opKey = null;
+
   @override
   void dispose() {
     for (final c in [_beans, _provider, _number, _name]) {
@@ -396,14 +453,53 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final beans = int.tryParse(_beans.text.trim()) ?? 0;
-    if (beans <= 0 ||
-        _number.text.trim().isEmpty ||
-        _name.text.trim().isEmpty) {
-      return showMessage(context, 'Fill in the amount and your payout details');
+  String? _validate(int beans, int available) {
+    if (beans <= 0) return 'Enter how many beans to withdraw';
+    if (beans > available) {
+      return 'You have ${Fmt.full(available)} beans available';
     }
+    if (_provider.text.trim().isEmpty) {
+      return _method == 'bank' ? 'Enter your bank name' : 'Enter the provider';
+    }
+    final number = _number.text.trim();
+    if (number.isEmpty) return 'Enter your payout details';
+    if (_method == 'paypal' && !_email.hasMatch(number)) {
+      return 'Enter a valid PayPal email';
+    }
+    if (_name.text.trim().isEmpty) return 'Enter the account holder name';
+    return null;
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final beans = int.tryParse(_beans.text.trim()) ?? 0;
+    final available = ref.read(meProvider).wallet.beans;
+    final problem = _validate(beans, available);
+    if (problem != null) return showMessage(context, problem);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Request withdrawal?'),
+        content: Text(
+          '${Fmt.full(beans)} beans to ${_provider.text.trim()} '
+          '${_number.text.trim()} (${_name.text.trim()}). '
+          'The beans are held until the request is reviewed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Request'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
     setState(() => _busy = true);
+    final key = _opKey ??= ApiClient.newIdempotencyKey();
     try {
       final res = await ref
           .read(economyRepo)
@@ -415,16 +511,17 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
               'number': _number.text.trim(),
               'name': _name.text.trim(),
             },
+            idempotencyKey: key,
           );
       await ref.read(sessionProvider.notifier).refresh();
+      if (!mounted) return;
       ref.invalidate(_withdrawalsProvider);
       _beans.clear();
-      if (mounted) {
-        showMessage(
-          context,
-          'Request submitted · ${Fmt.usd(res.dbl('amountUsd'))}. We review within 3 business days.',
-        );
-      }
+      _opKey = null;
+      showMessage(
+        context,
+        'Request submitted · ${Fmt.usd(res.dbl('amountUsd'))}. We review within 3 business days.',
+      );
     } catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -438,102 +535,124 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
     final history = ref.watch(_withdrawalsProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Withdraw beans')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: ListTile(
-              title: const Text('Available'),
-              trailing: DiamondAmount(
-                me.wallet.beans,
-                beans: true,
-                style: const TextStyle(fontSize: 18),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(_withdrawalsProvider);
+          await ref.read(sessionProvider.notifier).refresh();
+        },
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: ListTile(
+                title: const Text('Available'),
+                trailing: DiamondAmount(
+                  me.wallet.beans,
+                  beans: true,
+                  style: const TextStyle(fontSize: 18),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _beans,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(labelText: 'Beans to withdraw'),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _method,
-            decoration: const InputDecoration(labelText: 'Method'),
-            items: const [
-              DropdownMenuItem(
-                value: 'mobile_wallet',
-                child: Text('Mobile wallet'),
-              ),
-              DropdownMenuItem(value: 'bank', child: Text('Bank transfer')),
-              DropdownMenuItem(value: 'paypal', child: Text('PayPal')),
-            ],
-            onChanged: (v) => setState(() => _method = v ?? 'mobile_wallet'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _provider,
-            decoration: InputDecoration(
-              labelText: _method == 'bank'
-                  ? 'Bank name'
-                  : _method == 'paypal'
-                  ? 'PayPal'
-                  : 'Provider (bKash, Nagad…)',
+            const SizedBox(height: 16),
+            TextField(
+              controller: _beans,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(labelText: 'Beans to withdraw'),
             ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _number,
-            decoration: InputDecoration(
-              labelText: _method == 'paypal'
-                  ? 'PayPal email'
-                  : 'Account number',
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(labelText: 'Account holder name'),
-          ),
-          const SizedBox(height: 20),
-          GoldButton(
-            label: 'Request withdrawal',
-            loading: _busy,
-            onPressed: _submit,
-          ),
-          const SizedBox(height: 24),
-          Text('Requests', style: Theme.of(context).textTheme.titleMedium),
-          history.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            error: (e, _) => Text(e.toString()),
-            data: (items) => Column(
-              children: [
-                if (items.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'No requests yet',
-                      style: TextStyle(color: BBColors.inkSubtle),
-                    ),
-                  ),
-                for (final w in items)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      '${Fmt.full(w.integer('beans'))} beans · ${Fmt.usd(w.dbl('amountUsd'))}',
-                    ),
-                    subtitle: Text(Fmt.ago(w.date('createdAt'))),
-                    trailing: Chip(label: Text(w.str('status'))),
-                  ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _method,
+              decoration: const InputDecoration(labelText: 'Method'),
+              items: const [
+                DropdownMenuItem(
+                  value: 'mobile_wallet',
+                  child: Text('Mobile wallet'),
+                ),
+                DropdownMenuItem(value: 'bank', child: Text('Bank transfer')),
+                DropdownMenuItem(value: 'paypal', child: Text('PayPal')),
               ],
+              onChanged: (v) => setState(() {
+                final next = v ?? 'mobile_wallet';
+                // Don't carry "bKash" into a bank or PayPal request.
+                if (_provider.text.trim() == _defaultProvider(_method)) {
+                  _provider.text = _defaultProvider(next);
+                }
+                _method = next;
+                _opKey = null;
+              }),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: _provider,
+              decoration: InputDecoration(
+                labelText: _method == 'bank'
+                    ? 'Bank name'
+                    : _method == 'paypal'
+                    ? 'PayPal'
+                    : 'Provider (bKash, Nagad…)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _number,
+              keyboardType: _method == 'paypal'
+                  ? TextInputType.emailAddress
+                  : TextInputType.text,
+              decoration: InputDecoration(
+                labelText: _method == 'paypal'
+                    ? 'PayPal email'
+                    : 'Account number',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(
+                labelText: 'Account holder name',
+              ),
+            ),
+            const SizedBox(height: 20),
+            GoldButton(
+              label: 'Request withdrawal',
+              loading: _busy,
+              onPressed: _submit,
+            ),
+            const SizedBox(height: 24),
+            Text('Requests', style: Theme.of(context).textTheme.titleMedium),
+            history.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (e, _) => ErrorView(
+                error: e,
+                onRetry: () => ref.invalidate(_withdrawalsProvider),
+              ),
+              data: (items) => Column(
+                children: [
+                  if (items.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'No requests yet',
+                        style: TextStyle(color: BBColors.inkSubtle),
+                      ),
+                    ),
+                  for (final w in items)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        '${Fmt.full(w.integer('beans'))} beans · ${Fmt.usd(w.dbl('amountUsd'))}',
+                      ),
+                      subtitle: Text(Fmt.ago(w.date('createdAt'))),
+                      trailing: Chip(label: Text(w.str('status'))),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -599,6 +718,10 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
   bool _busy = false;
   bool _looking = false;
 
+  /// Kept for one (recipient, amount) transfer across the agent's retries, so a timed-out
+  /// recharge that already went through isn't sent twice.
+  ({String intent, String key})? _op;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -615,9 +738,11 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
     setState(() => _looking = true);
     try {
       final u = await ref.read(economyRepo).agentLookup(id);
-      if (mounted) setState(() => _target = u);
+      // The agent may have typed another ID meanwhile; never show (and later pay) a stale
+      // lookup next to a different number.
+      if (mounted && _id.text.trim() == id) setState(() => _target = u);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || _id.text.trim() != id) return;
       setState(() => _target = null);
       showError(context, e);
     } finally {
@@ -650,14 +775,23 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true || !mounted) return;
     setState(() => _busy = true);
+    final intent = '${target.id}:$amount';
+    final op = _op?.intent == intent
+        ? _op!
+        : (intent: intent, key: ApiClient.newIdempotencyKey());
+    _op = op;
     try {
-      await ref.read(economyRepo).agentRecharge(target.id, amount);
+      await ref
+          .read(economyRepo)
+          .agentRecharge(target.id, amount, idempotencyKey: op.key);
+      _op = null;
       await ref.read(sessionProvider.notifier).refresh();
+      if (!mounted) return;
       _amount.clear();
       widget.onRecharged();
-      if (mounted) showMessage(context, 'Recharged ${target.displayName}');
+      showMessage(context, 'Recharged ${target.displayName}');
     } catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -714,6 +848,7 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
                     ),
                   )
                 : IconButton(
+                    tooltip: 'Look up',
                     onPressed: _lookup,
                     icon: const Icon(Icons.search),
                   ),
@@ -789,28 +924,30 @@ class _AgentHistoryState extends ConsumerState<_AgentHistory>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final summary = ref.watch(_agentSummaryProvider).value;
+    final summaryAsync = ref.watch(_agentSummaryProvider);
+    final summary = summaryAsync.value;
+    String cell(int? v, {bool diamonds = true}) => summary == null
+        ? '—'
+        : '${diamonds ? '💎 ' : ''}${Fmt.compact(v ?? 0)}';
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
             children: [
+              // "—" while loading or failed, never a misleading zero.
               _SummaryCell(
                 label: 'Transfers',
-                value: Fmt.compact(summary?.count ?? 0),
+                value: cell(summary?.count, diamonds: false),
               ),
-              _SummaryCell(
-                label: 'Today',
-                value: '💎 ${Fmt.compact(summary?.todayDiamonds ?? 0)}',
-              ),
+              _SummaryCell(label: 'Today', value: cell(summary?.todayDiamonds)),
               _SummaryCell(
                 label: 'This month',
-                value: '💎 ${Fmt.compact(summary?.monthDiamonds ?? 0)}',
+                value: cell(summary?.monthDiamonds),
               ),
               _SummaryCell(
                 label: 'All time',
-                value: '💎 ${Fmt.compact(summary?.totalDiamonds ?? 0)}',
+                value: cell(summary?.totalDiamonds),
               ),
             ],
           ),
@@ -829,6 +966,7 @@ class _AgentHistoryState extends ConsumerState<_AgentHistory>
               suffixIcon: _shortId == null
                   ? null
                   : IconButton(
+                      tooltip: 'Clear filter',
                       icon: const Icon(Icons.close),
                       onPressed: () {
                         _search.clear();

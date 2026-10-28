@@ -24,9 +24,6 @@ final _contributorsProvider = FutureProvider.autoDispose.family(
 final _blockedProvider = FutureProvider.autoDispose(
   (ref) => ref.watch(accountRepo).blocked(),
 );
-final _historyProvider = FutureProvider.autoDispose.family(
-  (ref, String uid) => ref.watch(liveRepo).history(uid),
-);
 final _versionProvider = FutureProvider((_) => PackageInfo.fromPlatform());
 
 class MeScreen extends ConsumerWidget {
@@ -78,19 +75,23 @@ class MeScreen extends ConsumerWidget {
                   const SizedBox(height: 12),
                   Text(
                     p.brief.displayName,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 6,
+                    runSpacing: 4,
                     children: [
                       Text(
                         'ID ${p.brief.shortId}',
                         style: const TextStyle(color: BBColors.inkMuted),
                       ),
-                      const SizedBox(width: 8),
                       LevelBadge(p.brief.level),
-                      const SizedBox(width: 6),
                       VipBadge(p.brief.vipTier),
                     ],
                   ),
@@ -295,7 +296,8 @@ class _WalletTile extends StatelessWidget {
           children: [
             Text(label, style: const TextStyle(color: BBColors.inkMuted)),
             const SizedBox(height: 6),
-            child,
+            // Large balances shrink to fit a half-width tile rather than overflow it.
+            FittedBox(fit: BoxFit.scaleDown, child: child),
           ],
         ),
       ),
@@ -381,112 +383,153 @@ class UserProfileScreen extends ConsumerWidget {
       body: AsyncView(
         value: user,
         onRetry: () => ref.invalidate(userProvider(uid)),
-        data: (u) => ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Center(child: BBAvatar.user(u.brief, size: 100, live: u.isLive)),
-            const SizedBox(height: 12),
-            Center(
-              child: Text(
-                u.brief.displayName,
-                style: Theme.of(context).textTheme.headlineSmall,
+        data: (u) => RefreshIndicator(
+          onRefresh: () => ref.refresh(userProvider(uid).future),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(20),
+            children: [
+              Center(child: BBAvatar.user(u.brief, size: 100, live: u.isLive)),
+              const SizedBox(height: 12),
+              Center(
+                child: Text(
+                  u.brief.displayName,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'ID ${u.brief.shortId}',
-                  style: const TextStyle(color: BBColors.inkMuted),
-                ),
-                const SizedBox(width: 8),
-                LevelBadge(u.brief.level),
-                const SizedBox(width: 6),
-                VipBadge(u.brief.vipTier),
-              ],
-            ),
-            if (u.bio.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(u.bio, textAlign: TextAlign.center),
-              ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _Stat(
-                  'Followers',
-                  u.followers,
-                  () => context.push('/user/$uid/followers'),
-                ),
-                _Stat(
-                  'Following',
-                  u.following,
-                  () => context.push('/user/$uid/following'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            if (!isMe)
-              Row(
+              const SizedBox(height: 6),
+              Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 6,
+                runSpacing: 4,
                 children: [
-                  Expanded(
-                    child: u.isFollowing
-                        ? OutlinedButton(
-                            onPressed: () => _follow(ref, false),
-                            child: const Text('Following'),
-                          )
-                        : GoldButton(
-                            label: 'Follow',
-                            height: 48,
-                            onPressed: () => _follow(ref, true),
-                          ),
+                  Text(
+                    'ID ${u.brief.shortId}',
+                    style: const TextStyle(color: BBColors.inkMuted),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.chat_bubble_outline_rounded),
-                      label: const Text('Message'),
-                      onPressed: u.isBlocked
-                          ? null
-                          : () async {
-                              final id = await ref
-                                  .read(socialRepo)
-                                  .conversationWith(uid);
-                              if (context.mounted) {
-                                unawaited(
-                                  context.push('/chat/$id', extra: u.brief),
-                                );
-                              }
-                            },
-                    ),
+                  LevelBadge(u.brief.level),
+                  VipBadge(u.brief.vipTier),
+                ],
+              ),
+              if (u.bio.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(u.bio, textAlign: TextAlign.center),
+                ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _Stat(
+                    'Followers',
+                    u.followers,
+                    () => context.push('/user/$uid/followers'),
+                  ),
+                  _Stat(
+                    'Following',
+                    u.following,
+                    () => context.push('/user/$uid/following'),
                   ),
                 ],
               ),
-            if (u.isLive && u.liveRoomId != null) ...[
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => context.push('/live/${u.liveRoomId}'),
-                icon: const Icon(Icons.live_tv_rounded),
-                label: const Text('Watch live now'),
+              const SizedBox(height: 20),
+              if (!isMe) _ProfileActions(user: u),
+              if (u.isLive && u.liveRoomId != null) ...[
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: () => context.push('/live/${u.liveRoomId}'),
+                  icon: const Icon(Icons.live_tv_rounded),
+                  label: const Text('Watch live now'),
+                ),
+              ],
+              const SizedBox(height: 24),
+              Text(
+                'Top supporters',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
+              _Contributors(uid: uid),
             ],
-            const SizedBox(height: 24),
-            Text(
-              'Top supporters',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            _Contributors(uid: uid),
-          ],
+          ),
         ),
       ),
     );
   }
+}
 
-  Future<void> _follow(WidgetRef ref, bool follow) async {
-    await ref.read(accountRepo).follow(uid, follow);
-    ref.invalidate(userProvider(uid));
+/// Follow and Message, each busy while its request runs so repeat taps don't stack up.
+class _ProfileActions extends ConsumerStatefulWidget {
+  const _ProfileActions({required this.user});
+  final PublicUser user;
+  @override
+  ConsumerState<_ProfileActions> createState() => _ProfileActionsState();
+}
+
+class _ProfileActionsState extends ConsumerState<_ProfileActions> {
+  bool _following = false;
+  bool _opening = false;
+
+  Future<void> _follow(bool follow) async {
+    if (_following) return;
+    setState(() => _following = true);
+    try {
+      await ref.read(accountRepo).follow(widget.user.id, follow);
+      ref.invalidate(userProvider(widget.user.id));
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _following = false);
+    }
+  }
+
+  Future<void> _message() async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      final id = await ref.read(socialRepo).conversationWith(widget.user.id);
+      if (mounted) {
+        unawaited(context.push('/chat/$id', extra: widget.user.brief));
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final u = widget.user;
+    return Row(
+      children: [
+        Expanded(
+          child: u.isFollowing
+              ? OutlinedButton(
+                  onPressed: _following ? null : () => _follow(false),
+                  child: const Text('Following'),
+                )
+              : GoldButton(
+                  label: 'Follow',
+                  height: 48,
+                  loading: _following,
+                  onPressed: () => _follow(true),
+                ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: OutlinedButton.icon(
+            icon: _opening
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.chat_bubble_outline_rounded),
+            label: const Text('Message'),
+            onPressed: u.isBlocked || _opening ? null : _message,
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -524,124 +567,6 @@ class _Contributors extends ConsumerWidget {
 }
 
 /// Tappable user card inside a live room: follow, profile, report, moderation.
-class UserCardSheet extends ConsumerWidget {
-  const UserCardSheet({
-    super.key,
-    required this.user,
-    required this.roomId,
-    this.canModerate = false,
-  });
-  final UserBrief user;
-  final String roomId;
-  final bool canModerate;
-
-  static Future<void> show(
-    BuildContext context,
-    UserBrief user, {
-    required String roomId,
-    bool canModerate = false,
-  }) => showModalBottomSheet<void>(
-    context: context,
-    builder: (_) =>
-        UserCardSheet(user: user, roomId: roomId, canModerate: canModerate),
-  );
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          BBAvatar.user(user, size: 72),
-          const SizedBox(height: 8),
-          Text(user.displayName, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'ID ${user.shortId}',
-                style: const TextStyle(color: BBColors.inkMuted),
-              ),
-              const SizedBox(width: 8),
-              LevelBadge(user.level),
-              const SizedBox(width: 6),
-              VipBadge(user.vipTier),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => context
-                    ..pop()
-                    ..push('/user/${user.id}'),
-                  child: const Text('Profile'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: GoldButton(
-                  label: 'Follow',
-                  height: 48,
-                  onPressed: () async {
-                    await ref
-                        .read(accountRepo)
-                        .follow(user.id, true)
-                        .catchError((Object _) {});
-                    if (context.mounted) context.pop();
-                  },
-                ),
-              ),
-            ],
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TextButton(
-                onPressed: () => ReportSheet.show(
-                  context,
-                  targetType: 'user',
-                  targetId: user.id,
-                ),
-                child: const Text('Report'),
-              ),
-              if (canModerate) ...[
-                TextButton(
-                  onPressed: () async {
-                    await ref.read(liveRepo).kick(roomId, user.id).catchError((
-                      Object e,
-                    ) {
-                      if (context.mounted) showError(context, e);
-                    });
-                    if (context.mounted) context.pop();
-                  },
-                  child: const Text(
-                    'Remove from live',
-                    style: TextStyle(color: BBColors.danger),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () async {
-                    await ref
-                        .read(liveRepo)
-                        .setModerator(roomId, user.id, true)
-                        .catchError((Object _) {});
-                    if (context.mounted) context.pop();
-                  },
-                  child: const Text('Make moderator'),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 /// Report flow used for users, rooms, posts and comments.
 class ReportSheet extends ConsumerStatefulWidget {
   const ReportSheet({
@@ -659,8 +584,10 @@ class ReportSheet extends ConsumerStatefulWidget {
   }) => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    // The sheet's own context: the caller's sits inside a Scaffold, which removes the
+    // keyboard inset, so the field would end up under the keyboard.
+    builder: (sheet) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheet).bottom),
       child: ReportSheet(targetType: targetType, targetId: targetId),
     ),
   );
@@ -689,9 +616,42 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
     super.dispose();
   }
 
+  Future<void> _submit() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(accountRepo)
+          .report(
+            targetType: widget.targetType,
+            targetId: widget.targetId,
+            reason: _reason,
+            details: _details.text.trim(),
+          );
+      if (!mounted) return;
+      // The messenger outlives the sheet; this context is gone once it pops.
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).pop();
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Thanks — our team will review this within 24 hours.',
+            ),
+          ),
+        );
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => SafeArea(
-    child: Padding(
+    // Seven reasons, a field and a button don't fit a small phone with the keyboard up.
+    child: SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -726,30 +686,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
           GoldButton(
             label: 'Submit report',
             loading: _busy,
-            onPressed: () async {
-              setState(() => _busy = true);
-              try {
-                await ref
-                    .read(accountRepo)
-                    .report(
-                      targetType: widget.targetType,
-                      targetId: widget.targetId,
-                      reason: _reason,
-                      details: _details.text.trim(),
-                    );
-                if (context.mounted) {
-                  context.pop();
-                  showMessage(
-                    context,
-                    'Thanks — our team will review this within 24 hours.',
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) showError(context, e);
-              } finally {
-                if (mounted) setState(() => _busy = false);
-              }
-            },
+            onPressed: _submit,
           ),
         ],
       ),
@@ -792,7 +729,11 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   List<UserBrief>? _results;
+  Object? _error;
   Timer? _debounce;
+
+  /// Only the latest query's answer is shown; a slow earlier one must not overwrite it.
+  int _seq = 0;
 
   @override
   void dispose() {
@@ -803,12 +744,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _onChanged(String q) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), () async {
-      if (q.trim().isEmpty) return setState(() => _results = null);
-      final r = await ref
-          .read(accountRepo)
-          .search(q.trim())
-          .catchError((Object _) => <UserBrief>[]);
-      if (mounted) setState(() => _results = r);
+      final seq = ++_seq;
+      if (q.trim().isEmpty) {
+        return setState(() {
+          _results = null;
+          _error = null;
+        });
+      }
+      try {
+        final r = await ref.read(accountRepo).search(q.trim());
+        if (mounted && seq == _seq) {
+          setState(() {
+            _results = r;
+            _error = null;
+          });
+        }
+      } catch (e) {
+        if (mounted && seq == _seq) setState(() => _error = e);
+      }
     });
   }
 
@@ -824,7 +777,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ),
       ),
     ),
-    body: _results == null
+    body: _error != null
+        ? ErrorView(error: _error!)
+        : _results == null
         ? const EmptyState(
             icon: Icons.person_search_outlined,
             title: 'Find people',
@@ -1006,12 +961,20 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         Center(
           child: GestureDetector(
             onTap: () async {
-              final x = await ImagePicker().pickImage(
-                source: ImageSource.gallery,
-                maxWidth: 720,
-                imageQuality: 85,
-              );
-              if (x != null) setState(() => _avatar = File(x.path));
+              try {
+                final x = await ImagePicker().pickImage(
+                  source: ImageSource.gallery,
+                  maxWidth: 720,
+                  imageQuality: 85,
+                );
+                if (x != null && mounted) {
+                  setState(() => _avatar = File(x.path));
+                }
+              } catch (_) {
+                if (context.mounted) {
+                  showMessage(context, 'Couldn\'t open your photos');
+                }
+              }
             },
             child: Stack(
               children: [
@@ -1070,122 +1033,170 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   );
 }
 
-class BlockedUsersScreen extends ConsumerWidget {
+class BlockedUsersScreen extends ConsumerStatefulWidget {
   const BlockedUsersScreen({super.key});
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BlockedUsersScreen> createState() => _BlockedUsersScreenState();
+}
+
+class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
+  final _busy = <String>{};
+
+  Future<void> _unblock(UserBrief u) async {
+    if (!_busy.add(u.id)) return;
+    setState(() {});
+    try {
+      await ref.read(accountRepo).block(u.id, false);
+      ref.invalidate(_blockedProvider);
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      _busy.remove(u.id);
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final list = ref.watch(_blockedProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Blocked users')),
       body: AsyncView(
         value: list,
-        data: (items) => items.isEmpty
-            ? const EmptyState(
-                icon: Icons.block_outlined,
-                title: 'You have not blocked anyone',
-              )
-            : ListView(
-                children: [
-                  for (final u in items)
-                    UserTile(
-                      user: u,
-                      trailing: TextButton(
-                        onPressed: () async {
-                          await ref.read(accountRepo).block(u.id, false);
-                          ref.invalidate(_blockedProvider);
-                        },
-                        child: const Text('Unblock'),
-                      ),
-                    ),
-                ],
-              ),
+        onRetry: () => ref.invalidate(_blockedProvider),
+        data: (items) => RefreshIndicator(
+          onRefresh: () => ref.refresh(_blockedProvider.future),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              if (items.isEmpty) ...[
+                const SizedBox(height: 80),
+                const EmptyState(
+                  icon: Icons.block_outlined,
+                  title: 'You have not blocked anyone',
+                ),
+              ],
+              for (final u in items)
+                UserTile(
+                  key: ValueKey(u.id),
+                  user: u,
+                  trailing: TextButton(
+                    onPressed: _busy.contains(u.id) ? null : () => _unblock(u),
+                    child: const Text('Unblock'),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-class LiveHistoryScreen extends ConsumerWidget {
+class LiveHistoryScreen extends ConsumerStatefulWidget {
   const LiveHistoryScreen({super.key});
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final uid = ref.watch(meProvider).id;
-    final history = ref.watch(_historyProvider(uid));
+  ConsumerState<LiveHistoryScreen> createState() => _LiveHistoryScreenState();
+}
+
+class _LiveHistoryScreenState extends ConsumerState<LiveHistoryScreen> {
+  static const _pageSize = 20;
+
+  /// Lifetime totals, from the first page.
+  Json? _totals;
+
+  /// The endpoint pages by number; the page to fetch next is the list's cursor.
+  Future<Paged<Json>> _load(String? cursor) async {
+    final page = int.tryParse(cursor ?? '') ?? 1;
+    final uid = ref.read(meProvider).id;
+    final j = await ref.read(liveRepo).history(uid, page: page);
+    if (page == 1 && mounted) setState(() => _totals = j.obj('totals'));
+    final total = j.integer('total');
+    return Paged(
+      items: j.list('items', (e) => e),
+      nextCursor: page * _pageSize < total ? '${page + 1}' : null,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = _totals;
     return Scaffold(
       appBar: AppBar(title: const Text('Live history')),
-      body: AsyncView(
-        value: history,
-        data: (j) {
-          final items = j.list('items', (e) => e);
-          final totals = j.obj('totals');
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Card(
+      body: PagedList<Json>(
+        padding: const EdgeInsets.all(16),
+        load: _load,
+        header: totals == null
+            ? null
+            : Card(
+                margin: const EdgeInsets.only(bottom: 12),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      Column(
-                        children: [
-                          Text(
-                            Fmt.duration(totals.integer('seconds')),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Text(
+                              Fmt.duration(totals.integer('seconds')),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 18,
+                              ),
                             ),
-                          ),
-                          const Text(
-                            'Total live',
-                            style: TextStyle(color: BBColors.inkMuted),
-                          ),
-                        ],
+                            const Text(
+                              'Total live',
+                              style: TextStyle(color: BBColors.inkMuted),
+                            ),
+                          ],
+                        ),
                       ),
-                      Column(
-                        children: [
-                          DiamondAmount(
-                            totals.integer('beans'),
-                            beans: true,
-                            compact: true,
-                            style: const TextStyle(fontSize: 18),
-                          ),
-                          const Text(
-                            'Beans earned',
-                            style: TextStyle(color: BBColors.inkMuted),
-                          ),
-                        ],
+                      Expanded(
+                        child: Column(
+                          children: [
+                            DiamondAmount(
+                              totals.integer('beans'),
+                              beans: true,
+                              compact: true,
+                              style: const TextStyle(fontSize: 18),
+                            ),
+                            const Text(
+                              'Beans earned',
+                              style: TextStyle(color: BBColors.inkMuted),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              if (items.isEmpty)
-                const EmptyState(
-                  icon: Icons.history_toggle_off,
-                  title: 'No lives yet',
-                ),
-              for (final s in items)
-                ListTile(
-                  leading: Icon(
-                    s.str('type') == 'audio'
-                        ? Icons.mic_rounded
-                        : Icons.videocam_rounded,
-                    color: BBColors.gold,
-                  ),
-                  title: Text(s.str('title')),
-                  subtitle: Text(
-                    '${Fmt.ago(s.date('startedAt'))} · ${Fmt.duration(s.integer('durationSec'))} · peak ${s.integer('peakViewers')}',
-                  ),
-                  trailing: DiamondAmount(
-                    s.integer('giftBeans'),
-                    beans: true,
-                    compact: true,
-                  ),
-                ),
-            ],
-          );
-        },
+        empty: const EmptyState(
+          icon: Icons.history_toggle_off,
+          title: 'No lives yet',
+        ),
+        itemBuilder: (_, s) => ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            s.str('type') == 'audio'
+                ? Icons.mic_rounded
+                : Icons.videocam_rounded,
+            color: BBColors.gold,
+          ),
+          title: Text(
+            s.str('title'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            '${Fmt.ago(s.date('startedAt'))} · ${Fmt.duration(s.integer('durationSec'))} · peak ${s.integer('peakViewers')}',
+          ),
+          trailing: DiamondAmount(
+            s.integer('giftBeans'),
+            beans: true,
+            compact: true,
+          ),
+        ),
       ),
     );
   }
