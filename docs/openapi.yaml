@@ -1143,8 +1143,21 @@ paths:
     get:
       {
         tags: [Economy],
-        summary: Agent's recharge history,
-        responses: { '200': { description: OK } },
+        summary: "Agent's transfers to users, newest first (cursor paged; items carry the recipient's UserBrief)",
+        parameters:
+          [
+            { name: cursor, in: query, schema: { type: string } },
+            { name: limit, in: query, schema: { type: integer, maximum: 100 } },
+            { name: q, in: query, description: Recipient short id, schema: { type: string } },
+          ],
+        responses: { '200': { description: '{ items: AgentRechargeRow[], nextCursor }' } },
+      }
+  /v1/agent/summary:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Agent totals: count, totalDiamonds, todayDiamonds, monthDiamonds (agency timezone)',
+        responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error' } },
       }
   /v1/store/vip:
     get: { tags: [Economy], summary: VIP packages, responses: { '200': { description: OK } } }
@@ -1232,15 +1245,51 @@ paths:
         { '201': { description: Created }, '409': { $ref: '#/components/responses/Error' } }
   /v1/agencies:
     get:
-      { tags: [Economy], summary: Search host agencies, responses: { '200': { description: OK } } }
+      {
+        tags: [Economy],
+        summary: 'Search active agencies by name or exact code (HA-XXXXXXXX)',
+        parameters: [{ name: q, in: query, schema: { type: string } }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/top:
+    get:
+      {
+        tags: [Economy],
+        summary: "Home slider: active agencies ranked by this month's host beans, then size, then age",
+        parameters: [{ name: limit, in: query, schema: { type: integer, maximum: 50 } }],
+        responses: { '200': { description: OK } },
+      }
   /v1/agencies/membership:
     get:
-      { tags: [Economy], summary: My agency membership, responses: { '200': { description: OK } } }
+      {
+        tags: [Economy],
+        summary: 'My agency membership (agency, role, locked, joinedAt) or null',
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/invitations:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Invitations waiting for me',
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/invitations/{id}:
+    post:
+      {
+        tags: [Economy],
+        summary: 'Accept or decline an invitation ({ accept }); accepting joins the agency',
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses:
+          {
+            '204': { $ref: '#/components/responses/NoContent' },
+            '404': { $ref: '#/components/responses/Error' },
+          },
+      }
   /v1/agencies/{id}/join:
     post:
       {
         tags: [Economy],
-        summary: Apply to an agency,
+        summary: 'Apply to an agency',
         parameters: [{ $ref: '#/components/parameters/Id' }],
         responses: { '202': { description: Applied } },
       }
@@ -1248,30 +1297,161 @@ paths:
     post:
       {
         tags: [Economy],
-        summary: Leave my agency,
-        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+        summary: 'Leave my agency; 403 agency_locked while the owner has locked me',
+        responses:
+          {
+            '204': { $ref: '#/components/responses/NoContent' },
+            '403': { $ref: '#/components/responses/Error' },
+          },
       }
   /v1/agencies/mine:
     get:
       {
         tags: [Economy],
-        summary: Owner dashboard,
+        summary: 'Dashboard for the owner or an agency admin: agency, role, rank, month/today/lifetime totals, pending counts',
         responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error' } },
+      }
+    patch:
+      {
+        tags: [Economy],
+        summary: "Owner edits name and logo ({ name?, logoUrl? }); the logo must be the owner's own agency-logo upload",
+        responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/agencies/mine/members:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Hosts with role, lock, daily target, month/lifetime/today beans and live time',
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/mine/members/{uid}:
+    delete:
+      {
+        tags: [Economy],
+        summary: 'Remove a host (agency admins cannot remove other admins)',
+        parameters: [{ name: uid, in: path, required: true, schema: { type: string } }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/agencies/mine/members/{uid}/role:
+    post:
+      {
+        tags: [Economy],
+        summary: 'Owner makes a host an agency admin or back ({ role: host | admin })',
+        parameters: [{ name: uid, in: path, required: true, schema: { type: string } }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/agencies/mine/members/{uid}/lock:
+    post:
+      {
+        tags: [Economy],
+        summary: 'Owner locks a host into the agency; only platform staff can unlock',
+        parameters: [{ name: uid, in: path, required: true, schema: { type: string } }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/agencies/mine/members/{uid}/target:
+    put:
+      {
+        tags: [Economy],
+        summary: 'Owner sets a daily live target ({ minutes: 1-1440 | null })',
+        parameters: [{ name: uid, in: path, required: true, schema: { type: string } }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/agencies/mine/members/{uid}/analytics:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Host totals and daily breakdown over the last N days (1-90)',
+        parameters:
+          [
+            { name: uid, in: path, required: true, schema: { type: string } },
+            { name: days, in: query, schema: { type: integer } },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/mine/members/{uid}/gifts:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Gifts the host received while in this agency (cursor paged)',
+        parameters:
+          [
+            { name: uid, in: path, required: true, schema: { type: string } },
+            { name: cursor, in: query, schema: { type: string } },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/mine/members/{uid}/sessions:
+    get:
+      {
+        tags: [Economy],
+        summary: "The host's live sessions since joining (cursor paged)",
+        parameters:
+          [
+            { name: uid, in: path, required: true, schema: { type: string } },
+            { name: cursor, in: query, schema: { type: string } },
+          ],
+        responses: { '200': { description: OK } },
       }
   /v1/agencies/mine/requests:
     get:
       {
         tags: [Economy],
-        summary: Pending applications (owner),
+        summary: 'Pending applications',
         responses: { '200': { description: OK } },
       }
   /v1/agencies/mine/requests/{id}:
     post:
       {
         tags: [Economy],
-        summary: Approve/reject an application,
+        summary: 'Approve/reject an application ({ approve })',
         parameters: [{ $ref: '#/components/parameters/Id' }],
         responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/agencies/mine/invitations:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Open invitations the agency has sent',
+        responses: { '200': { description: OK } },
+      }
+    post:
+      {
+        tags: [Economy],
+        summary: 'Invite a host by short id ({ target }); they join only by accepting. Expires after 7 days',
+        responses:
+          { '201': { description: Created }, '409': { $ref: '#/components/responses/Error' } },
+      }
+  /v1/agencies/mine/invitations/{id}:
+    delete:
+      {
+        tags: [Economy],
+        summary: 'Cancel an open invitation',
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/agencies/mine/analytics:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Agency daily beans, gifts, commission, live time and active hosts',
+        parameters: [{ name: days, in: query, schema: { type: integer } }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/mine/leaderboard:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Top hosts for a month (current month by default) and the selectable months',
+        parameters: [{ name: periodKey, in: query, schema: { type: string, example: 2026-10 } }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/agencies/mine/audit:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Activity log (cursor paged)',
+        parameters: [{ name: cursor, in: query, schema: { type: string } }],
+        responses: { '200': { description: OK } },
       }
 
   /v1/games:
@@ -1600,6 +1780,38 @@ paths:
         tags: [Admin],
         summary: Balance correction — never moves level (wallet.adjust),
         parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/users/lookup:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Resolve a user by short id or uid for pickers; includes agency ties',
+        parameters: [{ name: q, in: query, required: true, schema: { type: string } }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/agencies/{id}/members/{uid}/unlock:
+    post:
+      {
+        tags: [Admin],
+        summary: 'Unlock a host the owner locked (agencies.manage)',
+        parameters:
+          [
+            { $ref: '#/components/parameters/Id' },
+            { name: uid, in: path, required: true, schema: { type: string } },
+          ],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/agencies/{id}/audit:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Agency activity log (agencies.manage)',
+        parameters:
+          [
+            { $ref: '#/components/parameters/Id' },
+            { name: cursor, in: query, schema: { type: string } },
+          ],
         responses: { '200': { description: OK } },
       }
   /v1/admin/users/{uid}/agent:

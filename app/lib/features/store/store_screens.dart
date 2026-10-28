@@ -7,6 +7,7 @@ import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
+import '../../core/widgets/frame_view.dart';
 import '../../core/widgets/widgets.dart';
 
 final _vipProvider = FutureProvider.autoDispose(
@@ -52,12 +53,6 @@ Future<void> _handlePurchaseError(BuildContext context, Object e) async {
 class VipScreen extends ConsumerWidget {
   const VipScreen({super.key});
 
-  static const _tierGradients = [
-    BBColors.bronzeGradient,
-    BBColors.goldGradient,
-    LinearGradient(colors: [Color(0xFF5C3A00), Color(0xFF2B2118)]),
-  ];
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.watch(meProvider);
@@ -82,12 +77,13 @@ class VipScreen extends ConsumerWidget {
                   ),
                 ),
               ),
-            for (final (i, p) in items.indexed)
+            for (final p in items)
               Container(
                 margin: const EdgeInsets.only(top: 14),
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  gradient: _tierGradients[i % _tierGradients.length],
+                  gradient:
+                      BBColors.tierGradient(p.tier) ?? BBColors.goldGradient,
                   borderRadius: BorderRadius.circular(22),
                 ),
                 child: Column(
@@ -95,16 +91,31 @@ class VipScreen extends ConsumerWidget {
                   children: [
                     Row(
                       children: [
-                        const Icon(
-                          Icons.workspace_premium_rounded,
-                          color: BBColors.ivory,
-                          size: 30,
+                        // Preview of the tier's frame on the buyer's own avatar.
+                        Padding(
+                          padding: const EdgeInsets.all(
+                            48 * BBAvatar.frameOverhang,
+                          ),
+                          child: BBAvatar(
+                            url: me.brief.avatarUrl,
+                            name: me.brief.displayName,
+                            size: 48,
+                            frameUrl: p.frameUrl,
+                            frameFormat: p.frameFormat,
+                            vipTier: p.tier,
+                          ),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          p.name,
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(color: BBColors.ivory),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              p.name,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(color: BBColors.ivory),
+                            ),
+                            VipBadge(p.tier, dense: true),
+                          ],
                         ),
                         const Spacer(),
                         Text(
@@ -272,7 +283,17 @@ class _StoreGrid extends ConsumerWidget {
                       child: Column(
                         children: [
                           Expanded(
-                            child: item.previewUrl != null
+                            child:
+                                item.previewUrl == null && item.type == 'frame'
+                                // No still preview: show the frame itself, animated.
+                                ? LayoutBuilder(
+                                    builder: (_, box) => FrameView(
+                                      url: item.assetUrl,
+                                      format: item.animationFormat,
+                                      size: box.biggest.shortestSide,
+                                    ),
+                                  )
+                                : item.previewUrl != null
                                 ? CachedNetworkImage(
                                     imageUrl: item.previewUrl!,
                                     errorWidget: (_, _, _) => const Icon(
@@ -292,7 +313,7 @@ class _StoreGrid extends ConsumerWidget {
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           Text(
-                            '${item.durationDays} days${item.vipTierRequired > 0 ? ' · VIP${item.vipTierRequired}+' : ''}',
+                            '${item.durationDays} days${item.vipTierRequired > 0 ? ' · ${VipBadge.labelFor(item.vipTierRequired)}+' : ''}',
                             style: const TextStyle(
                               color: BBColors.inkSubtle,
                               fontSize: 12,

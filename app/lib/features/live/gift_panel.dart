@@ -4,11 +4,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:lottie/lottie.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
+import '../../core/widgets/frame_view.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import 'live_room_controller.dart';
@@ -110,11 +110,7 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: ChoiceChip(
-                          avatar: BBAvatar(
-                            url: r.avatarUrl,
-                            name: r.displayName,
-                            size: 22,
-                          ),
+                          avatar: BBAvatar.user(r, size: 22),
                           label: Text(r.displayName),
                           selected: _receiver == r.id,
                           onSelected: (_) => setState(() => _receiver = r.id),
@@ -270,24 +266,47 @@ class _GiftOverlayState extends State<GiftOverlay> {
     });
   }
 
+  // A gift stays up until its banner beat and its animation (if any) have both finished.
+  bool _bannerDone = false;
+  bool _effectDone = false;
+  int _seq = 0;
+  Timer? _beat;
+
+  static bool _animated(Gift gift) =>
+      gift.animationUrl != null &&
+      MediaFormat.resolve(gift.animationFormat, gift.animationUrl!) !=
+          MediaFormat.none;
+
   void _next() {
     if (!mounted) return;
-    setState(() => _current = _queue.isEmpty ? null : _queue.removeAt(0));
-    if (_current != null) {
-      Timer(
-        Duration(
-          milliseconds: _current!.gift.animationFormat == 'lottie'
-              ? 3200
-              : 2200,
-        ),
-        _next,
-      );
-    }
+    _beat?.cancel();
+    setState(() {
+      _current = _queue.isEmpty ? null : _queue.removeAt(0);
+      _seq++;
+    });
+    final g = _current;
+    if (g == null) return;
+    _bannerDone = false;
+    _effectDone = !_animated(g.gift);
+    _beat = Timer(const Duration(milliseconds: 2200), () {
+      _bannerDone = true;
+      _maybeAdvance();
+    });
+  }
+
+  void _onEffectDone() {
+    _effectDone = true;
+    _maybeAdvance();
+  }
+
+  void _maybeAdvance() {
+    if (_bannerDone && _effectDone) _next();
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _beat?.cancel();
     super.dispose();
   }
 
@@ -302,13 +321,14 @@ class _GiftOverlayState extends State<GiftOverlay> {
             : Stack(
                 key: ValueKey(g.id),
                 children: [
-                  if (g.gift.animationFormat == 'lottie' &&
-                      g.gift.animationUrl != null)
+                  if (_animated(g.gift))
                     Positioned.fill(
-                      child: Lottie.network(
-                        g.gift.animationUrl!,
-                        repeat: false,
-                        errorBuilder: (_, _, _) => const SizedBox(),
+                      child: EffectView(
+                        key: ValueKey(_seq),
+                        url: g.gift.animationUrl!,
+                        format: g.gift.animationFormat,
+                        fit: BoxFit.contain,
+                        onDone: _onEffectDone,
                       ),
                     )
                   else if (g.gift.price >= 499)
@@ -346,22 +366,27 @@ class _GiftOverlayState extends State<GiftOverlay> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            BBAvatar(
-                              url: g.sender?.avatarUrl,
-                              name: g.sender?.displayName ?? '',
-                              size: 32,
-                            ),
+                            BBAvatar.user(g.sender, size: 32),
                             const SizedBox(width: 8),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  g.sender?.displayName ?? 'Someone',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    color: BBColors.ink,
-                                    fontSize: 13,
-                                  ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      g.sender?.displayName ?? 'Someone',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        color: BBColors.ink,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    if ((g.sender?.vipTier ?? 0) > 0) ...[
+                                      const SizedBox(width: 4),
+                                      VipTag(g.sender!.vipTier),
+                                    ],
+                                  ],
                                 ),
                                 Text(
                                   'sent ${g.gift.name}',

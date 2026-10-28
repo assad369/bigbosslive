@@ -27,6 +27,7 @@ final economyRepo = Provider(
   (ref) => EconomyRepository(ref.watch(apiProvider)),
 );
 final socialRepo = Provider((ref) => SocialRepository(ref.watch(apiProvider)));
+final agencyRepo = Provider((ref) => AgencyRepository(ref.watch(apiProvider)));
 
 /// Remote config, readable before sign-in (maintenance mode, force update, feature flags).
 final appConfigProvider = FutureProvider<AppConfig>(

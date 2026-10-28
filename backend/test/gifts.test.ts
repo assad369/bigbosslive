@@ -155,13 +155,11 @@ describe('gift transactions', () => {
     const { sender, receiver } = await pair(10_000);
     const other = (await h.user('multi-other'))._id;
     const owner = (await h.user('agency-owner'))._id;
-    const agency = await h.ctx.services.agencies.create({
-      name: 'Gold Agency',
-      ownerId: owner,
-      logoUrl: null,
-      commissionRate: 0.2,
-    });
-    await h.ctx.services.agencies.addMember(agency._id, receiver);
+    const agency = await h.ctx.services.agencies.create(
+      { name: 'Gold Agency', owner, logoUrl: null, commissionRate: 0.2 },
+      owner,
+    );
+    await h.ctx.services.agencies.addMember(agency._id, receiver, owner);
 
     const res = await h.api
       .post('/v1/gifts/send')
@@ -175,6 +173,11 @@ describe('gift transactions', () => {
     expect((await h.ctx.col.users.findOne({ _id: owner }))!.wallet.beans).toBe(50);
     const member = await h.ctx.col.agencyMembers.findOne({ userId: receiver });
     expect(member!.periodBeans).toBe(300);
+    const counters = await h.ctx.col.agencies.findOne({ _id: agency._id });
+    expect(counters!.period).toMatchObject({ beans: 300, commission: 50, gifts: 1 });
+    expect(counters!.lifetime).toMatchObject({ beans: 300, commission: 50, gifts: 1 });
+    const day = await h.ctx.col.agencyDailyStats.findOne({ agencyId: agency._id });
+    expect(day).toMatchObject({ userId: receiver, beans: 300, commission: 50, gifts: 1 });
     // Agency commission never moves the owner's level.
     expect((await h.ctx.col.users.findOne({ _id: owner }))!.stats.totalReceived).toBe(0);
   });

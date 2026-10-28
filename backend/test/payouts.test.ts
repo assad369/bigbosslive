@@ -82,12 +82,10 @@ describe('host agencies', () => {
   it('owner approves applications and the monthly reset archives each period once', async () => {
     await h.user('owner');
     await h.user('member');
-    const agency = await h.ctx.services.agencies.create({
-      name: 'Royal',
-      ownerId: 'owner',
-      logoUrl: null,
-      commissionRate: 0.05,
-    });
+    const agency = await h.ctx.services.agencies.create(
+      { name: 'Royal', owner: 'owner', logoUrl: null, commissionRate: 0.05 },
+      'fin',
+    );
     await h.api.post(`/v1/agencies/${agency._id}/join`).set(h.as('member')).expect(202);
     const reqs = await h.api.get('/v1/agencies/mine/requests').set(h.as('owner'));
     expect(reqs.body.items).toHaveLength(1);
@@ -98,21 +96,31 @@ describe('host agencies', () => {
       .expect(204);
     expect((await h.ctx.col.agencies.findOne({ _id: agency._id }))!.memberCount).toBe(1);
 
-    await h.ctx.services.agencies.recordLiveTime(agency._id, 'member', 3600);
+    const now = h.ctx.clock.now();
+    await h.ctx.services.agencies.recordLiveTime(
+      agency._id,
+      'member',
+      new Date(now.getTime() - 3600_000),
+      now,
+    );
     await h.ctx.db.withTransaction((s) =>
-      h.ctx.services.agencies.recordEarnings(
-        s,
-        agency._id,
-        'member',
-        700,
-        h.ctx.services.agencies.currentPeriodKey(),
-      ),
+      h.ctx.services.agencies.recordEarnings(s, {
+        agencyId: agency._id,
+        userId: 'member',
+        beans: 700,
+        commission: 35,
+        gifts: 1,
+        periodKey: h.ctx.services.agencies.currentPeriodKey(),
+        at: now,
+      }),
     );
     const before = await h.api.get('/v1/agencies/mine').set(h.as('owner'));
     expect(before.body.totals).toMatchObject({
       members: 1,
       periodBeans: 700,
       periodLiveSeconds: 3600,
+      periodCommission: 35,
+      lifetimeBeans: 700,
     });
 
     h.clock.set(new Date('2026-04-01T00:30:00Z'));

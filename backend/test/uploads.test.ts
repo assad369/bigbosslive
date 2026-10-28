@@ -164,7 +164,7 @@ describe('partial admin updates keep uploaded media', () => {
     await h.user('agency-owner');
     const created = await h.api.post('/v1/admin/agencies').set(as).send({
       name: 'Stars',
-      ownerId: 'agency-owner',
+      owner: 'agency-owner',
       commissionRate: 0.05,
       logoUrl: 'https://cdn.test/admin/agencies/fin/stars.png',
     });

@@ -229,13 +229,15 @@ export class GiftsService {
                 meta: { host: r.userId, agencyId: String(agency._id) },
               });
             }
-            await this.ctx.services.agencies.recordEarnings(
-              session,
-              r.agencyId,
-              r.userId,
-              r.beans,
+            await this.ctx.services.agencies.recordEarnings(session, {
+              agencyId: r.agencyId,
+              userId: r.userId,
+              beans: r.beans,
+              commission: r.agencyFee,
+              gifts: input.quantity,
               periodKey,
-            );
+              at: now,
+            });
           }
           if (room && room.hostId === r.userId) {
             await this.ctx.col.liveRooms.updateOne(

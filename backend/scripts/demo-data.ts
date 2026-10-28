@@ -7,6 +7,7 @@
 import { ObjectId } from 'mongodb';
 import { loadEnv } from '../src/config/env.js';
 import type { UserDoc } from '../src/db/schema.js';
+import { newAgencyCode } from '../src/modules/agencies/agencies.service.js';
 import { withDb } from './_db.js';
 
 const env = loadEnv();
@@ -89,7 +90,14 @@ await withDb(async (db) => {
         i % 4 === 0
           ? { tier: 1 + (i % 3), expiresAt: new Date(now.getTime() + 20 * 86_400_000) }
           : { tier: 0, expiresAt: null },
-      equipped: { frameId: null, entryAnimationId: null, frameUrl: null },
+      equipped: {
+        frameId: null,
+        entryAnimationId: null,
+        frameUrl: null,
+        frameFormat: 'none',
+        vipFrameUrl: null,
+        vipFrameFormat: 'none',
+      },
       agencyId: null,
       liveRoomId: null,
       createdAt,
@@ -229,17 +237,6 @@ await withDb(async (db) => {
   const owner = users[1]!;
   if (!(await db.col.agencies.findOne({ ownerId: owner._id }))) {
     const agencyId = new ObjectId();
-    await db.col.agencies.insertOne({
-      _id: agencyId,
-      name: 'Golden Crown Agency',
-      ownerId: owner._id,
-      logoUrl: null,
-      commissionRate: 0.05,
-      status: 'active',
-      memberCount: 4,
-      createdAt: daysAgo(40),
-      updatedAt: now,
-    });
     const period = new Intl.DateTimeFormat('en-CA', {
       timeZone: env.AGENCY_RESET_TIMEZONE,
       year: 'numeric',
@@ -247,19 +244,65 @@ await withDb(async (db) => {
     })
       .format(now)
       .slice(0, 7);
+    await db.col.agencies.insertOne({
+      _id: agencyId,
+      code: newAgencyCode(),
+      name: 'Golden Crown Agency',
+      ownerId: owner._id,
+      logoUrl: null,
+      commissionRate: 0.05,
+      status: 'active',
+      memberCount: 4,
+      period: { key: period, beans: 0, liveSeconds: 0, commission: 0, gifts: 0 },
+      lifetime: { beans: 0, liveSeconds: 0, commission: 0, gifts: 0 },
+      createdAt: daysAgo(40),
+      updatedAt: now,
+    });
     for (const u of users.slice(2, 6)) {
       await db.col.agencyMembers
         .insertOne({
           agencyId,
           userId: u._id,
           joinedAt: daysAgo(30),
+          role: 'host',
+          locked: false,
+          dailyTargetMinutes: null,
           periodKey: period,
           periodBeans: rand(200_000),
           periodLiveSeconds: rand(200_000),
+          lifetimeBeans: 0,
+          lifetimeLiveSeconds: 0,
         })
         .catch(() => undefined);
       await db.col.users.updateOne({ _id: u._id }, { $set: { agencyId } });
     }
+    // Keep lifetime and agency-wide counters consistent with the members' random months.
+    await db.col.agencyMembers.updateMany({ agencyId }, [
+      { $set: { lifetimeBeans: '$periodBeans', lifetimeLiveSeconds: '$periodLiveSeconds' } },
+    ]);
+    const [sum] = await db.col.agencyMembers
+      .aggregate<{ beans: number; live: number }>([
+        { $match: { agencyId } },
+        {
+          $group: {
+            _id: null,
+            beans: { $sum: '$periodBeans' },
+            live: { $sum: '$periodLiveSeconds' },
+          },
+        },
+      ])
+      .toArray();
+    await db.col.agencies.updateOne(
+      { _id: agencyId },
+      {
+        $set: {
+          'period.beans': sum?.beans ?? 0,
+          'period.liveSeconds': sum?.live ?? 0,
+          'lifetime.beans': sum?.beans ?? 0,
+          'lifetime.liveSeconds': sum?.live ?? 0,
+        },
+      },
+    );
   }
 
   await db.col.games.updateMany({}, { $set: { enabled: true } });

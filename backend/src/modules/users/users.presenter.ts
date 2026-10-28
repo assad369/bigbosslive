@@ -1,4 +1,10 @@
-import type { LevelProgress, MeUser, PublicUser } from '@bigboss/shared';
+import type {
+  AnimationFormat,
+  LevelProgress,
+  MeUser,
+  PublicUser,
+  UserBrief as UserBriefWire,
+} from '@bigboss/shared';
 import type { UserDoc } from '../../db/schema.js';
 
 export const PUBLIC_USER_PROJECTION = {
@@ -41,6 +47,21 @@ export function activeVipTier(vip: UserDoc['vip'], now = new Date()): number {
   return vip.tier > 0 && (!vip.expiresAt || vip.expiresAt > now) ? vip.tier : 0;
 }
 
+/**
+ * The avatar frame a user shows: an equipped store frame wins, otherwise the frame of the VIP
+ * tier they hold while it is active. An expired VIP drops its frame without any job running.
+ */
+export function resolveFrame(
+  u: { vip: UserDoc['vip']; equipped?: UserDoc['equipped'] },
+  now = new Date(),
+): { frameUrl: string | null; frameFormat: AnimationFormat } {
+  const e = u.equipped;
+  if (e?.frameUrl) return { frameUrl: e.frameUrl, frameFormat: e.frameFormat ?? 'none' };
+  if (e?.vipFrameUrl && activeVipTier(u.vip, now) > 0)
+    return { frameUrl: e.vipFrameUrl, frameFormat: e.vipFrameFormat ?? 'none' };
+  return { frameUrl: null, frameFormat: 'none' };
+}
+
 export function toPublicUser(u: PublicUserSource, now = new Date()): PublicUser {
   return {
     id: u._id,
@@ -52,7 +73,7 @@ export function toPublicUser(u: PublicUserSource, now = new Date()): PublicUser 
     country: u.country,
     level: u.level.level,
     vipTier: activeVipTier(u.vip, now),
-    frameUrl: u.equipped.frameUrl,
+    ...resolveFrame(u, now),
     followers: u.stats.followers,
     following: u.stats.following,
     isLive: Boolean(u.liveRoomId),
@@ -81,7 +102,7 @@ export function toUserBrief(
   u: Pick<UserDoc, '_id' | 'shortId' | 'displayName' | 'avatarUrl' | 'level' | 'vip' | 'country'> &
     Partial<Pick<UserDoc, 'equipped'>>,
   now = new Date(),
-) {
+): UserBriefWire {
   return {
     id: u._id,
     shortId: u.shortId,
@@ -90,10 +111,10 @@ export function toUserBrief(
     level: u.level.level,
     vipTier: activeVipTier(u.vip, now),
     country: u.country,
-    frameUrl: u.equipped?.frameUrl ?? null,
+    ...resolveFrame(u, now),
   };
 }
-export type UserBrief = ReturnType<typeof toUserBrief>;
+export type UserBrief = UserBriefWire;
 
 export const BRIEF_PROJECTION = {
   shortId: 1,

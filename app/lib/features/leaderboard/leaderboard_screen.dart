@@ -145,12 +145,7 @@ class _Podium extends StatelessWidget {
       child: Column(
         children: [
           if (entry.rank == 1) const Text('👑', style: TextStyle(fontSize: 26)),
-          BBAvatar(
-            url: u.avatarUrl,
-            name: u.displayName,
-            size: entry.rank == 1 ? 72 : 58,
-            vip: true,
-          ),
+          BBAvatar.user(u, size: entry.rank == 1 ? 72 : 58, ring: true),
           const SizedBox(height: 6),
           Text(
             u.displayName,
@@ -158,6 +153,7 @@ class _Podium extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
+          if (u.vipTier > 0) VipBadge(u.vipTier, dense: true),
           DiamondAmount(
             entry.diamonds,
             compact: true,

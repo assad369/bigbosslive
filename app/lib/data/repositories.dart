@@ -329,6 +329,15 @@ class EconomyRepository {
         idempotent: true,
         body: {'target': target, 'diamonds': diamonds},
       )).integer('agentStock');
+  Future<Paged<AgentRecharge>> agentHistory({
+    String? cursor,
+    String? shortId,
+  }) async => Paged.fromJson(
+    await _api.get('/agent/history', query: {'cursor': cursor, 'q': shortId}),
+    AgentRecharge.fromJson,
+  );
+  Future<AgentSummary> agentSummary() async =>
+      AgentSummary.fromJson(await _api.get('/agent/summary'));
 
   Future<List<VipPackage>> vipPackages() async =>
       (await _api.get('/store/vip')).list('items', VipPackage.fromJson);
@@ -366,19 +375,120 @@ class EconomyRepository {
 
   Future<List<GameInfo>> games() async =>
       (await _api.get('/games')).list('items', GameInfo.fromJson);
+}
 
-  // Host agencies
-  Future<Json?> membership() async =>
-      (await _api.get('/agencies/membership')).objOrNull('membership');
-  Future<List<Json>> agencies(String q) async =>
-      (await _api.get('/agencies', query: {'q': q})).list('items', (j) => j);
-  Future<void> joinAgency(String id) => _api.post('/agencies/$id/join');
-  Future<void> leaveAgency() => _api.post('/agencies/leave');
-  Future<Json> myAgency() => _api.get('/agencies/mine');
-  Future<List<Json>> agencyRequests() async =>
-      (await _api.get('/agencies/mine/requests')).list('items', (j) => j);
-  Future<void> decideAgencyRequest(String id, bool approve) =>
+/// Host agencies: browsing and joining as a host, and running one as its owner or admin.
+class AgencyRepository {
+  AgencyRepository(this._api);
+  final ApiClient _api;
+
+  // Everyone
+  Future<List<TopAgency>> top({int limit = 20}) async => (await _api.get(
+    '/agencies/top',
+    query: {'limit': limit},
+  )).list('items', TopAgency.fromJson);
+  Future<List<AgencySummary>> search(String q) async => (await _api.get(
+    '/agencies',
+    query: {'q': q},
+  )).list('items', AgencySummary.fromJson);
+  Future<AgencyMembership?> membership() async {
+    final m = (await _api.get('/agencies/membership')).objOrNull('membership');
+    return m == null ? null : AgencyMembership.fromJson(m);
+  }
+
+  Future<void> apply(String agencyId) => _api.post('/agencies/$agencyId/join');
+  Future<void> leave() => _api.post('/agencies/leave');
+  Future<List<AgencyInvitation>> myInvitations() async =>
+      (await _api.get('/agencies/invitations'))
+          .list('items', AgencyInvitation.fromJson);
+  Future<void> respondInvitation(String id, {required bool accept}) =>
+      _api.post('/agencies/invitations/$id', body: {'accept': accept});
+
+  // Owner and agency admins
+  Future<AgencyDashboard> dashboard() async =>
+      AgencyDashboard.fromJson(await _api.get('/agencies/mine'));
+  Future<AgencySummary> updateProfile({String? name, String? logoUrl}) async =>
+      AgencySummary.fromJson(
+        (await _api.patch(
+          '/agencies/mine',
+          body: {'name': ?name, 'logoUrl': ?logoUrl},
+        )).obj('agency'),
+      );
+  Future<String> uploadLogo(File file) => _api.upload(
+    kind: 'agency-logo',
+    file: file,
+    contentType: _mime(file.path),
+  );
+  Future<List<AgencyMember>> members() async =>
+      (await _api.get('/agencies/mine/members'))
+          .list('items', AgencyMember.fromJson);
+  Future<void> removeMember(String uid) =>
+      _api.delete('/agencies/mine/members/$uid');
+  Future<void> setRole(String uid, String role) =>
+      _api.post('/agencies/mine/members/$uid/role', body: {'role': role});
+  Future<void> lock(String uid) =>
+      _api.post('/agencies/mine/members/$uid/lock');
+  Future<void> setTarget(String uid, int? minutes) => _api.put(
+    '/agencies/mine/members/$uid/target',
+    body: {'minutes': minutes},
+  );
+  Future<AgencyAnalytics> hostAnalytics(String uid, {int days = 30}) async =>
+      AgencyAnalytics.fromJson(
+        await _api.get(
+          '/agencies/mine/members/$uid/analytics',
+          query: {'days': days},
+        ),
+      );
+  Future<Paged<AgencyGiftRow>> hostGifts(String uid, {String? cursor}) async =>
+      Paged.fromJson(
+        await _api.get(
+          '/agencies/mine/members/$uid/gifts',
+          query: {'cursor': cursor},
+        ),
+        AgencyGiftRow.fromJson,
+      );
+  Future<Paged<AgencySessionRow>> hostSessions(
+    String uid, {
+    String? cursor,
+  }) async => Paged.fromJson(
+    await _api.get(
+      '/agencies/mine/members/$uid/sessions',
+      query: {'cursor': cursor},
+    ),
+    AgencySessionRow.fromJson,
+  );
+  Future<List<AgencyRequest>> requests() async =>
+      (await _api.get('/agencies/mine/requests'))
+          .list('items', AgencyRequest.fromJson);
+  Future<void> decideRequest(String id, {required bool approve}) =>
       _api.post('/agencies/mine/requests/$id', body: {'approve': approve});
+  Future<List<AgencyInvitation>> invitations() async =>
+      (await _api.get('/agencies/mine/invitations'))
+          .list('items', AgencyInvitation.fromJson);
+  Future<AgencyInvitation> invite(String shortId) async =>
+      AgencyInvitation.fromJson(
+        (await _api.post(
+          '/agencies/mine/invitations',
+          body: {'target': shortId},
+        )).obj('invitation'),
+      );
+  Future<void> cancelInvitation(String id) =>
+      _api.delete('/agencies/mine/invitations/$id');
+  Future<AgencyAnalytics> analytics({int days = 30}) async =>
+      AgencyAnalytics.fromJson(
+        await _api.get('/agencies/mine/analytics', query: {'days': days}),
+      );
+  Future<AgencyLeaderboard> leaderboard({String? periodKey}) async =>
+      AgencyLeaderboard.fromJson(
+        await _api.get(
+          '/agencies/mine/leaderboard',
+          query: {'periodKey': periodKey},
+        ),
+      );
+  Future<Paged<AgencyAuditRow>> audit({String? cursor}) async => Paged.fromJson(
+    await _api.get('/agencies/mine/audit', query: {'cursor': cursor}),
+    AgencyAuditRow.fromJson,
+  );
 }
 
 class SocialRepository {

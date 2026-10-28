@@ -38,6 +38,7 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     },
     { key: { livekitRoom: 1 }, unique: true },
     { key: { status: 1, type: 1, viewerCount: -1 } },
+    { key: { status: 1, hostVipTier: -1, viewerCount: -1 } },
     { key: { status: 1, lastHeartbeatAt: 1 } },
     { key: { hostId: 1, startedAt: -1 } },
   ],
@@ -79,7 +80,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   recharges: [
     { key: { idempotencyKey: 1 }, unique: true },
     { key: { userId: 1, createdAt: -1 } },
-    { key: { agentId: 1, createdAt: -1 } },
+    { key: { agentId: 1, createdAt: -1, _id: -1 } },
+    { key: { agentId: 1, userId: 1, createdAt: -1, _id: -1 } },
     { key: { createdAt: -1 } },
   ],
   rechargePackages: [{ key: { sku: 1 }, unique: true }],
@@ -89,8 +91,18 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { userId: 1, cosmeticId: 1 }, unique: true },
     { key: { userId: 1, type: 1, expiresAt: -1 } },
   ],
-  agencies: [{ key: { ownerId: 1 }, unique: true }, { key: { name: 1 } }],
-  agencyMembers: [{ key: { userId: 1 }, unique: true }, { key: { agencyId: 1, periodBeans: -1 } }],
+  agencies: [
+    { key: { ownerId: 1 }, unique: true },
+    { key: { name: 1 } },
+    // Partial so agencies created before codes existed don't collide on null until backfilled.
+    { key: { code: 1 }, unique: true, partialFilterExpression: { code: { $type: 'string' } } },
+    { key: { status: 1, 'period.key': 1, 'period.beans': -1 } },
+  ],
+  agencyMembers: [
+    { key: { userId: 1 }, unique: true },
+    { key: { agencyId: 1, periodBeans: -1 } },
+    { key: { agencyId: 1, role: 1 } },
+  ],
   agencyRequests: [
     { key: { userId: 1 }, unique: true, partialFilterExpression: { status: 'pending' } },
     { key: { agencyId: 1, status: 1, createdAt: -1 } },
@@ -99,6 +111,20 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { agencyId: 1, periodKey: 1, userId: 1 }, unique: true },
     { key: { userId: 1, periodKey: -1 } },
   ],
+  agencyInvitations: [
+    {
+      key: { agencyId: 1, userId: 1 },
+      unique: true,
+      partialFilterExpression: { status: 'pending' },
+    },
+    { key: { userId: 1, status: 1, expiresAt: -1 } },
+    { key: { agencyId: 1, status: 1, createdAt: -1 } },
+  ],
+  agencyDailyStats: [
+    { key: { agencyId: 1, userId: 1, dayKey: 1 }, unique: true },
+    { key: { agencyId: 1, dayKey: 1 } },
+  ],
+  agencyAudit: [{ key: { agencyId: 1, createdAt: -1, _id: -1 } }],
   withdrawals: [
     { key: { idempotencyKey: 1 }, unique: true },
     { key: { userId: 1, createdAt: -1 } },

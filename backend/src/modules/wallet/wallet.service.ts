@@ -1,5 +1,11 @@
 import type { ClientSession, Filter } from 'mongodb';
-import { SOCKET, type Currency, type LedgerReason } from '@bigboss/shared';
+import {
+  SOCKET,
+  type AgentRechargeRow,
+  type AgentRechargeSummary,
+  type Currency,
+  type LedgerReason,
+} from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { LedgerDoc, RechargeDoc, UserDoc } from '../../db/schema.js';
 import {
@@ -10,6 +16,7 @@ import {
   notFound,
 } from '../../lib/errors.js';
 import { afterCursor, encodeCursor } from '../../lib/http.js';
+import { startOfZonedDay, startOfZonedMonth } from '../../lib/time.js';
 
 const FIELD: Record<Currency, 'wallet.diamonds' | 'wallet.beans' | 'wallet.agentStock'> = {
   diamonds: 'wallet.diamonds',
@@ -288,5 +295,60 @@ export class WalletService {
         .toArray(),
     ]);
     return { items, total, page, pageSize, totalDiamonds: sum[0]?.total ?? 0 };
+  }
+
+  /** An agent's own transfers to users, newest first, with the recipient's identity. */
+  async agentHistory(
+    agentId: string,
+    opts: { targetUid?: string; cursor?: string; limit: number },
+  ): Promise<{ items: AgentRechargeRow[]; nextCursor: string | null }> {
+    const q: Filter<RechargeDoc> = { agentId, source: 'agent', ...afterCursor(opts.cursor) };
+    if (opts.targetUid) q.userId = opts.targetUid;
+    const rows = await this.ctx.col.recharges
+      .find(q)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(opts.limit + 1)
+      .toArray();
+    const page = rows.slice(0, opts.limit);
+    const briefs = await this.ctx.services.users.briefs(page.map((r) => r.userId));
+    const last = page.at(-1);
+    return {
+      items: page.map((r) => ({
+        id: String(r._id),
+        user: briefs.get(r.userId) ?? null,
+        diamonds: r.diamonds,
+        createdAt: r.createdAt.toISOString(),
+      })),
+      nextCursor:
+        rows.length > opts.limit && last ? encodeCursor(last.createdAt, String(last._id)) : null,
+    };
+  }
+
+  /** Totals for the agent dashboard. "Today" and "month" are in the agency timezone. */
+  async agentSummary(agentId: string): Promise<AgentRechargeSummary> {
+    const now = this.ctx.clock.now();
+    const tz = this.ctx.env.AGENCY_RESET_TIMEZONE;
+    const dayStart = startOfZonedDay(now, tz);
+    const monthStart = startOfZonedMonth(now, tz);
+    const [row] = await this.ctx.col.recharges
+      .aggregate<{ count: number; total: number; today: number; month: number }>([
+        { $match: { agentId, source: 'agent' } },
+        {
+          $group: {
+            _id: null,
+            count: { $sum: 1 },
+            total: { $sum: '$diamonds' },
+            today: { $sum: { $cond: [{ $gte: ['$createdAt', dayStart] }, '$diamonds', 0] } },
+            month: { $sum: { $cond: [{ $gte: ['$createdAt', monthStart] }, '$diamonds', 0] } },
+          },
+        },
+      ])
+      .toArray();
+    return {
+      count: row?.count ?? 0,
+      totalDiamonds: row?.total ?? 0,
+      todayDiamonds: row?.today ?? 0,
+      monthDiamonds: row?.month ?? 0,
+    };
   }
 }

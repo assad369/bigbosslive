@@ -9,10 +9,13 @@ import '../../core/providers.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
+import '../../core/widgets/carousel.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../agency/agency_providers.dart';
 import '../live/live_dialogs.dart';
 import '../live/live_room_screen.dart';
+import 'top_agency_slider.dart';
 
 final _liveTabProvider = FutureProvider.family<List<LiveRoom>, String>((
   ref,
@@ -90,11 +93,20 @@ class _LiveGrid extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final rooms = ref.watch(_liveTabProvider(tab));
     return RefreshIndicator(
-      onRefresh: () => ref.refresh(_liveTabProvider(tab).future),
+      onRefresh: () {
+        if (tab == 'popular') {
+          ref
+            ..invalidate(_bannersProvider)
+            ..invalidate(topAgenciesProvider);
+        }
+        return ref.refresh(_liveTabProvider(tab).future);
+      },
       child: CustomScrollView(
         slivers: [
-          if (tab == 'popular')
+          if (tab == 'popular') ...[
             const SliverToBoxAdapter(child: _BannerCarousel()),
+            const SliverToBoxAdapter(child: TopAgencySlider()),
+          ],
           ...rooms.when(
             loading: () => [
               const SliverFillRemaining(
@@ -158,34 +170,25 @@ class _BannerCarousel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final banners = ref.watch(_bannersProvider).value ?? const <BannerItem>[];
     if (banners.isEmpty) return const SizedBox.shrink();
-    return SizedBox(
+    return BBCarousel(
       height: 120,
-      child: PageView.builder(
-        controller: PageController(viewportFraction: 0.92),
-        itemCount: banners.length,
-        itemBuilder: (_, i) {
-          final b = banners[i];
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: b.linkUrl == null
-                  ? null
-                  : () {
-                      final route = routeForLink({'url': b.linkUrl});
-                      if (route != null) unawaited(context.push(route));
-                    },
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: CachedNetworkImage(
-                  imageUrl: b.imageUrl,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
-          );
-        },
-      ),
+      itemCount: banners.length,
+      itemBuilder: (context, i) {
+        final b = banners[i];
+        return InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: b.linkUrl == null
+              ? null
+              : () {
+                  final route = routeForLink({'url': b.linkUrl});
+                  if (route != null) unawaited(context.push(route));
+                },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: CachedNetworkImage(imageUrl: b.imageUrl, fit: BoxFit.cover),
+          ),
+        );
+      },
     );
   }
 }
@@ -335,11 +338,7 @@ class LiveCard extends ConsumerWidget {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    BBAvatar(
-                      url: room.host.avatarUrl,
-                      name: room.host.displayName,
-                      size: 20,
-                    ),
+                    BBAvatar.user(room.host, size: 20),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -352,6 +351,10 @@ class LiveCard extends ConsumerWidget {
                         ),
                       ),
                     ),
+                    if (room.host.vipTier > 0) ...[
+                      VipTag(room.host.vipTier),
+                      const SizedBox(width: 3),
+                    ],
                     LevelBadge(room.host.level, dense: true),
                   ],
                 ),

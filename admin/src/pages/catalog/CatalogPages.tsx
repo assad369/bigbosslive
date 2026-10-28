@@ -19,10 +19,10 @@ import {
 } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MEDIA_TYPES, type Cosmetic, type Gift } from '@bigboss/shared';
+import { MEDIA_TYPES, VIP_TIERS, vipTierLabel, type Cosmetic, type Gift } from '@bigboss/shared';
 import { get, send } from '../../lib/api';
 import { money, num } from '../../lib/format';
-import { PageHeader, ToggleSwitch } from '../../components/common';
+import { PageHeader, ToggleSwitch, VipTag } from '../../components/common';
 import { FormModal } from '../../components/FormModal';
 import { MediaUpload } from '../../components/MediaUpload';
 import { UploadTrackerProvider, useUploadTracker } from '../../components/uploadTracker';
@@ -30,6 +30,8 @@ import { brand } from '../../theme';
 
 const card = { variant: 'borderless' as const, styles: { body: { padding: 0 } } };
 const animationOptions = ['none', 'svga', 'lottie', 'mp4'].map((v) => ({ value: v, label: v }));
+const tierOptions = VIP_TIERS.map((t) => ({ value: t.tier, label: `${t.tier} · ${t.label}` }));
+const tierRequiredOptions = [{ value: 0, label: 'Anyone' }, ...tierOptions];
 
 // ── Gifts ────────────────────────────────────────────────────────────────────
 
@@ -202,7 +204,7 @@ export function GiftsPage() {
             </Form.Item>
             <Space size="large">
               <Form.Item name="vipTierRequired" label="VIP tier required">
-                <InputNumber min={0} max={10} />
+                <Select options={tierRequiredOptions} style={{ width: 140 }} />
               </Form.Item>
               <Form.Item name="sortOrder" label="Sort order">
                 <InputNumber />
@@ -229,6 +231,9 @@ interface VipPackage {
   perks: string[];
   badgeUrl: string | null;
   frameUrl: string | null;
+  frameFormat: string;
+  entryAnimationUrl: string | null;
+  entryAnimationFormat: string;
   active: boolean;
   sortOrder: number;
 }
@@ -272,7 +277,7 @@ export function StorePage() {
                     {
                       title: 'Tier',
                       dataIndex: 'tier',
-                      render: (t: number) => <Tag color="gold">VIP {t}</Tag>,
+                      render: (t: number) => (vipTierLabel(t) ? <VipTag tier={t} /> : `Tier ${t}`),
                     },
                     { title: 'Name', dataIndex: 'name' },
                     {
@@ -386,6 +391,9 @@ export function StorePage() {
                 sortOrder: 0,
                 badgeUrl: null,
                 frameUrl: null,
+                frameFormat: 'none',
+                entryAnimationUrl: null,
+                entryAnimationFormat: 'none',
               }
         }
         invalidate={[['vip-packages']]}
@@ -395,11 +403,11 @@ export function StorePage() {
             : send('put', `/admin/vip-packages/${(vip as VipPackage)._id}`, v)
         }
       >
-        {() => (
+        {(form) => (
           <>
             <Space size="large">
               <Form.Item name="tier" label="Tier" rules={[{ required: true }]}>
-                <InputNumber min={1} max={10} />
+                <Select options={tierOptions} style={{ width: 140 }} />
               </Form.Item>
               <Form.Item name="priceDiamonds" label="Price (diamonds)" rules={[{ required: true }]}>
                 <InputNumber min={1} />
@@ -421,9 +429,46 @@ export function StorePage() {
               name="frameUrl"
               label="Avatar frame"
               rules={[{ type: 'url' }]}
-              extra="Static image or SVGA."
+              extra="PNG/WebP/GIF or SVGA. Members of this tier wear it unless they equip a store frame."
             >
-              <MediaUpload kind="vip-frame" />
+              <MediaUpload
+                kind="vip-frame"
+                onUploaded={({ type }) =>
+                  form.setFieldValue('frameFormat', MEDIA_TYPES[type].format)
+                }
+              />
+            </Form.Item>
+            <Form.Item name="frameFormat" label="Frame format" style={{ width: 180 }}>
+              <Select options={animationOptions.filter((o) => o.value !== 'mp4')} />
+            </Form.Item>
+            <Form.Item
+              name="entryAnimationUrl"
+              label="Entrance effect"
+              rules={[{ type: 'url' }]}
+              extra="Plays full-screen when a member joins a live room. SVGA, Lottie or MP4."
+            >
+              <MediaUpload
+                kind="vip-entry"
+                onUploaded={({ type }) =>
+                  form.setFieldValue('entryAnimationFormat', MEDIA_TYPES[type].format)
+                }
+              />
+            </Form.Item>
+            <Form.Item
+              name="entryAnimationFormat"
+              label="Entrance format"
+              style={{ width: 180 }}
+              dependencies={['entryAnimationUrl']}
+              rules={[
+                ({ getFieldValue }) => ({
+                  validator: (_, f: string) =>
+                    !getFieldValue('entryAnimationUrl') || f !== 'none'
+                      ? Promise.resolve()
+                      : Promise.reject(new Error('Pick the entrance format')),
+                }),
+              ]}
+            >
+              <Select options={animationOptions} />
             </Form.Item>
             <Space size="large">
               <Form.Item name="sortOrder" label="Sort">
@@ -507,7 +552,7 @@ export function StorePage() {
                 <InputNumber min={1} />
               </Form.Item>
               <Form.Item name="vipTierRequired" label="VIP">
-                <InputNumber min={0} max={10} />
+                <Select options={tierRequiredOptions} style={{ width: 140 }} />
               </Form.Item>
               <Form.Item name="active" label="Active" valuePropName="checked">
                 <Switch />

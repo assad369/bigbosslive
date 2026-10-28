@@ -1,6 +1,8 @@
 import type { ObjectId } from 'mongodb';
 import type {
   AdminRole,
+  AgencyAuditAction,
+  AgencyRole,
   AnimationFormat,
   CosmeticType,
   Currency,
@@ -56,10 +58,18 @@ export interface UserDoc {
   };
   level: { level: number; points: number };
   vip: { tier: number; expiresAt: Date | null };
+  /**
+   * What the user shows. `frameUrl`/`frameFormat` are copied from an equipped store frame;
+   * `vipFrame*` from the package of the VIP tier they hold (kept in sync when that package
+   * changes). Readers resolve the shown frame with `resolveFrame()`, never these directly.
+   */
   equipped: {
     frameId: ObjectId | null;
     entryAnimationId: ObjectId | null;
     frameUrl: string | null;
+    frameFormat?: AnimationFormat;
+    vipFrameUrl?: string | null;
+    vipFrameFormat?: AnimationFormat;
   };
   agencyId: ObjectId | null;
   liveRoomId: ObjectId | null;
@@ -117,6 +127,8 @@ export interface LiveRoomDoc {
   moderatorIds: string[];
   seats: SeatDoc[];
   pkBattleId: ObjectId | null;
+  /** Host's VIP tier when the session started or resumed; orders the Popular tab. */
+  hostVipTier?: number;
   backgroundUrl: string | null;
   /** No new viewers may join (staff, moderators and seated guests still can). */
   locked: boolean;
@@ -258,7 +270,12 @@ export interface VipPackageDoc {
   durationDays: number;
   perks: string[];
   badgeUrl: string | null;
+  /** Avatar frame members of this tier wear when no store frame is equipped. */
   frameUrl: string | null;
+  frameFormat: AnimationFormat;
+  /** Entrance effect for this tier when no entry animation is equipped. */
+  entryAnimationUrl: string | null;
+  entryAnimationFormat: AnimationFormat;
   active: boolean;
   sortOrder: number;
 }
@@ -289,6 +306,8 @@ export interface UserCosmeticDoc {
 
 export interface AgencyDoc {
   _id: ObjectId;
+  /** Public agency code, `HA-XXXXXXXX`. Unique. */
+  code: string;
   name: string;
   ownerId: string;
   logoUrl: string | null;
@@ -296,6 +315,12 @@ export interface AgencyDoc {
   commissionRate: number;
   status: 'active' | 'suspended';
   memberCount: number;
+  /**
+   * Agency-wide counters for the current month (`key` = "YYYY-MM" in the agency timezone),
+   * moved inside the gift transaction alongside the member's. A stale `key` means zero.
+   */
+  period: { key: string; beans: number; liveSeconds: number; commission: number; gifts: number };
+  lifetime: { beans: number; liveSeconds: number; commission: number; gifts: number };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -304,11 +329,20 @@ export interface AgencyMemberDoc {
   _id?: ObjectId;
   agencyId: ObjectId;
   userId: string;
+  /** Agency admins help the owner run the agency (requests, invitations, plain hosts). */
+  role: AgencyRole;
+  /** A locked host cannot leave on their own; only a platform admin can unlock them. */
+  locked: boolean;
+  /** Daily live-time goal the owner set for this host, in minutes. */
+  dailyTargetMinutes: number | null;
   joinedAt: Date;
   /** Current accounting period, "YYYY-MM" in the agency timezone. */
   periodKey: string;
   periodBeans: number;
   periodLiveSeconds: number;
+  /** Totals since this membership started. */
+  lifetimeBeans: number;
+  lifetimeLiveSeconds: number;
 }
 
 export interface AgencyRequestDoc {
@@ -320,6 +354,18 @@ export interface AgencyRequestDoc {
   decidedAt: Date | null;
 }
 
+/** Owner/agency-admin invitation to a host. Joining needs the host's consent. */
+export interface AgencyInvitationDoc {
+  _id: ObjectId;
+  agencyId: ObjectId;
+  userId: string;
+  invitedBy: string;
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired';
+  createdAt: Date;
+  expiresAt: Date;
+  decidedAt: Date | null;
+}
+
 export interface AgencyPeriodDoc {
   _id?: ObjectId;
   agencyId: ObjectId;
@@ -328,6 +374,30 @@ export interface AgencyPeriodDoc {
   beans: number;
   liveSeconds: number;
   closedAt: Date;
+}
+
+/** One row per (agency, host, day in the agency timezone). Feeds dashboards and targets. */
+export interface AgencyDailyStatDoc {
+  _id?: ObjectId;
+  agencyId: ObjectId;
+  userId: string;
+  /** "YYYY-MM-DD" in the agency timezone. */
+  dayKey: string;
+  beans: number;
+  gifts: number;
+  commission: number;
+  liveSeconds: number;
+}
+
+export interface AgencyAuditDoc {
+  _id: ObjectId;
+  agencyId: ObjectId;
+  /** uid of the owner, agency admin, host or platform admin who acted. */
+  actorId: string;
+  action: AgencyAuditAction;
+  targetUserId: string | null;
+  meta: Record<string, unknown>;
+  createdAt: Date;
 }
 
 export interface WithdrawalDoc {

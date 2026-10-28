@@ -70,7 +70,7 @@ Future<void> showPkInviteDialog(
     builder: (ctx) => _ExpiringDialog(
       expiresAt: battle.inviteExpiresAt?.subtract(battle.clockOffset),
       title: 'PK challenge!',
-      leading: BBAvatar(url: from.avatarUrl, name: from.displayName, size: 56),
+      leading: BBAvatar.user(from.brief, size: 56),
       message:
           '${from.displayName} challenges you to a ${rounds}PK, '
           '${Fmt.duration(battle.durationSec)} per round.',
@@ -97,11 +97,7 @@ Future<bool> showSeatInviteDialog(
       builder: (ctx) => _ExpiringDialog(
         expiresAt: invite.expiresAt,
         title: 'Join the stage?',
-        leading: BBAvatar(
-          url: invite.from.avatarUrl,
-          name: invite.from.displayName,
-          size: 56,
-        ),
+        leading: BBAvatar.user(invite.from, size: 56),
         message:
             '${invite.from.displayName} invited you to go live with them. '
             'Your camera and mic will turn on.',

@@ -89,23 +89,37 @@ await withDb(async (db) => {
   }
   console.log(`ensured ${GIFTS.length} gifts`);
 
-  // VIP tiers
+  // VIP tiers: VIP, VVIP, King. Perks listed here are the ones the app actually delivers.
   const vip = [
-    { tier: 1, name: 'Gold VIP', priceDiamonds: 3000, perks: ['Gold name badge', 'Entry banner'] },
+    {
+      tier: 1,
+      name: 'VIP',
+      priceDiamonds: 3000,
+      perks: ['VIP badge', 'VIP avatar frame', 'Entrance banner'],
+      entry: false,
+    },
     {
       tier: 2,
-      name: 'Platinum VIP',
+      name: 'VVIP',
       priceDiamonds: 9000,
-      perks: ['Platinum badge', 'Animated entry', 'Exclusive frame'],
+      perks: ['VVIP badge', 'Animated avatar frame', 'Entrance effect', 'Listed above VIP'],
+      entry: true,
     },
     {
       tier: 3,
-      name: 'Royal VIP',
+      name: 'King',
       priceDiamonds: 30000,
-      perks: ['Royal badge', 'Exclusive gifts', 'Priority support', 'Kick protection'],
+      perks: [
+        'King badge',
+        'King avatar frame',
+        'Royal entrance effect',
+        'Top of Popular and viewer lists',
+        'Exclusive gifts',
+      ],
+      entry: true,
     },
   ];
-  for (const [i, v] of vip.entries()) {
+  for (const [i, { entry, ...v }] of vip.entries()) {
     await db.col.vipPackages.updateOne(
       { tier: v.tier },
       {
@@ -115,6 +129,9 @@ await withDb(async (db) => {
           durationDays: 30,
           badgeUrl: `${CDN}/vip/${v.tier}.png`,
           frameUrl: `${CDN}/vip/frame-${v.tier}.svga`,
+          frameFormat: 'svga',
+          entryAnimationUrl: entry ? `${CDN}/vip/entry-${v.tier}.svga` : null,
+          entryAnimationFormat: entry ? 'svga' : 'none',
           active: true,
           sortOrder: i,
         },

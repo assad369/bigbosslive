@@ -15,6 +15,7 @@ import {
 import { CrownFilled } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { vipTierLabel } from '@bigboss/shared';
 import { brand } from '../theme';
 
 export function PageHeader({
@@ -149,14 +150,29 @@ export function UserCell({
             ID {user.shortId}
             {user.level ? ` · Lv ${user.level}` : ''}
           </Typography.Text>
-          {user.vipTier ? (
-            <Tooltip title={`VIP ${user.vipTier}`}>
-              <CrownFilled style={{ color: brand.palette.gold, marginLeft: 6 }} />
-            </Tooltip>
-          ) : null}
+          {user.vipTier ? <VipTag tier={user.vipTier} /> : null}
         </div>
       </Space>
     </Link>
+  );
+}
+
+const VIP_COLORS: Record<number, string> = {
+  1: brand.palette.vip,
+  2: brand.palette.vvipDeep,
+  3: brand.palette.king,
+};
+
+/** VIP / VVIP / King marker, coloured per tier. */
+export function VipTag({ tier }: { tier: number }) {
+  const label = vipTierLabel(tier);
+  if (!label) return null;
+  return (
+    <Tooltip title={label}>
+      <span style={{ marginLeft: 6, color: VIP_COLORS[tier], fontWeight: 700, fontSize: 12 }}>
+        <CrownFilled /> {label}
+      </span>
+    </Tooltip>
   );
 }
 

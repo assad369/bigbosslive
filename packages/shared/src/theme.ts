@@ -35,6 +35,13 @@ export const palette = {
   pkRed: '#D64545',
   pkBlue: '#3D7BD9',
   heart: '#E5486B',
+  /** VIP ladder: VIP purple, VVIP gold, King crimson. Rings, badges and entrance banners. */
+  vip: '#A855F7',
+  vipDeep: '#7E22CE',
+  vvip: '#F4C542',
+  vvipDeep: '#C98A0B',
+  king: '#D7263D',
+  kingDeep: '#8E0F22',
 } as const;
 
 export const gradients = {
@@ -44,6 +51,13 @@ export const gradients = {
   champagne: `linear-gradient(180deg, ${palette.surface} 0%, ${palette.champagne} 100%)`,
   /** Bronze for secondary emphasis. */
   bronze: `linear-gradient(135deg, #B07D4F 0%, ${palette.bronze} 60%, ${palette.bronzeDeep} 100%)`,
+} as const;
+
+/** Per-tier gradients, indexed by `vipTier`. */
+export const vipGradients = {
+  1: `linear-gradient(135deg, ${palette.vip} 0%, ${palette.vipDeep} 100%)`,
+  2: `linear-gradient(135deg, ${palette.vvip} 0%, ${palette.vvipDeep} 100%)`,
+  3: `linear-gradient(135deg, ${palette.goldLight} 0%, ${palette.king} 45%, ${palette.kingDeep} 100%)`,
 } as const;
 
 export const typography = {

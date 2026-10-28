@@ -74,13 +74,7 @@ class MeScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  BBAvatar(
-                    url: p.brief.avatarUrl,
-                    name: p.brief.displayName,
-                    size: 92,
-                    frameUrl: p.brief.frameUrl,
-                    vip: p.brief.vipTier > 0,
-                  ),
+                  BBAvatar.user(p.brief, size: 92),
                   const SizedBox(height: 12),
                   Text(
                     p.brief.displayName,
@@ -390,16 +384,7 @@ class UserProfileScreen extends ConsumerWidget {
         data: (u) => ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            Center(
-              child: BBAvatar(
-                url: u.brief.avatarUrl,
-                name: u.brief.displayName,
-                size: 100,
-                frameUrl: u.brief.frameUrl,
-                vip: u.brief.vipTier > 0,
-                live: u.isLive,
-              ),
-            ),
+            Center(child: BBAvatar.user(u.brief, size: 100, live: u.isLive)),
             const SizedBox(height: 12),
             Center(
               child: Text(
@@ -568,13 +553,7 @@ class UserCardSheet extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          BBAvatar(
-            url: user.avatarUrl,
-            name: user.displayName,
-            size: 72,
-            vip: user.vipTier > 0,
-            frameUrl: user.frameUrl,
-          ),
+          BBAvatar.user(user, size: 72),
           const SizedBox(height: 8),
           Text(user.displayName, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),
@@ -1041,11 +1020,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         radius: 48,
                         backgroundImage: FileImage(_avatar!),
                       )
-                    : BBAvatar(
-                        url: me.brief.avatarUrl,
-                        name: me.brief.displayName,
-                        size: 96,
-                      ),
+                    : BBAvatar.user(me.brief, size: 96),
                 const Positioned(
                   right: 0,
                   bottom: 0,

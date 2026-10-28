@@ -130,12 +130,7 @@ class PostCard extends ConsumerWidget {
                   onTap: post.author == null
                       ? null
                       : () => context.push('/user/${post.author!.id}'),
-                  child: BBAvatar(
-                    url: post.author?.avatarUrl,
-                    name: post.author?.displayName ?? '',
-                    size: 40,
-                    vip: (post.author?.vipTier ?? 0) > 0,
-                  ),
+                  child: BBAvatar.user(post.author, size: 40),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -155,6 +150,10 @@ class PostCard extends ConsumerWidget {
                           ),
                           const SizedBox(width: 6),
                           LevelBadge(post.author?.level ?? 0, dense: true),
+                          if ((post.author?.vipTier ?? 0) > 0) ...[
+                            const SizedBox(width: 4),
+                            VipBadge(post.author!.vipTier, dense: true),
+                          ],
                         ],
                       ),
                       Text(
@@ -341,11 +340,7 @@ class _PostScreenState extends ConsumerState<PostScreen> {
               style: TextStyle(color: BBColors.inkSubtle),
             ),
             itemBuilder: (context, c) => ListTile(
-              leading: BBAvatar(
-                url: c.author?.avatarUrl,
-                name: c.author?.displayName ?? '',
-                size: 34,
-              ),
+              leading: BBAvatar.user(c.author, size: 34),
               title: Text(
                 c.author?.displayName ?? 'User',
                 style: const TextStyle(

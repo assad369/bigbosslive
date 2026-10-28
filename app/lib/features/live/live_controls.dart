@@ -48,13 +48,7 @@ class LiveTopBar extends ConsumerWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        BBAvatar(
-                          url: host.avatarUrl,
-                          name: host.displayName,
-                          size: 34,
-                          vip: host.vipTier > 0,
-                          frameUrl: host.frameUrl,
-                        ),
+                        BBAvatar.user(host, size: 34),
                         const SizedBox(width: 6),
                         Flexible(
                           child: Column(
@@ -70,12 +64,25 @@ class LiveTopBar extends ConsumerWidget {
                                   fontSize: 13,
                                 ),
                               ),
-                              Text(
-                                'ID ${host.shortId}',
-                                style: const TextStyle(
-                                  color: BBColors.champagne,
-                                  fontSize: 10,
-                                ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      'ID ${host.shortId}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: BBColors.champagne,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                                  if (host.vipTier > 0) ...[
+                                    const SizedBox(width: 4),
+                                    VipTag(host.vipTier),
+                                  ],
+                                ],
                               ),
                             ],
                           ),
@@ -172,18 +179,9 @@ class _TopViewers extends StatelessWidget {
                   child: Stack(
                     alignment: Alignment.topCenter,
                     children: [
-                      Positioned(
-                        top: 4,
-                        child: BBAvatar(
-                          url: v.avatarUrl,
-                          name: v.displayName,
-                          size: _size,
-                          vip: v.vipTier > 0,
-                          frameUrl: v.frameUrl,
-                        ),
-                      ),
+                      Positioned(top: 4, child: BBAvatar.user(v, size: _size)),
                       if (v.vipTier > 0)
-                        Positioned(bottom: 0, child: _VipTag(v.vipTier)),
+                        Positioned(bottom: 0, child: VipTag(v.vipTier)),
                     ],
                   ),
                 ),
@@ -193,31 +191,6 @@ class _TopViewers extends StatelessWidget {
       ),
     );
   }
-}
-
-/// A compact VIP marker for small avatars; [VipBadge] is too wide here.
-class _VipTag extends StatelessWidget {
-  const _VipTag(this.tier);
-  final int tier;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 3),
-    decoration: BoxDecoration(
-      color: BBColors.ink,
-      borderRadius: BorderRadius.circular(6),
-      border: Border.all(color: BBColors.gold, width: 0.8),
-    ),
-    child: Text(
-      'VIP$tier',
-      style: const TextStyle(
-        color: BBColors.goldLight,
-        fontSize: 7,
-        fontWeight: FontWeight.w800,
-        height: 1.3,
-      ),
-    ),
-  );
 }
 
 /// Close in the top-right corner: a 30px disc with a full-size touch target.

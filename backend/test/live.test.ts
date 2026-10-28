@@ -48,10 +48,29 @@ describe('live rooms', () => {
     });
     const token = h.livekit.tokens.at(-1)!;
     expect(token).toMatchObject({ canPublish: true, identity: 'host', room: livekitRoom });
-    expect(token.metadata).toMatchObject({ level: 7, vipTier: 2, role: 'host' });
+    expect(token.metadata).toMatchObject({
+      level: 7,
+      vipTier: 2,
+      role: 'host',
+      frameUrl: null,
+      frameFormat: 'none',
+    });
     expect((await h.ctx.col.users.findOne({ _id: 'host' }))!.liveRoomId).toEqual(
       new ObjectId(roomId),
     );
+  });
+
+  it('announces VIP entrances with the tier and any entrance effect', async () => {
+    await h.user('vip-viewer', { vip: { tier: 1, expiresAt: new Date('2030-01-01') } });
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('vip-viewer')).send({}).expect(200);
+    const entry = h.livekit.data.filter((d) => d.topic === 'bb.entry').at(-1);
+    expect(entry?.payload).toMatchObject({
+      user: { uid: 'vip-viewer', vipTier: 1 },
+      effect: null,
+    });
+    const before = h.livekit.data.length;
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('viewer')).send({}).expect(200);
+    expect(h.livekit.data.slice(before).some((d) => d.topic === 'bb.entry')).toBe(false);
   });
 
   it('resumes instead of creating a second live room', async () => {

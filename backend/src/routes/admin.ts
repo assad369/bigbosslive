@@ -8,6 +8,7 @@ import {
   ADMIN_UPLOAD_KINDS,
   CURRENCIES,
   GAME_KEYS,
+  MAX_VIP_TIER,
   REPORT_STATUSES,
   REPORT_TARGETS,
   ROOM_STATUSES,
@@ -31,6 +32,7 @@ import {
 } from '../middleware/rbac.js';
 import {
   currentUser,
+  cursorQuery,
   idempotencyKey,
   objectIdString,
   pageQuery,
@@ -68,6 +70,7 @@ const ADMIN_UPLOAD_TARGETS: Record<AdminUploadKind, { folder: string; permission
   'gift-animation': { folder: 'admin/gifts/animations', permission: 'catalog.manage' },
   'vip-badge': { folder: 'admin/vip/badges', permission: 'catalog.manage' },
   'vip-frame': { folder: 'admin/vip/frames', permission: 'catalog.manage' },
+  'vip-entry': { folder: 'admin/vip/entries', permission: 'catalog.manage' },
   'cosmetic-asset': { folder: 'admin/cosmetics/assets', permission: 'catalog.manage' },
   'cosmetic-preview': { folder: 'admin/cosmetics/previews', permission: 'catalog.manage' },
   'level-icon': { folder: 'admin/levels', permission: 'catalog.manage' },
@@ -148,6 +151,24 @@ export function adminRoutes(ctx: Ctx): Router {
   });
 
   // ── Users ──────────────────────────────────────────────────────────────────
+  /**
+   * Resolve one user by short id or uid for pickers (agency owner, add host). Returns only
+   * the public brief plus agency ties, so any staff role may use it.
+   */
+  r.get('/users/lookup', async (req, res) => {
+    const { q } = parseQuery(req, z.object({ q: z.string().trim().min(1).max(128) }));
+    const user = await s.users.resolve(q);
+    const [owned, member] = await Promise.all([
+      s.agencies.byOwner(user._id),
+      ctx.col.agencyMembers.findOne({ userId: user._id }),
+    ]);
+    res.json({
+      user: (await s.users.briefs([user._id])).get(user._id) ?? null,
+      ownsAgencyId: owned ? String(owned._id) : null,
+      memberOfAgencyId: member ? String(member.agencyId) : null,
+    });
+  });
+
   r.get('/users', can('users.read'), async (req, res) => {
     const q = parseQuery(
       req,
@@ -311,14 +332,12 @@ export function adminRoutes(ctx: Ctx): Router {
     const { uid } = parseParams(req, uidParam);
     const { tier, days } = parseBody(
       req,
-      z.object({ tier: z.number().int().min(0).max(10), days: z.number().int().min(1).max(3650) }),
+      z.object({
+        tier: z.number().int().min(0).max(MAX_VIP_TIER),
+        days: z.number().int().min(1).max(3650),
+      }),
     );
-    const vip =
-      tier === 0
-        ? { tier: 0, expiresAt: null }
-        : { tier, expiresAt: addDays(ctx.clock.now(), days) };
-    const r2 = await ctx.col.users.updateOne({ _id: uid }, { $set: { vip } });
-    if (!r2.matchedCount) throw notFound('User');
+    await s.store.grantVip(uid, tier, days);
     await audit(req, 'user.vip', 'user', uid, { tier, days });
     res.status(204).end();
   });
@@ -566,7 +585,7 @@ export function adminRoutes(ctx: Ctx): Router {
   });
 
   r.post('/agencies', can('agencies.manage'), async (req, res) => {
-    const agency = await s.agencies.create(parseBody(req, agencyInput));
+    const agency = await s.agencies.create(parseBody(req, agencyInput), currentUser(req).uid);
     await audit(req, 'agency.create', 'agency', String(agency._id), agency);
     res.status(201).json({ agency });
   });
@@ -574,9 +593,9 @@ export function adminRoutes(ctx: Ctx): Router {
   r.patch('/agencies/:id', can('agencies.manage'), async (req, res) => {
     const patch = parsePatch(
       req,
-      agencyInput.omit({ ownerId: true }).extend({ status: z.enum(['active', 'suspended']) }),
+      agencyInput.omit({ owner: true }).extend({ status: z.enum(['active', 'suspended']) }),
     );
-    const agency = await s.agencies.update(oid(req), patch);
+    const agency = await s.agencies.update(oid(req), patch, currentUser(req).uid);
     await audit(req, 'agency.update', 'agency', String(agency._id), patch);
     res.json({ agency });
   });
@@ -592,37 +611,61 @@ export function adminRoutes(ctx: Ctx): Router {
           .optional(),
       }),
     );
-    const [agency, members, history] = await Promise.all([
+    const [agency, members, history, rank] = await Promise.all([
       s.agencies.get(id),
       s.agencies.members(id),
       s.agencies.history(id, periodKey),
+      s.agencies.rankOf(id),
     ]);
     res.json({
       agency,
       owner: (await s.users.briefs([agency.ownerId])).get(agency.ownerId) ?? null,
       members,
       history,
+      rank,
       currentPeriod: s.agencies.currentPeriodKey(),
     });
   });
 
+  r.get('/agencies/:id/audit', can('agencies.manage'), async (req, res) => {
+    res.json(await s.agencies.auditLog(oid(req), parseQuery(req, cursorQuery)));
+  });
+
   r.post('/agencies/:id/members', can('agencies.manage'), async (req, res) => {
-    const { userId } = parseBody(req, z.object({ userId: z.string().min(1).max(128) }));
-    await s.agencies.addMember(oid(req), userId);
-    await audit(req, 'agency.add_member', 'agency', parseParams(req, idParams).id, { userId });
+    // `user` is a short id or uid; `userId` is accepted from older dashboard builds.
+    const body = parseBody(
+      req,
+      z
+        .object({
+          user: z.string().trim().min(1).max(128).optional(),
+          userId: z.string().trim().min(1).max(128).optional(),
+        })
+        .refine((b) => b.user ?? b.userId, 'user is required'),
+    );
+    const uid = await s.agencies.addMember(
+      oid(req),
+      (body.user ?? body.userId)!,
+      currentUser(req).uid,
+    );
+    await audit(req, 'agency.add_member', 'agency', parseParams(req, idParams).id, { userId: uid });
     res.status(204).end();
   });
 
   r.delete('/agencies/:id/members/:uid', can('agencies.manage'), async (req, res) => {
-    const { uid } = z.object({ uid: z.string().min(1).max(128) }).parse(req.params);
-    await s.agencies.removeMember(uid);
-    await audit(
-      req,
-      'agency.remove_member',
-      'agency',
-      parseParams(req, idParams.extend({ uid: z.string() })).id,
-      { uid },
-    );
+    const { id, uid } = parseParams(req, idParams.extend({ uid: z.string().min(1).max(128) }));
+    const member = await ctx.col.agencyMembers.findOne({ userId: uid });
+    if (!member || String(member.agencyId) !== id) throw notFound('Member');
+    await s.agencies.removeMember(uid, currentUser(req).uid);
+    await audit(req, 'agency.remove_member', 'agency', id, { uid });
+    res.status(204).end();
+  });
+
+  r.post('/agencies/:id/members/:uid/unlock', can('agencies.manage'), async (req, res) => {
+    const { id, uid } = parseParams(req, idParams.extend({ uid: z.string().min(1).max(128) }));
+    const member = await ctx.col.agencyMembers.findOne({ userId: uid });
+    if (!member || String(member.agencyId) !== id) throw notFound('Member');
+    await s.agencies.unlock(currentUser(req).uid, uid);
+    await audit(req, 'agency.unlock_member', 'agency', id, { uid });
     res.status(204).end();
   });
 

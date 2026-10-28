@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Alert,
+  Avatar,
   Button,
   Card,
   Col,
@@ -35,6 +36,7 @@ import {
 import { ServerTable } from '../../components/ServerTable';
 import { FormModal } from '../../components/FormModal';
 import { MediaUpload } from '../../components/MediaUpload';
+import { UserPicker } from '../../components/UserPicker';
 import { useAuth } from '../../auth/useAuth';
 
 const rangeParams = (r: [Dayjs | null, Dayjs | null] | null) => ({
@@ -422,6 +424,7 @@ export function WithdrawalsPage() {
 
 interface AgencyRow {
   _id: string;
+  code: string;
   name: string;
   ownerId: string;
   owner: Brief | null;
@@ -429,6 +432,8 @@ interface AgencyRow {
   commissionRate: number;
   status: string;
   memberCount: number;
+  period?: { key: string; beans: number; liveSeconds: number; commission: number };
+  lifetime?: { beans: number; commission: number };
   createdAt: string;
 }
 
@@ -454,7 +459,7 @@ export function AgenciesPage() {
         toolbar={
           <Input.Search
             allowClear
-            placeholder="Search agencies"
+            placeholder="Name or agency code"
             onSearch={setQ}
             style={{ width: 240 }}
           />
@@ -465,7 +470,18 @@ export function AgenciesPage() {
             key: 'n',
             render: (_, a) => (
               <Link to={`/agencies/${a._id}`}>
-                <Typography.Text strong>{a.name}</Typography.Text>
+                <Space size={10}>
+                  <Avatar src={a.logoUrl ?? undefined} shape="square">
+                    {a.name[0]}
+                  </Avatar>
+                  <span style={{ lineHeight: 1.25 }}>
+                    <Typography.Text strong>{a.name}</Typography.Text>
+                    <br />
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {a.code}
+                    </Typography.Text>
+                  </span>
+                </Space>
               </Link>
             ),
           },
@@ -480,7 +496,7 @@ export function AgenciesPage() {
           { title: 'Created', dataIndex: 'createdAt', render: dateTime },
         ]}
       />
-      <FormModal<{ name: string; ownerId: string; commissionRate: number; logoUrl: string | null }>
+      <FormModal<{ name: string; owner: string; commissionRate: number; logoUrl: string | null }>
         open={open}
         title="Create agency"
         onClose={() => setOpen(false)}
@@ -496,8 +512,13 @@ export function AgenciesPage() {
             <Form.Item name="logoUrl" label="Logo (optional)" rules={[{ type: 'url' }]}>
               <MediaUpload kind="agency-logo" />
             </Form.Item>
-            <Form.Item name="ownerId" label="Owner uid" rules={[{ required: true }]}>
-              <Input />
+            <Form.Item
+              name="owner"
+              label="Owner short ID"
+              tooltip="The owner's ID shown in the app. They earn the commission and run the agency dashboard."
+              rules={[{ required: true, message: 'Enter the owner’s short ID' }]}
+            >
+              <UserPicker warnIfInAgency />
             </Form.Item>
             <Form.Item
               name="commissionRate"
@@ -513,18 +534,58 @@ export function AgenciesPage() {
   );
 }
 
+interface AgencyMemberRow {
+  user: Brief | null;
+  role: 'host' | 'admin';
+  locked: boolean;
+  dailyTargetMinutes: number | null;
+  joinedAt: string;
+  periodBeans: number;
+  periodLiveSeconds: number;
+  lifetimeBeans: number;
+  todayLiveSeconds: number;
+  isLive: boolean;
+}
+
 interface AgencyDetail {
   agency: AgencyRow;
   owner: Brief | null;
+  rank: number | null;
   currentPeriod: string;
-  members: {
-    user: Brief | null;
-    joinedAt: string;
-    periodBeans: number;
-    periodLiveSeconds: number;
-  }[];
+  members: AgencyMemberRow[];
   history: { userId: string; periodKey: string; beans: number; liveSeconds: number }[];
 }
+
+interface AgencyAuditRow {
+  id: string;
+  action: string;
+  actor: Brief | null;
+  target: Brief | null;
+  meta: Record<string, unknown>;
+  createdAt: string;
+}
+
+const AUDIT_LABELS: Record<string, string> = {
+  agency_created: 'Agency created',
+  agency_updated: 'Agency updated',
+  agency_suspended: 'Agency suspended',
+  agency_reactivated: 'Agency reactivated',
+  host_invited: 'Host invited',
+  invite_cancelled: 'Invitation cancelled',
+  invite_accepted: 'Invitation accepted',
+  invite_declined: 'Invitation declined',
+  request_submitted: 'Applied to join',
+  request_approved: 'Application approved',
+  request_rejected: 'Application rejected',
+  host_added: 'Host joined',
+  host_removed: 'Host removed',
+  host_left: 'Host left',
+  host_locked: 'Host locked',
+  host_unlocked: 'Host unlocked',
+  admin_promoted: 'Made agency admin',
+  admin_demoted: 'Agency admin removed',
+  target_updated: 'Daily target set',
+};
 
 export function AgencyDetailPage() {
   const { id = '' } = useParams();
@@ -532,16 +593,20 @@ export function AgencyDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const key = ['agency', id];
   const q = useQuery({ queryKey: key, queryFn: () => get<AgencyDetail>(`/admin/agencies/${id}`) });
+  const auditKey = ['agency-audit', id];
+  const log = useQuery({
+    queryKey: auditKey,
+    queryFn: () => get<{ items: AgencyAuditRow[] }>(`/admin/agencies/${id}/audit`, { limit: 100 }),
+  });
   if (!q.data)
     return q.error ? (
       <Alert type="error" message={(q.error as Error).message} />
     ) : (
       <Skeleton active />
     );
-  const { agency, owner, members, history, currentPeriod } = q.data;
-  const totalBeans = members.reduce((s, m) => s + m.periodBeans, 0);
-  const totalSeconds = members.reduce((s, m) => s + m.periodLiveSeconds, 0);
-  const inv = [key, ['agencies']];
+  const { agency, owner, members, history, currentPeriod, rank } = q.data;
+  const fresh = agency.period?.key === currentPeriod;
+  const inv = [key, ['agencies'], auditKey];
 
   return (
     <>
@@ -549,8 +614,10 @@ export function AgencyDetailPage() {
         title={agency.name}
         subtitle={
           <>
-            Owner: {owner?.displayName ?? agency.ownerId} · commission {pct(agency.commissionRate)}{' '}
-            · period {currentPeriod}
+            {agency.code} · owner {owner?.displayName ?? agency.ownerId}
+            {owner?.shortId ? ` (ID ${owner.shortId})` : ''} · commission{' '}
+            {pct(agency.commissionRate)} · period {currentPeriod}
+            {rank ? ` · rank #${rank}` : ''}
           </>
         }
         extra={
@@ -575,14 +642,23 @@ export function AgencyDetailPage() {
         }
       />
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} md={8}>
-          <StatCard gold title="Hosts" value={members.length} />
+        <Col xs={12} md={6}>
+          <StatCard gold title="Hosts" value={agency.memberCount} />
         </Col>
-        <Col xs={24} md={8}>
-          <StatCard title="Beans this month" value={num(totalBeans)} />
+        <Col xs={12} md={6}>
+          <StatCard title="Beans this month" value={num(fresh ? agency.period!.beans : 0)} />
         </Col>
-        <Col xs={24} md={8}>
-          <StatCard title="Live time this month" value={duration(totalSeconds)} />
+        <Col xs={12} md={6}>
+          <StatCard
+            title="Live time this month"
+            value={duration(fresh ? agency.period!.liveSeconds : 0)}
+          />
+        </Col>
+        <Col xs={12} md={6}>
+          <StatCard
+            title="Owner commission (lifetime)"
+            value={num(agency.lifetime?.commission ?? 0)}
+          />
         </Col>
       </Row>
       <Card variant="borderless" title="Hosts (current period)">
@@ -594,25 +670,56 @@ export function AgencyDetailPage() {
           columns={[
             { title: 'Host', key: 'u', render: (_, m) => <UserCell user={m.user} /> },
             {
+              title: 'Role',
+              key: 'r',
+              render: (_, m) => (
+                <Space size={4}>
+                  {m.role === 'admin' && <Tag color="gold">Agency admin</Tag>}
+                  {m.locked && <Tag color="red">Locked</Tag>}
+                  {m.isLive && <Tag color="green">Live</Tag>}
+                </Space>
+              ),
+            },
+            {
               title: 'Beans',
               dataIndex: 'periodBeans',
               align: 'right',
               render: (b: number) => <Money value={b} unit="beans" />,
             },
             { title: 'Live time', dataIndex: 'periodLiveSeconds', render: duration },
+            {
+              title: 'Today / target',
+              key: 't',
+              render: (_, m) =>
+                `${duration(m.todayLiveSeconds)}${
+                  m.dailyTargetMinutes ? ` / ${m.dailyTargetMinutes} min` : ''
+                }`,
+            },
             { title: 'Joined', dataIndex: 'joinedAt', render: dateTime },
             {
               title: '',
               key: 'a',
               render: (_, m) =>
                 m.user && (
-                  <ActionButton
-                    danger
-                    label="Remove"
-                    confirm="Remove this host from the agency?"
-                    run={() => send('delete', `/admin/agencies/${id}/members/${m.user!.id}`)}
-                    invalidate={inv}
-                  />
+                  <Space>
+                    {m.locked && (
+                      <ActionButton
+                        label="Unlock"
+                        confirm="Unlock this host? They will be able to leave the agency."
+                        run={() =>
+                          send('post', `/admin/agencies/${id}/members/${m.user!.id}/unlock`)
+                        }
+                        invalidate={inv}
+                      />
+                    )}
+                    <ActionButton
+                      danger
+                      label="Remove"
+                      confirm="Remove this host from the agency?"
+                      run={() => send('delete', `/admin/agencies/${id}/members/${m.user!.id}`)}
+                      invalidate={inv}
+                    />
+                  </Space>
                 ),
             },
           ]}
@@ -636,7 +743,30 @@ export function AgencyDetailPage() {
           ]}
         />
       </Card>
-      <FormModal<{ userId: string }>
+      <Card variant="borderless" title="Activity" style={{ marginTop: 16 }}>
+        <Table
+          size="small"
+          rowKey="id"
+          loading={log.isLoading}
+          dataSource={log.data?.items ?? []}
+          pagination={{ pageSize: 20 }}
+          columns={[
+            { title: 'When', dataIndex: 'createdAt', render: dateTime },
+            {
+              title: 'Action',
+              dataIndex: 'action',
+              render: (a: string) => AUDIT_LABELS[a] ?? a,
+            },
+            { title: 'By', key: 'b', render: (_, r) => <UserCell user={r.actor} /> },
+            {
+              title: 'Host',
+              key: 't',
+              render: (_, r) => (r.target ? <UserCell user={r.target} /> : '—'),
+            },
+          ]}
+        />
+      </Card>
+      <FormModal<{ user: string }>
         open={addOpen}
         title="Add host"
         onClose={() => setAddOpen(false)}
@@ -644,8 +774,13 @@ export function AgencyDetailPage() {
         submit={(v) => send('post', `/admin/agencies/${id}/members`, v)}
       >
         {() => (
-          <Form.Item name="userId" label="Host uid" rules={[{ required: true }]}>
-            <Input />
+          <Form.Item
+            name="user"
+            label="Host short ID"
+            extra="Staff can add a host directly. Owners invite hosts from the app instead."
+            rules={[{ required: true, message: 'Enter the host’s short ID' }]}
+          >
+            <UserPicker warnIfInAgency />
           </Form.Item>
         )}
       </FormModal>
@@ -679,6 +814,15 @@ export function AgencyDetailPage() {
         style={{ marginTop: 16 }}
         size="small"
         items={[
+          {
+            key: 'code',
+            label: 'Agency code',
+            children: (
+              <Typography.Text code copyable>
+                {agency.code}
+              </Typography.Text>
+            ),
+          },
           {
             key: 'id',
             label: 'Agency id',

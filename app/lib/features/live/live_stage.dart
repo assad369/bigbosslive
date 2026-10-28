@@ -331,11 +331,8 @@ class _AvatarFallback extends StatelessWidget {
     color: BBColors.espresso,
     child: Center(
       child: LayoutBuilder(
-        builder: (_, box) => BBAvatar(
-          url: user.avatarUrl,
-          name: user.displayName,
-          frameUrl: user.frameUrl,
-          vip: user.vipTier > 0,
+        builder: (_, box) => BBAvatar.user(
+          user,
           size: compact ? (box.biggest.shortestSide * 0.5).clamp(28, 72) : 96,
         ),
       ),
@@ -366,6 +363,10 @@ class _NamePlate extends StatelessWidget {
           RoleBadge(role, dense: true),
           if (role == RoomRole.host || role == RoomRole.admin)
             const SizedBox(width: 3),
+        ],
+        if (user.vipTier > 0) ...[
+          VipTag(user.vipTier),
+          const SizedBox(width: 3),
         ],
         Expanded(
           child: Text(
@@ -509,13 +510,7 @@ class SeatGrid extends StatelessWidget {
                         : null,
                   ),
                   child: s.user != null
-                      ? BBAvatar(
-                          url: s.user!.avatarUrl,
-                          name: s.user!.displayName,
-                          size: 58,
-                          vip: s.index == 0 || s.user!.vipTier > 0,
-                          frameUrl: s.user!.frameUrl,
-                        )
+                      ? BBAvatar.user(s.user, size: 58, ring: s.index == 0)
                       : Container(
                           width: 58,
                           height: 58,
@@ -561,7 +556,16 @@ class SeatGrid extends StatelessWidget {
                   ],
                 ),
                 if (s.user != null)
-                  RoleBadge(c.roleOf(s.user!.id), dense: true),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      RoleBadge(c.roleOf(s.user!.id), dense: true),
+                      if (s.user!.vipTier > 0) ...[
+                        const SizedBox(width: 2),
+                        VipTag(s.user!.vipTier),
+                      ],
+                    ],
+                  ),
               ],
             ),
           ),

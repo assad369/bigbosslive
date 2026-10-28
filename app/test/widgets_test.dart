@@ -40,8 +40,8 @@ void main() {
       ),
     );
     expect(find.text('Lv 42'), findsOneWidget);
-    expect(find.text('VIP3'), findsOneWidget);
-    expect(find.text('VIP0'), findsNothing);
+    expect(find.text('King'), findsOneWidget);
+    expect(find.text('VIP'), findsNothing);
   });
 
   test('level tiers use the gold gradient in the gold band', () {

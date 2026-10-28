@@ -31,6 +31,9 @@ export interface Collections {
   agencyMembers: Collection<S.AgencyMemberDoc>;
   agencyRequests: Collection<S.AgencyRequestDoc>;
   agencyPeriods: Collection<S.AgencyPeriodDoc>;
+  agencyInvitations: Collection<S.AgencyInvitationDoc>;
+  agencyDailyStats: Collection<S.AgencyDailyStatDoc>;
+  agencyAudit: Collection<S.AgencyAuditDoc>;
   withdrawals: Collection<S.WithdrawalDoc>;
   conversations: Collection<S.ConversationDoc>;
   messages: Collection<S.MessageDoc>;
@@ -78,6 +81,9 @@ const NAMES: Record<keyof Collections, string> = {
   agencyMembers: 'agency_members',
   agencyRequests: 'agency_requests',
   agencyPeriods: 'agency_periods',
+  agencyInvitations: 'agency_invitations',
+  agencyDailyStats: 'agency_daily_stats',
+  agencyAudit: 'agency_audit',
   withdrawals: 'withdrawals',
   conversations: 'conversations',
   messages: 'messages',

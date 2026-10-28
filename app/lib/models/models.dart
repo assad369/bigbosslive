@@ -11,6 +11,7 @@ class UserBrief {
     this.vipTier = 0,
     this.country,
     this.frameUrl,
+    this.frameFormat = 'none',
   });
 
   final String id;
@@ -18,9 +19,16 @@ class UserBrief {
   final String displayName;
   final String? avatarUrl;
   final int level;
+
+  /// 0 none, 1 VIP, 2 VVIP, 3 King.
   final int vipTier;
   final String? country;
+
+  /// Resolved avatar frame (equipped store frame, else the VIP tier's frame).
   final String? frameUrl;
+
+  /// How [frameUrl] plays: `none` (image), `svga`, `lottie`.
+  final String frameFormat;
 
   factory UserBrief.fromJson(Json j) => UserBrief(
     id: j.str('id', j.str('uid')),
@@ -31,6 +39,48 @@ class UserBrief {
     vipTier: j.integer('vipTier'),
     country: j.strOrNull('country'),
     frameUrl: j.strOrNull('frameUrl'),
+    frameFormat: j.str('frameFormat', 'none'),
+  );
+}
+
+/// One of an agent's transfers to a user.
+class AgentRecharge {
+  const AgentRecharge({
+    required this.id,
+    this.user,
+    required this.diamonds,
+    this.createdAt,
+  });
+  final String id;
+  final UserBrief? user;
+  final int diamonds;
+  final DateTime? createdAt;
+  factory AgentRecharge.fromJson(Json j) => AgentRecharge(
+    id: j.str('id'),
+    user: j.objOrNull('user') == null
+        ? null
+        : UserBrief.fromJson(j.obj('user')),
+    diamonds: j.integer('diamonds'),
+    createdAt: j.date('createdAt'),
+  );
+}
+
+class AgentSummary {
+  const AgentSummary({
+    this.count = 0,
+    this.totalDiamonds = 0,
+    this.todayDiamonds = 0,
+    this.monthDiamonds = 0,
+  });
+  final int count;
+  final int totalDiamonds;
+  final int todayDiamonds;
+  final int monthDiamonds;
+  factory AgentSummary.fromJson(Json j) => AgentSummary(
+    count: j.integer('count'),
+    totalDiamonds: j.integer('totalDiamonds'),
+    todayDiamonds: j.integer('todayDiamonds'),
+    monthDiamonds: j.integer('monthDiamonds'),
   );
 }
 
@@ -650,6 +700,8 @@ class VipPackage {
     required this.priceDiamonds,
     required this.durationDays,
     required this.perks,
+    this.frameUrl,
+    this.frameFormat = 'none',
   });
   final String id;
   final int tier;
@@ -657,6 +709,10 @@ class VipPackage {
   final int priceDiamonds;
   final int durationDays;
   final List<String> perks;
+
+  /// The avatar frame members of this tier wear.
+  final String? frameUrl;
+  final String frameFormat;
   factory VipPackage.fromJson(Json j) => VipPackage(
     id: j.str('_id', j.str('id')),
     tier: j.integer('tier'),
@@ -664,6 +720,8 @@ class VipPackage {
     priceDiamonds: j.integer('priceDiamonds'),
     durationDays: j.integer('durationDays'),
     perks: j.strings('perks'),
+    frameUrl: j.strOrNull('frameUrl'),
+    frameFormat: j.str('frameFormat', 'none'),
   );
 }
 
@@ -677,6 +735,7 @@ class StoreItem {
     required this.priceDiamonds,
     required this.durationDays,
     required this.vipTierRequired,
+    this.animationFormat = 'none',
   });
   final String id;
   final String type;
@@ -686,12 +745,14 @@ class StoreItem {
   final int priceDiamonds;
   final int durationDays;
   final int vipTierRequired;
+  final String animationFormat;
   factory StoreItem.fromJson(Json j) => StoreItem(
     id: j.str('id'),
     type: j.str('type'),
     name: j.str('name'),
     assetUrl: j.str('assetUrl'),
     previewUrl: j.strOrNull('previewUrl'),
+    animationFormat: j.str('animationFormat', 'none'),
     priceDiamonds: j.integer('priceDiamonds'),
     durationDays: j.integer('durationDays'),
     vipTierRequired: j.integer('vipTierRequired'),
@@ -726,6 +787,10 @@ class PkHost {
     this.roundsWon = 0,
     required this.displayName,
     this.avatarUrl,
+    this.level = 0,
+    this.vipTier = 0,
+    this.frameUrl,
+    this.frameFormat = 'none',
   });
   final String uid;
   final String roomId;
@@ -736,6 +801,23 @@ class PkHost {
   final int roundsWon;
   final String displayName;
   final String? avatarUrl;
+  final int level;
+  final int vipTier;
+  final String? frameUrl;
+  final String frameFormat;
+
+  /// The host as a [UserBrief], for avatar and badge widgets.
+  UserBrief get brief => UserBrief(
+    id: uid,
+    shortId: '',
+    displayName: displayName,
+    avatarUrl: avatarUrl,
+    level: level,
+    vipTier: vipTier,
+    frameUrl: frameUrl,
+    frameFormat: frameFormat,
+  );
+
   factory PkHost.fromJson(Json j) => PkHost(
     uid: j.str('uid'),
     roomId: j.str('roomId'),
@@ -744,6 +826,10 @@ class PkHost {
     roundsWon: j.integer('roundsWon'),
     displayName: j.str('displayName'),
     avatarUrl: j.strOrNull('avatarUrl'),
+    level: j.integer('level'),
+    vipTier: j.integer('vipTier'),
+    frameUrl: j.strOrNull('frameUrl'),
+    frameFormat: j.str('frameFormat', 'none'),
   );
 }
 
@@ -902,4 +988,369 @@ class AppConfig {
       supportEmail: app.str('supportEmail'),
     );
   }
+}
+
+// ── Host agencies ───────────────────────────────────────────────────────────
+
+UserBrief? _briefOrNull(Json j, String key) =>
+    j.objOrNull(key) == null ? null : UserBrief.fromJson(j.obj(key));
+
+class AgencySummary {
+  const AgencySummary({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.logoUrl,
+    this.memberCount = 0,
+  });
+  final String id;
+
+  /// Public agency code, `HA-XXXXXXXX`.
+  final String code;
+  final String name;
+  final String? logoUrl;
+  final int memberCount;
+  factory AgencySummary.fromJson(Json j) => AgencySummary(
+    id: j.str('id'),
+    code: j.str('code'),
+    name: j.str('name'),
+    logoUrl: j.strOrNull('logoUrl'),
+    memberCount: j.integer('memberCount'),
+  );
+}
+
+/// A card in the home "Top agencies" slider.
+class TopAgency {
+  const TopAgency({
+    required this.agency,
+    required this.rank,
+    required this.periodBeans,
+  });
+  final AgencySummary agency;
+  final int rank;
+  final int periodBeans;
+  factory TopAgency.fromJson(Json j) => TopAgency(
+    agency: AgencySummary.fromJson(j),
+    rank: j.integer('rank'),
+    periodBeans: j.integer('periodBeans'),
+  );
+}
+
+class AgencyMember {
+  const AgencyMember({
+    this.user,
+    this.role = 'host',
+    this.locked = false,
+    this.dailyTargetMinutes,
+    this.joinedAt,
+    this.periodBeans = 0,
+    this.periodLiveSeconds = 0,
+    this.lifetimeBeans = 0,
+    this.lifetimeLiveSeconds = 0,
+    this.todayBeans = 0,
+    this.todayLiveSeconds = 0,
+    this.isLive = false,
+  });
+  final UserBrief? user;
+
+  /// `host` or `admin` (agency admin).
+  final String role;
+  final bool locked;
+  final int? dailyTargetMinutes;
+  final DateTime? joinedAt;
+  final int periodBeans;
+  final int periodLiveSeconds;
+  final int lifetimeBeans;
+  final int lifetimeLiveSeconds;
+  final int todayBeans;
+  final int todayLiveSeconds;
+  final bool isLive;
+
+  bool get isAdmin => role == 'admin';
+
+  /// Today's progress towards the daily target, 0–1; null when there is no target.
+  double? get targetProgress {
+    final t = dailyTargetMinutes;
+    if (t == null || t <= 0) return null;
+    return (todayLiveSeconds / (t * 60)).clamp(0, 1).toDouble();
+  }
+
+  factory AgencyMember.fromJson(Json j) => AgencyMember(
+    user: _briefOrNull(j, 'user'),
+    role: j.str('role', 'host'),
+    locked: j.flag('locked'),
+    dailyTargetMinutes: (j['dailyTargetMinutes'] as num?)?.toInt(),
+    joinedAt: j.date('joinedAt'),
+    periodBeans: j.integer('periodBeans'),
+    periodLiveSeconds: j.integer('periodLiveSeconds'),
+    lifetimeBeans: j.integer('lifetimeBeans'),
+    lifetimeLiveSeconds: j.integer('lifetimeLiveSeconds'),
+    todayBeans: j.integer('todayBeans'),
+    todayLiveSeconds: j.integer('todayLiveSeconds'),
+    isLive: j.flag('isLive'),
+  );
+}
+
+class AgencyDashboard {
+  const AgencyDashboard({
+    required this.agency,
+    required this.ownerId,
+    required this.commissionRate,
+    required this.status,
+    required this.role,
+    this.rank,
+    required this.periodKey,
+    required this.totals,
+    this.pendingRequests = 0,
+    this.pendingInvitations = 0,
+  });
+  final AgencySummary agency;
+  final String ownerId;
+  final double commissionRate;
+  final String status;
+
+  /// The caller's role: `owner` or `admin`.
+  final String role;
+  final int? rank;
+  final String periodKey;
+  final Json totals;
+  final int pendingRequests;
+  final int pendingInvitations;
+
+  bool get isOwner => role == 'owner';
+  bool get suspended => status != 'active';
+  int total(String key) => totals.integer(key);
+
+  factory AgencyDashboard.fromJson(Json j) {
+    final a = j.obj('agency');
+    return AgencyDashboard(
+      agency: AgencySummary.fromJson(a),
+      ownerId: a.str('ownerId'),
+      commissionRate: a.dbl('commissionRate'),
+      status: a.str('status', 'active'),
+      role: j.str('role', 'owner'),
+      rank: (j['rank'] as num?)?.toInt(),
+      periodKey: j.str('periodKey'),
+      totals: j.obj('totals'),
+      pendingRequests: j.integer('pendingRequests'),
+      pendingInvitations: j.integer('pendingInvitations'),
+    );
+  }
+}
+
+class AgencyDay {
+  const AgencyDay({
+    required this.dayKey,
+    this.beans = 0,
+    this.gifts = 0,
+    this.commission = 0,
+    this.liveSeconds = 0,
+    this.activeHosts,
+  });
+  final String dayKey;
+  final int beans;
+  final int gifts;
+  final int commission;
+  final int liveSeconds;
+  final int? activeHosts;
+  factory AgencyDay.fromJson(Json j) => AgencyDay(
+    dayKey: j.str('dayKey'),
+    beans: j.integer('beans'),
+    gifts: j.integer('gifts'),
+    commission: j.integer('commission'),
+    liveSeconds: j.integer('liveSeconds'),
+    activeHosts: (j['activeHosts'] as num?)?.toInt(),
+  );
+}
+
+class AgencyAnalytics {
+  const AgencyAnalytics({
+    required this.days,
+    required this.totals,
+    required this.daily,
+    this.member,
+    this.sessions,
+  });
+  final int days;
+  final AgencyDay totals;
+
+  /// Oldest first, one per day.
+  final List<AgencyDay> daily;
+
+  /// Set for a single host's analytics.
+  final AgencyMember? member;
+  final int? sessions;
+  factory AgencyAnalytics.fromJson(Json j) => AgencyAnalytics(
+    days: j.integer('days'),
+    totals: AgencyDay.fromJson({...j.obj('totals'), 'dayKey': ''}),
+    daily: j.list('daily', AgencyDay.fromJson),
+    member: j.objOrNull('member') == null
+        ? null
+        : AgencyMember.fromJson(j.obj('member')),
+    sessions: (j['sessions'] as num?)?.toInt(),
+  );
+}
+
+class AgencyGiftRow {
+  const AgencyGiftRow({
+    required this.id,
+    this.sender,
+    required this.giftName,
+    required this.quantity,
+    required this.cost,
+    required this.beans,
+    this.createdAt,
+  });
+  final String id;
+  final UserBrief? sender;
+  final String giftName;
+  final int quantity;
+  final int cost;
+  final int beans;
+  final DateTime? createdAt;
+  factory AgencyGiftRow.fromJson(Json j) => AgencyGiftRow(
+    id: j.str('id'),
+    sender: _briefOrNull(j, 'sender'),
+    giftName: j.str('giftName'),
+    quantity: j.integer('quantity', 1),
+    cost: j.integer('cost'),
+    beans: j.integer('beans'),
+    createdAt: j.date('createdAt'),
+  );
+}
+
+class AgencySessionRow {
+  const AgencySessionRow({
+    required this.id,
+    required this.type,
+    required this.title,
+    this.startedAt,
+    this.endedAt,
+    required this.durationSec,
+    required this.giftBeans,
+    required this.peakViewers,
+  });
+  final String id;
+  final String type;
+  final String title;
+  final DateTime? startedAt;
+  final DateTime? endedAt;
+  final int durationSec;
+  final int giftBeans;
+  final int peakViewers;
+  factory AgencySessionRow.fromJson(Json j) => AgencySessionRow(
+    id: j.str('id'),
+    type: j.str('type', 'video'),
+    title: j.str('title'),
+    startedAt: j.date('startedAt'),
+    endedAt: j.date('endedAt'),
+    durationSec: j.integer('durationSec'),
+    giftBeans: j.integer('giftBeans'),
+    peakViewers: j.integer('peakViewers'),
+  );
+}
+
+class AgencyLeaderboard {
+  const AgencyLeaderboard({
+    required this.periodKey,
+    required this.periods,
+    required this.items,
+  });
+  final String periodKey;
+  final List<String> periods;
+  final List<({int rank, UserBrief? user, int beans, int liveSeconds})> items;
+  factory AgencyLeaderboard.fromJson(Json j) => AgencyLeaderboard(
+    periodKey: j.str('periodKey'),
+    periods: j.strings('periods'),
+    items: j.list(
+      'items',
+      (r) => (
+        rank: r.integer('rank'),
+        user: _briefOrNull(r, 'user'),
+        beans: r.integer('beans'),
+        liveSeconds: r.integer('liveSeconds'),
+      ),
+    ),
+  );
+}
+
+class AgencyInvitation {
+  const AgencyInvitation({
+    required this.id,
+    required this.agency,
+    this.user,
+    this.invitedBy,
+    this.createdAt,
+    this.expiresAt,
+  });
+  final String id;
+  final AgencySummary agency;
+  final UserBrief? user;
+  final UserBrief? invitedBy;
+  final DateTime? createdAt;
+  final DateTime? expiresAt;
+  factory AgencyInvitation.fromJson(Json j) => AgencyInvitation(
+    id: j.str('id'),
+    agency: AgencySummary.fromJson(j.obj('agency')),
+    user: _briefOrNull(j, 'user'),
+    invitedBy: _briefOrNull(j, 'invitedBy'),
+    createdAt: j.date('createdAt'),
+    expiresAt: j.date('expiresAt'),
+  );
+}
+
+class AgencyRequest {
+  const AgencyRequest({required this.id, this.user, this.createdAt});
+  final String id;
+  final UserBrief? user;
+  final DateTime? createdAt;
+  factory AgencyRequest.fromJson(Json j) => AgencyRequest(
+    id: j.str('id'),
+    user: _briefOrNull(j, 'user'),
+    createdAt: j.date('createdAt'),
+  );
+}
+
+class AgencyAuditRow {
+  const AgencyAuditRow({
+    required this.id,
+    required this.action,
+    this.actor,
+    this.target,
+    this.meta = const {},
+    this.createdAt,
+  });
+  final String id;
+  final String action;
+  final UserBrief? actor;
+  final UserBrief? target;
+  final Json meta;
+  final DateTime? createdAt;
+  factory AgencyAuditRow.fromJson(Json j) => AgencyAuditRow(
+    id: j.str('id'),
+    action: j.str('action'),
+    actor: _briefOrNull(j, 'actor'),
+    target: _briefOrNull(j, 'target'),
+    meta: j.obj('meta'),
+    createdAt: j.date('createdAt'),
+  );
+}
+
+class AgencyMembership {
+  const AgencyMembership({
+    required this.agency,
+    this.role = 'host',
+    this.locked = false,
+    this.joinedAt,
+  });
+  final AgencySummary agency;
+  final String role;
+  final bool locked;
+  final DateTime? joinedAt;
+  factory AgencyMembership.fromJson(Json j) => AgencyMembership(
+    agency: AgencySummary.fromJson(j.obj('agency')),
+    role: j.str('role', 'host'),
+    locked: j.flag('locked'),
+    joinedAt: j.date('joinedAt'),
+  );
 }

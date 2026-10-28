@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { currentUser, parseBody, parseQuery } from '../lib/http.js';
 import { badRequest } from '../lib/errors.js';
 import { VOICE_FOLDER } from '../modules/live/live.service.js';
+import { AGENCY_LOGO_FOLDER } from '../modules/agencies/agencies.service.js';
 
 const MB = 1024 * 1024;
 const IMAGES = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -14,6 +15,8 @@ const UPLOAD_KINDS = {
   post: { folder: 'posts', types: [...IMAGES, 'video/mp4'], maxBytes: 50 * MB },
   chat: { folder: 'chat', types: IMAGES, maxBytes: 10 * MB },
   report: { folder: 'reports', types: IMAGES, maxBytes: 10 * MB },
+  /** Agency owners' logos. The folder is checked again when the agency profile is saved. */
+  'agency-logo': { folder: AGENCY_LOGO_FOLDER, types: IMAGES, maxBytes: 2 * MB },
   /** In-room voice messages (≤ 60 s AAC). The folder is checked again when the message is sent. */
   voice: { folder: VOICE_FOLDER, types: ['audio/mp4', 'audio/aac'], maxBytes: 2 * MB },
 } as const;

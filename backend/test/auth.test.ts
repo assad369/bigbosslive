@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { FIRST_SHORT_ID } from '@bigboss/shared';
 import { createHarness, type Harness } from './helpers/harness.js';
 
 let h: Harness;
@@ -33,7 +34,8 @@ describe('session bootstrap & auth', () => {
       country: 'BD',
       wallet: { diamonds: 0, beans: 0 },
     });
-    expect(first.body.user.shortId).toMatch(/^\d{8}$/);
+    // The first account on a fresh counter is numbered from FIRST_SHORT_ID.
+    expect(first.body.user.shortId).toBe(String(FIRST_SHORT_ID));
 
     const again = await h.api.post('/v1/auth/session').set(h.as('alice')).send({});
     expect(again.status).toBe(200);

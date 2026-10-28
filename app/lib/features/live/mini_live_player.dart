@@ -346,11 +346,7 @@ class _SpeakingAvatar extends StatelessWidget {
           width: 2,
         ),
       ),
-      child: BBAvatar(
-        url: host.avatarUrl,
-        name: host.displayName,
-        size: large ? 72 : 48,
-      ),
+      child: BBAvatar.user(host, size: large ? 72 : 48),
     );
   }
 }

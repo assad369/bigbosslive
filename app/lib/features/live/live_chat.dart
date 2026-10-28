@@ -253,6 +253,10 @@ class ChatBubble extends StatelessWidget {
           if (user != null) ...[
             LevelBadge(user.level, dense: true),
             const SizedBox(width: 3),
+            if (user.vipTier > 0) ...[
+              VipBadge(user.vipTier, dense: true),
+              const SizedBox(width: 3),
+            ],
           ],
           if (line.role == RoomRole.host || line.role == RoomRole.admin) ...[
             RoleBadge(line.role, dense: true),
@@ -317,13 +321,7 @@ class ChatBubble extends StatelessWidget {
         children: [
           GestureDetector(
             onTap: user == null ? null : () => onTapUser(user),
-            child: BBAvatar(
-              url: user?.avatarUrl,
-              name: user?.displayName ?? '',
-              size: 30,
-              vip: (user?.vipTier ?? 0) > 0,
-              frameUrl: user?.frameUrl,
-            ),
+            child: BBAvatar.user(user, size: 30),
           ),
           const SizedBox(width: 6),
           Flexible(

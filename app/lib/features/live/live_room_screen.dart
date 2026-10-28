@@ -334,6 +334,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                     onHeart: _heart,
                   ),
                 ),
+              Positioned.fill(child: EntryEffectOverlay(entries: c.entries)),
               Positioned.fill(child: GiftOverlay(gifts: c.gifts)),
             ],
           ),

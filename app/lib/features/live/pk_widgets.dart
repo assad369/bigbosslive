@@ -320,13 +320,7 @@ class _PkPanel extends StatelessWidget {
           else
             ColoredBox(
               color: BBColors.espresso,
-              child: Center(
-                child: BBAvatar(
-                  url: host.avatarUrl,
-                  name: host.displayName,
-                  size: 64,
-                ),
-              ),
+              child: Center(child: BBAvatar.user(host.brief, size: 64)),
             ),
           if (ended && !won && !battle.isDraw)
             const ColoredBox(color: BBColors.scrim),
@@ -381,11 +375,7 @@ class _PkPanel extends StatelessWidget {
                 for (final s in supporters)
                   Padding(
                     padding: const EdgeInsets.only(left: 2),
-                    child: BBAvatar(
-                      url: s.user?.avatarUrl,
-                      name: s.user?.displayName ?? '',
-                      size: 20,
-                    ),
+                    child: BBAvatar.user(s.user, size: 20),
                   ),
               ],
             ),
@@ -598,11 +588,7 @@ class PkWaitingBanner extends StatelessWidget {
         ),
         child: Row(
           children: [
-            BBAvatar(
-              url: opponent?.avatarUrl,
-              name: opponent?.displayName ?? '',
-              size: 28,
-            ),
+            BBAvatar.user(opponent?.brief, size: 28),
             const SizedBox(width: 8),
             Expanded(
               child: Text(

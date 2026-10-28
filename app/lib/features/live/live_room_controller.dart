@@ -100,6 +100,32 @@ class GiftEvent {
   final List<String> receiverNames;
 }
 
+/// Someone with a VIP tier or an entrance effect joined. [effectUrl] plays full-screen.
+class EntryEvent {
+  const EntryEvent({
+    required this.user,
+    this.effectUrl,
+    this.effectFormat = 'none',
+  });
+  final UserBrief user;
+  final String? effectUrl;
+  final String effectFormat;
+
+  factory EntryEvent.fromJson(Json p) {
+    // `effect` is current; `animation` (a store cosmetic) is what older servers sent.
+    final effect = p.objOrNull('effect');
+    final legacy = p.objOrNull('animation');
+    return EntryEvent(
+      user: UserBrief.fromJson(p.obj('user')),
+      effectUrl: effect?.strOrNull('url') ?? legacy?.strOrNull('assetUrl'),
+      effectFormat:
+          effect?.str('format', 'none') ??
+          legacy?.str('animationFormat', 'none') ??
+          'none',
+    );
+  }
+}
+
 /// A host or room admin asked this user onto a seat.
 class SeatInvite {
   const SeatInvite({required this.from, this.expiresAt});
@@ -168,7 +194,7 @@ class LiveRoomController extends ChangeNotifier {
   bool seatRequestPending = false;
 
   final _gifts = StreamController<GiftEvent>.broadcast();
-  final _entries = StreamController<UserBrief>.broadcast();
+  final _entries = StreamController<EntryEvent>.broadcast();
   final _pkInvites = StreamController<PkBattle>.broadcast();
   final _seatInvites = StreamController<SeatInvite>.broadcast();
   final _reactions = StreamController<int>.broadcast();
@@ -190,7 +216,7 @@ class LiveRoomController extends ChangeNotifier {
   int _pendingHearts = 0;
 
   Stream<GiftEvent> get gifts => _gifts.stream;
-  Stream<UserBrief> get entries => _entries.stream;
+  Stream<EntryEvent> get entries => _entries.stream;
   Stream<PkBattle> get pkInvites => _pkInvites.stream;
   Stream<SeatInvite> get seatInvites => _seatInvites.stream;
 
@@ -492,7 +518,7 @@ class LiveRoomController extends ChangeNotifier {
           ),
         );
       case 'bb.entry':
-        _entries.add(UserBrief.fromJson(p.obj('user')));
+        _entries.add(EntryEvent.fromJson(p));
       case 'bb.reaction':
         if (p.str('uid') != myUid) _reactions.add(p.integer('count', 1));
       case 'bb.kick':

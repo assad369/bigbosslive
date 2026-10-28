@@ -29,6 +29,7 @@ import {
   WalletOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import { SHORT_ID_PATTERN, VIP_TIERS, vipTierLabel } from '@bigboss/shared';
 import { get, newIdempotencyKey, send } from '../../lib/api';
 import { ago, dateTime, duration, num } from '../../lib/format';
 import { ActionButton, Money, PageHeader, StatusTag } from '../../components/common';
@@ -153,7 +154,7 @@ export function UserDetailPage() {
                 <StatusTag status={user.status} />
                 {user.vip.tier > 0 && (
                   <Tag icon={<CrownFilled />} color="gold">
-                    VIP {user.vip.tier}
+                    {vipTierLabel(user.vip.tier) ?? `Tier ${user.vip.tier}`}
                   </Tag>
                 )}
                 {user.isAgent && <Tag color="purple">Agent</Tag>}
@@ -501,8 +502,13 @@ export function UserDetailPage() {
       >
         {() => (
           <>
-            <Form.Item name="tier" label="Tier (0 removes VIP)" rules={[{ required: true }]}>
-              <InputNumber min={0} max={10} style={{ width: '100%' }} />
+            <Form.Item name="tier" label="Tier" rules={[{ required: true }]}>
+              <Select
+                options={[
+                  { value: 0, label: 'None (remove VIP)' },
+                  ...VIP_TIERS.map((t) => ({ value: t.tier, label: t.label })),
+                ]}
+              />
             </Form.Item>
             <Form.Item name="days" label="Days" rules={[{ required: true }]}>
               <InputNumber min={1} max={3650} style={{ width: '100%' }} />
@@ -530,7 +536,7 @@ export function UserDetailPage() {
             <Form.Item
               name="shortId"
               label="Short ID"
-              rules={[{ required: true, pattern: /^\d{4,12}$/, message: '4–12 digits' }]}
+              rules={[{ required: true, pattern: SHORT_ID_PATTERN, message: '3–12 digits' }]}
             >
               <Input />
             </Form.Item>

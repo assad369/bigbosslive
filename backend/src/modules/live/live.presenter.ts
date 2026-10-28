@@ -18,6 +18,8 @@ export function toLiveRoom(r: LiveRoomDoc, host: UserBrief | undefined): LiveRoo
       level: host?.level ?? 0,
       vipTier: host?.vipTier ?? 0,
       country: host?.country ?? null,
+      frameUrl: host?.frameUrl ?? null,
+      frameFormat: host?.frameFormat ?? 'none',
     },
     viewerCount: r.viewerCount,
     peakViewers: r.peakViewers,

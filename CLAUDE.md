@@ -40,6 +40,10 @@ cd app && flutter analyze && flutter test && dart format lib test
 - **Time:** use `ctx.clock.now()`, never `new Date()`, in anything a test may need to control.
 - **Pagination:** cursor lists sort `{ field: -1, _id: -1 }` and filter with `afterCursor()`.
   The `_id` tiebreak is required, because rows sharing a timestamp would otherwise be skipped.
+- **Short IDs:** new accounts are numbered from `FIRST_SHORT_ID` (200) on the
+  `user_short_id_v2` counter. Older accounts keep their 8-digit ids. Anything that accepts a
+  short id uses `SHORT_ID_PATTERN` (3–12 digits) and resolves it with `users.resolve()`, which
+  also accepts a uid.
 
 ## Money and invariants (read before changing)
 
@@ -59,6 +63,35 @@ cd app && flutter analyze && flutter test && dart format lib test
   transaction. PK scoring and broadcasts run *after* commit and must not fail the gift.
 - **Withdrawals** move beans out at request time (a hold). Rejection releases them. At most one
   pending request per user (partial unique index).
+
+## Host agencies
+
+- The owner is `agencies.ownerId` and never a member row. Members are `role: 'host' | 'admin'`.
+  `AgenciesService.actor()` gates every `/agencies/mine/*` call. Owner-only actions are
+  settings, roles, lock and targets. Agency admins handle applications, invitations and plain
+  hosts.
+- Hosts join only with consent: an application they send, or an invitation they accept.
+  `addMemberIn` cancels the user's other pending applications and invitations in the same
+  transaction. An agency owner can't be a host anywhere.
+- A locked host can't `leave`. Only platform staff unlock (`/admin/agencies/:id/members/:uid/unlock`).
+- Counters move inside the gift transaction (`recordEarnings`): the member's period and lifetime,
+  `agency_daily_stats`, and the agency's own `period`/`lifetime`. A stale `period.key` reads as
+  zero and is rolled forward, never back. Live time is split across zoned days.
+- The home ranking (`/agencies/top`) sorts by this month's agency beans. It is cached for 15 s
+  and dropped on create, update and monthly reset.
+- Every agency action writes `agency_audit`.
+
+## VIP ladder & cosmetics
+
+- `vipTier` 1/2/3 = VIP/VVIP/King (`VIP_TIERS`). Higher tiers sort first in viewer lists and on
+  the Popular tab (`liveRooms.hostVipTier`).
+- The frame a user shows comes from `resolveFrame()`: an equipped store frame, else their active
+  tier's frame (`equipped.vipFrame*`, copied from the package on purchase or grant and re-synced
+  when the package changes). It is never read from `equipped` directly. Briefs, LiveKit
+  metadata, PK hosts and room hosts all carry `frameUrl` + `frameFormat`.
+- Entrance effect at `/join`: the equipped entry animation, else the tier's
+  `entryAnimationUrl`. The app plays SVGA, Lottie and MP4 (muted) via `EffectView`, and draws
+  every avatar with `BBAvatar.user()`.
 
 ## Live rooms
 

@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { CURRENCIES, COSMETIC_TYPES, GAME_KEYS } from '@bigboss/shared';
+import {
+  AGENCY_ROLES,
+  CURRENCIES,
+  COSMETIC_TYPES,
+  GAME_KEYS,
+  SHORT_ID_PATTERN,
+} from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createRateLimiter } from '../middleware/http.js';
@@ -19,6 +25,7 @@ import { sendGiftInput } from '../modules/gifts/gifts.service.js';
 import { iapVerifyInput } from '../modules/wallet/iap.service.js';
 import { withdrawalInput } from '../modules/withdrawals/withdrawals.service.js';
 import { placeBetInput } from '../modules/games/games.service.js';
+import { agencyProfileInput, toAgencySummary } from '../modules/agencies/agencies.service.js';
 
 const idParams = z.object({ id: objectIdString });
 const gameParam = z.object({ key: z.enum(GAME_KEYS) });
@@ -90,13 +97,7 @@ export function economyRoutes(ctx: Ctx): Router {
       }),
     );
     // Agents type the public short id; accept a uid too.
-    const user = /^\d{4,12}$/.test(target)
-      ? await ctx.col.users.findOne(
-          { shortId: target, status: 'active' },
-          { projection: { _id: 1 } },
-        )
-      : await ctx.col.users.findOne({ _id: target, status: 'active' }, { projection: { _id: 1 } });
-    if (!user) throw notFound('User');
+    const user = await users.resolve(target);
     const { recharge, replayed } = await wallet.recharge({
       uid: user._id,
       diamonds,
@@ -110,7 +111,7 @@ export function economyRoutes(ctx: Ctx): Router {
 
   r.get('/agent/lookup/:shortId', async (req, res) => {
     if (!currentUser(req).user.isAgent) throw forbidden();
-    const { shortId } = z.object({ shortId: z.string().regex(/^\d{4,12}$/) }).parse(req.params);
+    const { shortId } = parseParams(req, z.object({ shortId: z.string().regex(SHORT_ID_PATTERN) }));
     const user = await ctx.col.users.findOne(
       { shortId, status: 'active' },
       { projection: { _id: 1 } },
@@ -120,15 +121,25 @@ export function economyRoutes(ctx: Ctx): Router {
   });
 
   r.get('/agent/history', async (req, res) => {
-    if (!currentUser(req).user.isAgent) throw forbidden();
+    const me = currentUser(req);
+    if (!me.user.isAgent) throw forbidden();
     const q = parseQuery(
       req,
-      z.object({
-        page: z.coerce.number().int().min(1).default(1),
-        pageSize: z.coerce.number().int().min(1).max(100).default(20),
-      }),
+      cursorQuery.extend({ q: z.string().trim().regex(SHORT_ID_PATTERN).optional() }),
     );
-    res.json(await wallet.listRecharges({ agentId: currentUser(req).uid }, q.page, q.pageSize));
+    let targetUid: string | undefined;
+    if (q.q) {
+      const target = await ctx.col.users.findOne({ shortId: q.q }, { projection: { _id: 1 } });
+      if (!target) return void res.json({ items: [], nextCursor: null });
+      targetUid = target._id;
+    }
+    res.json(await wallet.agentHistory(me.uid, { targetUid, cursor: q.cursor, limit: q.limit }));
+  });
+
+  r.get('/agent/summary', async (req, res) => {
+    const me = currentUser(req);
+    if (!me.user.isAgent) throw forbidden();
+    res.json(await wallet.agentSummary(me.uid));
   });
 
   // ── Store ─────────────────────────────────────────────────────────────────
@@ -167,6 +178,9 @@ export function economyRoutes(ctx: Ctx): Router {
   });
 
   // ── Host agencies ────────────────────────────────────────────────────────────
+  const hostParam = z.object({ uid: z.string().min(1).max(128) });
+  const daysQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(30) });
+
   r.get('/agencies', async (req, res) => {
     const q = parseQuery(
       req,
@@ -177,41 +191,99 @@ export function economyRoutes(ctx: Ctx): Router {
       }),
     );
     const result = await agencies.list({ q: q.q, status: 'active' }, q.page, q.pageSize);
-    res.json({
-      ...result,
-      items: result.items.map((a) => ({
-        id: String(a._id),
-        name: a.name,
-        logoUrl: a.logoUrl,
-        memberCount: a.memberCount,
-      })),
-    });
+    res.json({ ...result, items: result.items.map(toAgencySummary) });
+  });
+
+  /** Home-screen "Top agencies" slider: this month's ranking. */
+  r.get('/agencies/top', async (req, res) => {
+    const { limit } = parseQuery(
+      req,
+      z.object({ limit: z.coerce.number().int().min(1).max(50).default(20) }),
+    );
+    res.set('Cache-Control', 'private, max-age=15');
+    res.json({ items: await agencies.top(limit) });
   });
 
   r.get('/agencies/membership', async (req, res) => {
-    const member = await ctx.col.agencyMembers.findOne({ userId: currentUser(req).uid });
-    const agency = member ? await agencies.get(member.agencyId) : null;
-    res.json({
-      membership:
-        member && agency
-          ? { agencyId: String(agency._id), name: agency.name, joinedAt: member.joinedAt }
-          : null,
-    });
+    res.json({ membership: await agencies.membership(currentUser(req).uid) });
   });
 
-  r.post('/agencies/:id/join', async (req, res) => {
+  r.get('/agencies/invitations', async (req, res) => {
+    res.json({ items: await agencies.myInvitations(currentUser(req).uid) });
+  });
+
+  r.post('/agencies/invitations/:id', async (req, res) => {
     const { id } = parseParams(req, idParams);
-    await agencies.requestToJoin(currentUser(req).uid, toObjectId(id));
-    res.status(202).end();
-  });
-
-  r.post('/agencies/leave', async (req, res) => {
-    await agencies.removeMember(currentUser(req).uid);
+    const { accept } = parseBody(req, z.object({ accept: z.boolean() }));
+    await agencies.respondInvitation(currentUser(req).uid, toObjectId(id), accept);
     res.status(204).end();
   });
 
+  r.post('/agencies/leave', async (req, res) => {
+    await agencies.leave(currentUser(req).uid);
+    res.status(204).end();
+  });
+
+  // Managing an agency: the owner, or an agency admin (finer rules live in the service).
   r.get('/agencies/mine', async (req, res) => {
-    res.json(await agencies.ownerDashboard(currentUser(req).uid));
+    res.json(await agencies.dashboard(currentUser(req).uid));
+  });
+
+  r.patch('/agencies/mine', async (req, res) => {
+    const agency = await agencies.updateProfile(
+      currentUser(req).uid,
+      parseBody(req, agencyProfileInput),
+    );
+    res.json({ agency: toAgencySummary(agency) });
+  });
+
+  r.get('/agencies/mine/members', async (req, res) => {
+    res.json({ items: await agencies.managedMembers(currentUser(req).uid) });
+  });
+
+  r.delete('/agencies/mine/members/:uid', async (req, res) => {
+    const { uid } = parseParams(req, hostParam);
+    await agencies.removeByManager(currentUser(req).uid, uid);
+    res.status(204).end();
+  });
+
+  r.post('/agencies/mine/members/:uid/role', async (req, res) => {
+    const { uid } = parseParams(req, hostParam);
+    const { role } = parseBody(req, z.object({ role: z.enum(AGENCY_ROLES) }));
+    await agencies.setRole(currentUser(req).uid, uid, role);
+    res.status(204).end();
+  });
+
+  r.post('/agencies/mine/members/:uid/lock', async (req, res) => {
+    const { uid } = parseParams(req, hostParam);
+    await agencies.lock(currentUser(req).uid, uid);
+    res.status(204).end();
+  });
+
+  r.put('/agencies/mine/members/:uid/target', async (req, res) => {
+    const { uid } = parseParams(req, hostParam);
+    const { minutes } = parseBody(
+      req,
+      z.object({ minutes: z.number().int().min(1).max(1440).nullable() }),
+    );
+    await agencies.setDailyTarget(currentUser(req).uid, uid, minutes);
+    res.status(204).end();
+  });
+
+  r.get('/agencies/mine/members/:uid/analytics', async (req, res) => {
+    const { uid } = parseParams(req, hostParam);
+    const { days } = parseQuery(req, daysQuery);
+    res.json(await agencies.hostAnalytics(currentUser(req).uid, uid, days));
+  });
+
+  r.get('/agencies/mine/members/:uid/gifts', async (req, res) => {
+    const { uid } = parseParams(req, hostParam);
+    res.json(await agencies.hostGifts(currentUser(req).uid, uid, parseQuery(req, cursorQuery)));
+  });
+
+  r.get('/agencies/mine/members/:uid/sessions', async (req, res) => {
+    const { uid } = parseParams(req, hostParam);
+    res.json(await agencies.hostSessions(currentUser(req).uid, uid, parseQuery(req, cursorQuery)));
   });
 
   r.get('/agencies/mine/requests', async (req, res) => {
@@ -225,14 +297,48 @@ export function economyRoutes(ctx: Ctx): Router {
     res.status(204).end();
   });
 
-  r.delete('/agencies/mine/members/:uid', async (req, res) => {
-    const { uid } = z.object({ uid: z.string().min(1).max(128) }).parse(req.params);
-    const agency = await agencies.byOwner(currentUser(req).uid);
-    const member = await ctx.col.agencyMembers.findOne({ userId: uid });
-    if (!agency || !member || String(member.agencyId) !== String(agency._id))
-      throw notFound('Member');
-    await agencies.removeMember(uid);
+  r.get('/agencies/mine/invitations', async (req, res) => {
+    res.json({ items: await agencies.agencyInvitations(currentUser(req).uid) });
+  });
+
+  r.post('/agencies/mine/invitations', async (req, res) => {
+    const { target } = parseBody(req, z.object({ target: z.string().trim().min(1).max(128) }));
+    res.status(201).json({ invitation: await agencies.invite(currentUser(req).uid, target) });
+  });
+
+  r.delete('/agencies/mine/invitations/:id', async (req, res) => {
+    const { id } = parseParams(req, idParams);
+    await agencies.cancelInvitation(currentUser(req).uid, toObjectId(id));
     res.status(204).end();
+  });
+
+  r.get('/agencies/mine/analytics', async (req, res) => {
+    const { days } = parseQuery(req, daysQuery);
+    res.json(await agencies.analytics(currentUser(req).uid, days));
+  });
+
+  r.get('/agencies/mine/leaderboard', async (req, res) => {
+    const { periodKey } = parseQuery(
+      req,
+      z.object({
+        periodKey: z
+          .string()
+          .regex(/^\d{4}-\d{2}$/)
+          .optional(),
+      }),
+    );
+    res.json(await agencies.leaderboard(currentUser(req).uid, periodKey));
+  });
+
+  r.get('/agencies/mine/audit', async (req, res) => {
+    res.json(await agencies.managedAuditLog(currentUser(req).uid, parseQuery(req, cursorQuery)));
+  });
+
+  // Declared after the literal /agencies/* paths so "top", "mine" etc. never match :id.
+  r.post('/agencies/:id/join', async (req, res) => {
+    const { id } = parseParams(req, idParams);
+    await agencies.requestToJoin(currentUser(req).uid, toObjectId(id));
+    res.status(202).end();
   });
 
   // ── Withdrawals ──────────────────────────────────────────────────────────────

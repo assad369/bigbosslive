@@ -3,8 +3,10 @@ import { z } from 'zod';
 import {
   ANIMATION_FORMATS,
   COSMETIC_TYPES,
+  MAX_VIP_TIER,
   type Cosmetic,
   type CosmeticType,
+  type EntryEffect,
 } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { CosmeticDoc, VipPackageDoc } from '../../db/schema.js';
@@ -20,13 +22,16 @@ import { addDays } from '../../lib/time.js';
 import { activeVipTier } from '../users/users.presenter.js';
 
 export const vipPackageInput = z.object({
-  tier: z.number().int().min(1).max(10),
+  tier: z.number().int().min(1).max(MAX_VIP_TIER),
   name: z.string().trim().min(1).max(40),
   priceDiamonds: z.number().int().positive(),
   durationDays: z.number().int().min(1).max(366),
   perks: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
   badgeUrl: z.url().nullable().default(null),
   frameUrl: z.url().nullable().default(null),
+  frameFormat: z.enum(ANIMATION_FORMATS).default('none'),
+  entryAnimationUrl: z.url().nullable().default(null),
+  entryAnimationFormat: z.enum(ANIMATION_FORMATS).default('none'),
   active: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
 });
@@ -39,7 +44,7 @@ export const cosmeticInput = z.object({
   animationFormat: z.enum(ANIMATION_FORMATS).default('none'),
   priceDiamonds: z.number().int().min(0),
   durationDays: z.number().int().min(1).max(3650),
-  vipTierRequired: z.number().int().min(0).max(10).default(0),
+  vipTierRequired: z.number().int().min(0).max(MAX_VIP_TIER).default(0),
   active: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
 });
@@ -76,24 +81,60 @@ export class StoreService {
     id: ObjectId | null,
     input: z.infer<typeof vipPackageInput>,
   ): Promise<VipPackageDoc> {
+    let saved: VipPackageDoc;
+    let previousTier: number | null = null;
     try {
       if (!id) {
-        const doc: VipPackageDoc = { _id: new ObjectId(), ...input };
-        await this.ctx.col.vipPackages.insertOne(doc);
-        return doc;
+        saved = { _id: new ObjectId(), ...input };
+        await this.ctx.col.vipPackages.insertOne(saved);
+      } else {
+        const before = await this.ctx.col.vipPackages.findOneAndUpdate(
+          { _id: id },
+          { $set: input },
+          { returnDocument: 'before' },
+        );
+        if (!before) throw notFound('VIP package');
+        previousTier = before.tier;
+        saved = { ...before, ...input };
       }
-      const res = await this.ctx.col.vipPackages.findOneAndUpdate(
-        { _id: id },
-        { $set: input },
-        { returnDocument: 'after' },
-      );
-      if (!res) throw notFound('VIP package');
-      return res;
     } catch (err) {
       if (isDuplicateKeyError(err))
         throw conflict(`A package for VIP ${input.tier} already exists`);
       throw err;
     }
+    // Members wear their tier's frame: re-sync everyone on the affected tiers.
+    await this.syncTierFrame(saved.tier);
+    if (previousTier !== null && previousTier !== saved.tier)
+      await this.syncTierFrame(previousTier);
+    return saved;
+  }
+
+  /** The VIP frame fields a holder of `tier` should carry, from that tier's package. */
+  private async tierFrame(tier: number, session?: ClientSession) {
+    const pkg = tier
+      ? await this.ctx.col.vipPackages.findOne({ tier }, session ? { session } : {})
+      : null;
+    return {
+      'equipped.vipFrameUrl': pkg?.frameUrl ?? null,
+      'equipped.vipFrameFormat': pkg?.frameUrl ? pkg.frameFormat : 'none',
+    } as const;
+  }
+
+  private async syncTierFrame(tier: number): Promise<void> {
+    await this.ctx.col.users.updateMany({ 'vip.tier': tier }, { $set: await this.tierFrame(tier) });
+  }
+
+  /** Admin grant (or removal with tier 0) of VIP for `days`, with the tier's frame. */
+  async grantVip(uid: string, tier: number, days: number): Promise<void> {
+    const vip =
+      tier === 0
+        ? { tier: 0, expiresAt: null }
+        : { tier, expiresAt: addDays(this.ctx.clock.now(), days) };
+    const res = await this.ctx.col.users.updateOne(
+      { _id: uid },
+      { $set: { vip, ...(await this.tierFrame(tier)) } },
+    );
+    if (!res.matchedCount) throw notFound('User');
   }
 
   /**
@@ -124,7 +165,12 @@ export class StoreService {
       });
       await this.ctx.col.users.updateOne(
         { _id: uid },
-        { $set: { vip: { tier: pkg.tier, expiresAt } } },
+        {
+          $set: {
+            vip: { tier: pkg.tier, expiresAt },
+            ...(await this.tierFrame(pkg.tier, session)),
+          },
+        },
         { session },
       );
       return { tier: pkg.tier, expiresAt: expiresAt.toISOString(), diamonds };
@@ -233,7 +279,7 @@ export class StoreService {
     if (!cosmeticId) {
       const $set =
         type === 'frame'
-          ? { 'equipped.frameId': null, 'equipped.frameUrl': null }
+          ? { 'equipped.frameId': null, 'equipped.frameUrl': null, 'equipped.frameFormat': 'none' }
           : { 'equipped.entryAnimationId': null };
       await this.ctx.col.users.updateOne({ _id: uid }, { $set });
       return;
@@ -249,7 +295,11 @@ export class StoreService {
     if (!item || item.type !== type) throw badRequest(`Item is not a ${type}`);
     const $set =
       type === 'frame'
-        ? { 'equipped.frameId': item._id, 'equipped.frameUrl': item.assetUrl }
+        ? {
+            'equipped.frameId': item._id,
+            'equipped.frameUrl': item.assetUrl,
+            'equipped.frameFormat': item.animationFormat,
+          }
         : { 'equipped.entryAnimationId': item._id };
     await this.ctx.col.users.updateOne({ _id: uid }, { $set });
   }
@@ -265,7 +315,13 @@ export class StoreService {
     for (const e of expired) {
       const a = await this.ctx.col.users.updateOne(
         { _id: e.userId, 'equipped.frameId': e.cosmeticId },
-        { $set: { 'equipped.frameId': null, 'equipped.frameUrl': null } },
+        {
+          $set: {
+            'equipped.frameId': null,
+            'equipped.frameUrl': null,
+            'equipped.frameFormat': 'none',
+          },
+        },
       );
       const b = await this.ctx.col.users.updateOne(
         { _id: e.userId, 'equipped.entryAnimationId': e.cosmeticId },
@@ -286,5 +342,22 @@ export class StoreService {
     if (!id) return null;
     const item = await this.ctx.col.cosmetics.findOne({ _id: id });
     return item ? toCosmetic(item) : null;
+  }
+
+  /**
+   * The entrance effect played when `uid` joins a room: their equipped entry animation, else
+   * the entrance effect of the VIP tier they hold, else none.
+   */
+  async entryEffectFor(uid: string, vipTier: number): Promise<EntryEffect | null> {
+    const equipped = await this.entryAnimationFor(uid);
+    if (equipped) return { url: equipped.assetUrl, format: equipped.animationFormat };
+    if (vipTier <= 0) return null;
+    const pkg = await this.ctx.col.vipPackages.findOne(
+      { tier: vipTier },
+      { projection: { entryAnimationUrl: 1, entryAnimationFormat: 1 } },
+    );
+    return pkg?.entryAnimationUrl
+      ? { url: pkg.entryAnimationUrl, format: pkg.entryAnimationFormat ?? 'none' }
+      : null;
   }
 }

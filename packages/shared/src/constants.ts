@@ -2,8 +2,31 @@
 export const ADMIN_ROLES = ['support', 'moderator', 'finance', 'admin', 'superadmin'] as const;
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 
+/**
+ * Public numeric user id ("ID 200"). New accounts are numbered from {@link FIRST_SHORT_ID};
+ * accounts created before the switch keep their 8-digit ids, and admins may assign vanity ids.
+ */
+export const SHORT_ID_PATTERN = /^\d{3,12}$/;
+export const FIRST_SHORT_ID = 200;
+
 export const USER_STATUSES = ['active', 'banned', 'deleted'] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
+
+/**
+ * The VIP ladder. A user's `vipTier` (0 = none) maps to one of these; higher tiers outrank
+ * lower ones everywhere a ranking by status applies (viewer lists, the Popular tab).
+ */
+export const VIP_TIERS = [
+  { tier: 1, key: 'vip', label: 'VIP' },
+  { tier: 2, key: 'vvip', label: 'VVIP' },
+  { tier: 3, key: 'king', label: 'King' },
+] as const;
+export const MAX_VIP_TIER = 3;
+export type VipTierKey = (typeof VIP_TIERS)[number]['key'];
+
+export function vipTierLabel(tier: number): string | null {
+  return VIP_TIERS.find((t) => t.tier === tier)?.label ?? null;
+}
 
 export const ROOM_TYPES = ['video', 'audio'] as const;
 export type RoomType = (typeof ROOM_TYPES)[number];
@@ -126,6 +149,7 @@ export const ADMIN_UPLOAD_KINDS = {
   'gift-animation': { types: ANIMATIONS, maxBytes: 20 * MB },
   'vip-badge': { types: IMAGES, maxBytes: 2 * MB },
   'vip-frame': { types: [...IMAGES, 'application/octet-stream'], maxBytes: 10 * MB },
+  'vip-entry': { types: [...IMAGES, ...ANIMATIONS], maxBytes: 20 * MB },
   'cosmetic-asset': { types: [...IMAGES, ...ANIMATIONS], maxBytes: 20 * MB },
   'cosmetic-preview': { types: IMAGES, maxBytes: 2 * MB },
   'level-icon': { types: IMAGES, maxBytes: 2 * MB },
@@ -140,6 +164,33 @@ export const ADMIN_UPLOAD_KIND_NAMES = Object.keys(ADMIN_UPLOAD_KINDS) as [
   AdminUploadKind,
   ...AdminUploadKind[],
 ];
+
+/** Roles inside a host agency. The owner is `agencies.ownerId`, never a member row. */
+export const AGENCY_ROLES = ['host', 'admin'] as const;
+export type AgencyRole = (typeof AGENCY_ROLES)[number];
+
+export const AGENCY_AUDIT_ACTIONS = [
+  'agency_created',
+  'agency_updated',
+  'agency_suspended',
+  'agency_reactivated',
+  'host_invited',
+  'invite_cancelled',
+  'invite_accepted',
+  'invite_declined',
+  'request_submitted',
+  'request_approved',
+  'request_rejected',
+  'host_added',
+  'host_removed',
+  'host_left',
+  'host_locked',
+  'host_unlocked',
+  'admin_promoted',
+  'admin_demoted',
+  'target_updated',
+] as const;
+export type AgencyAuditAction = (typeof AGENCY_AUDIT_ACTIONS)[number];
 
 export const MESSAGE_TYPES = ['text', 'image', 'gift', 'system'] as const;
 export type MessageType = (typeof MESSAGE_TYPES)[number];

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FIRST_SHORT_ID, SHORT_ID_PATTERN } from '@bigboss/shared';
 import type { Filter } from 'mongodb';
 import type { Ctx } from '../../context.js';
 import type { UserDoc } from '../../db/schema.js';
@@ -16,7 +17,11 @@ export const profileInput = z.object({
 });
 export type ProfileInput = z.infer<typeof profileInput>;
 
-const FIRST_SHORT_ID = 10_000_000;
+/**
+ * Accounts are numbered from FIRST_SHORT_ID on their own counter. The pre-switch counter
+ * (`user_short_id`, based at 10,000,000) is left untouched, so old and new ids never overlap.
+ */
+const SHORT_ID_COUNTER = 'user_short_id_v2';
 
 export class UsersService {
   constructor(private readonly ctx: Ctx) {}
@@ -28,6 +33,20 @@ export class UsersService {
   async get(uid: string): Promise<UserDoc> {
     const user = await this.col.findOne({ _id: uid });
     if (!user || user.status === 'deleted') throw notFound('User');
+    return user;
+  }
+
+  /**
+   * Find an active user by the public short id people type, or by uid. Short ids are tried
+   * first for all-digit input; the uid is the fallback either way.
+   */
+  async resolve(identifier: string): Promise<UserDoc> {
+    const id = identifier.trim();
+    const byShortId = SHORT_ID_PATTERN.test(id)
+      ? await this.col.findOne({ shortId: id, status: 'active' })
+      : null;
+    const user = byShortId ?? (await this.col.findOne({ _id: id, status: 'active' }));
+    if (!user) throw notFound('User');
     return user;
   }
 
@@ -43,11 +62,11 @@ export class UsersService {
 
   private async nextShortId(): Promise<string> {
     const res = await this.ctx.col.counters.findOneAndUpdate(
-      { _id: 'user_short_id' },
+      { _id: SHORT_ID_COUNTER },
       { $inc: { seq: 1 } },
       { upsert: true, returnDocument: 'after' },
     );
-    return String(FIRST_SHORT_ID + (res?.seq ?? 1));
+    return String(FIRST_SHORT_ID + (res?.seq ?? 1) - 1);
   }
 
   /**
@@ -101,7 +120,14 @@ export class UsersService {
         },
         level: { level: 0, points: 0 },
         vip: { tier: 0, expiresAt: null },
-        equipped: { frameId: null, entryAnimationId: null, frameUrl: null },
+        equipped: {
+          frameId: null,
+          entryAnimationId: null,
+          frameUrl: null,
+          frameFormat: 'none',
+          vipFrameUrl: null,
+          vipFrameFormat: 'none',
+        },
         agencyId: null,
         liveRoomId: null,
         createdAt: now,
@@ -173,7 +199,7 @@ export class UsersService {
     const term = q.trim();
     if (!term) return [];
     const escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const filter: Filter<UserDoc> = /^\d{5,12}$/.test(term)
+    const filter: Filter<UserDoc> = SHORT_ID_PATTERN.test(term)
       ? {
           status: 'active',
           $or: [{ shortId: term }, { displayNameLower: { $regex: `^${escaped}` } }],
@@ -281,7 +307,7 @@ export class UsersService {
 
   /** Admin: give a user a specific (e.g. vanity) short id, or swap ids between two users. */
   async setShortId(uid: string, shortId: string): Promise<void> {
-    if (!/^\d{4,12}$/.test(shortId)) throw badRequest('Short id must be 4–12 digits');
+    if (!SHORT_ID_PATTERN.test(shortId)) throw badRequest('Short id must be 3–12 digits');
     const holder = await this.col.findOne({ shortId }, { projection: { _id: 1 } });
     if (holder && holder._id !== uid) {
       // Swap inside a transaction so neither user is ever left without an id.

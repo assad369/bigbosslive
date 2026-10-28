@@ -66,11 +66,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           await _list.refresh();
           ref.invalidate(unreadProvider);
         },
-        leading: BBAvatar(
-          url: c.peer?.avatarUrl,
-          name: c.peer?.displayName ?? '',
-          vip: (c.peer?.vipTier ?? 0) > 0,
-        ),
+        leading: BBAvatar.user(c.peer),
         title: Text(
           c.peer?.displayName ?? 'User',
           style: TextStyle(
@@ -258,11 +254,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
           onTap: peer == null ? null : () => context.push('/user/${peer.id}'),
           child: Row(
             children: [
-              BBAvatar(
-                url: peer?.avatarUrl,
-                name: peer?.displayName ?? '',
-                size: 34,
-              ),
+              BBAvatar.user(peer, size: 34),
               const SizedBox(width: 10),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

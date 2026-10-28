@@ -218,13 +218,7 @@ class LiveUserSheet extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            BBAvatar(
-              url: user.avatarUrl,
-              name: user.displayName,
-              size: 72,
-              vip: user.vipTier > 0,
-              frameUrl: user.frameUrl,
-            ),
+            BBAvatar.user(user, size: 72),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,

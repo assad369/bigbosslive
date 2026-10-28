@@ -7,6 +7,7 @@ import '../network/api_exception.dart';
 import '../theme/bb_colors.dart';
 import '../utils/format.dart';
 import '../utils/json.dart';
+import 'frame_view.dart';
 
 /// Gold-gradient call-to-action button.
 class GoldButton extends StatelessWidget {
@@ -102,7 +103,9 @@ class GradientText extends StatelessWidget {
   );
 }
 
-/// Round avatar with an optional cosmetic frame overlay and gold ring for VIPs.
+/// Round avatar with the user's cosmetic frame (image, SVGA or Lottie) and, when they have
+/// no frame, a ring in their VIP tier's colours. Prefer [BBAvatar.user] so no call site can
+/// forget the frame or tier.
 class BBAvatar extends StatelessWidget {
   const BBAvatar({
     super.key,
@@ -110,28 +113,60 @@ class BBAvatar extends StatelessWidget {
     this.name = '',
     this.size = 44,
     this.frameUrl,
-    this.vip = false,
+    this.frameFormat,
+    this.vipTier = 0,
     this.live = false,
+    this.ring = false,
   });
+
+  BBAvatar.user(
+    UserBrief? user, {
+    Key? key,
+    double size = 44,
+    bool live = false,
+    bool ring = false,
+    String fallbackName = '',
+  }) : this(
+         key: key,
+         url: user?.avatarUrl,
+         name: user?.displayName ?? fallbackName,
+         size: size,
+         frameUrl: user?.frameUrl,
+         frameFormat: user?.frameFormat,
+         vipTier: user?.vipTier ?? 0,
+         live: live,
+         ring: ring,
+       );
 
   final String? url;
   final String name;
   final double size;
   final String? frameUrl;
-  final bool vip;
+  final String? frameFormat;
+
+  /// 0 none, 1 VIP, 2 VVIP, 3 King.
+  final int vipTier;
   final bool live;
+
+  /// Force a gold ring even without a tier (e.g. the host's seat).
+  final bool ring;
+
+  /// How far a frame reaches past the avatar on each side, as a fraction of [size].
+  static const frameOverhang = 0.18;
 
   @override
   Widget build(BuildContext context) {
     final initial = name.isNotEmpty ? name.characters.first.toUpperCase() : '?';
+    final hasFrame = frameUrl != null && frameUrl!.isNotEmpty;
+    final Gradient? ringGradient = hasFrame
+        ? null
+        : BBColors.tierGradient(vipTier) ??
+              (live || ring ? BBColors.goldGradient : null);
     final avatar = Container(
       width: size,
       height: size,
-      padding: EdgeInsets.all(vip || live ? 2 : 0),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: vip || live ? BBColors.goldGradient : null,
-      ),
+      padding: EdgeInsets.all(ringGradient != null ? (size >= 56 ? 3 : 2) : 0),
+      decoration: BoxDecoration(shape: BoxShape.circle, gradient: ringGradient),
       child: ClipOval(
         child: url == null || url!.isEmpty
             ? Container(
@@ -156,7 +191,8 @@ class BBAvatar extends StatelessWidget {
               ),
       ),
     );
-    if (frameUrl == null && !live) return avatar;
+    if (!hasFrame && !live) return avatar;
+    final overhang = size * frameOverhang;
     return SizedBox(
       width: size,
       height: size,
@@ -164,13 +200,15 @@ class BBAvatar extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           avatar,
-          if (frameUrl != null && frameUrl!.endsWith('.png'))
+          if (hasFrame)
             Positioned(
-              left: -size * 0.15,
-              top: -size * 0.15,
-              right: -size * 0.15,
-              bottom: -size * 0.15,
-              child: CachedNetworkImage(imageUrl: frameUrl!),
+              left: -overhang,
+              top: -overhang,
+              child: FrameView(
+                url: frameUrl!,
+                format: frameFormat,
+                size: size + overhang * 2,
+              ),
             ),
           if (live)
             Positioned(
@@ -249,38 +287,82 @@ class LevelBadge extends StatelessWidget {
   );
 }
 
+/// VIP / VVIP / King badge in the tier's colours. Draws nothing for tier 0.
 class VipBadge extends StatelessWidget {
-  const VipBadge(this.tier, {super.key});
+  const VipBadge(this.tier, {super.key, this.dense = false});
   final int tier;
+  final bool dense;
+
+  static String? labelFor(int tier) => switch (tier) {
+    1 => 'VIP',
+    2 => 'VVIP',
+    >= 3 => 'King',
+    _ => null,
+  };
 
   @override
   Widget build(BuildContext context) {
-    if (tier <= 0) return const SizedBox.shrink();
+    final label = labelFor(tier);
+    if (label == null) return const SizedBox.shrink();
+    final king = tier >= 3;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? 4 : 6,
+        vertical: dense ? 1 : 2,
+      ),
       decoration: BoxDecoration(
-        color: BBColors.ink,
+        gradient: BBColors.tierGradient(tier),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: BBColors.gold),
+        border: king ? Border.all(color: BBColors.goldLight, width: 0.8) : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.workspace_premium,
-            size: 12,
-            color: BBColors.goldLight,
+          Icon(
+            king ? Icons.emoji_events : Icons.workspace_premium,
+            size: dense ? 10 : 12,
+            color: Colors.white,
           ),
           const SizedBox(width: 2),
           Text(
-            'VIP$tier',
-            style: const TextStyle(
-              color: BBColors.goldLight,
-              fontSize: 10,
+            label,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: dense ? 9 : 10,
               fontWeight: FontWeight.w800,
+              letterSpacing: 0.3,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The smallest tier marker, for tight spots under small avatars and in name plates.
+class VipTag extends StatelessWidget {
+  const VipTag(this.tier, {super.key});
+  final int tier;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = VipBadge.labelFor(tier);
+    if (label == null) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      decoration: BoxDecoration(
+        gradient: BBColors.tierGradient(tier),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: BBColors.goldLight, width: 0.6),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 7,
+          fontWeight: FontWeight.w800,
+          height: 1.3,
+        ),
       ),
     );
   }
@@ -336,12 +418,7 @@ class UserTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListTile(
     onTap: onTap,
-    leading: BBAvatar(
-      url: user.avatarUrl,
-      name: user.displayName,
-      frameUrl: user.frameUrl,
-      vip: user.vipTier > 0,
-    ),
+    leading: BBAvatar.user(user),
     title: Row(
       children: [
         Flexible(

@@ -12,7 +12,7 @@ import {
 } from '../../lib/errors.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
 import { addSeconds } from '../../lib/time.js';
-import { activeVipTier } from '../users/users.presenter.js';
+import { activeVipTier, resolveFrame } from '../users/users.presenter.js';
 import { toLiveRoom, toRoomDetail } from './live.presenter.js';
 
 const objectIdHex = z.string().regex(/^[a-f0-9]{24}$/i);
@@ -132,7 +132,7 @@ export class LiveService {
         avatarUrl: user.avatarUrl,
         level: user.level.level,
         vipTier: activeVipTier(user.vip, now),
-        frameUrl: user.equipped.frameUrl,
+        ...resolveFrame(user, now),
         role,
         isAdmin: Boolean(user.adminRole),
       },
@@ -152,9 +152,15 @@ export class LiveService {
   }
 
   private async resume(room: LiveRoomDoc) {
+    const host = await this.ctx.services.users.get(room.hostId);
     await this.ctx.col.liveRooms.updateOne(
       { _id: room._id },
-      { $set: { lastHeartbeatAt: this.ctx.clock.now() } },
+      {
+        $set: {
+          lastHeartbeatAt: this.ctx.clock.now(),
+          hostVipTier: activeVipTier(host.vip, this.ctx.clock.now()),
+        },
+      },
     );
     return {
       room: await this.detail(room._id),
@@ -204,6 +210,7 @@ export class LiveService {
       moderatorIds: [],
       seats,
       pkBattleId: null,
+      hostVipTier: activeVipTier(host.vip, now),
       backgroundUrl: null,
       locked: false,
       passwordHash: null,
@@ -266,13 +273,14 @@ export class LiveService {
     }
     const credentials = await this.tokenFor(room, uid, role);
 
-    // Entry banner (VIP / entry animation) for everyone in the room.
-    const entry = await this.ctx.services.store.entryAnimationFor(uid);
-    if (credentials.metadata.vipTier > 0 || entry) {
+    // Entrance for everyone in the room: VIP tiers get a banner, plus an effect when they
+    // have one (an equipped entry animation, else their tier's).
+    const effect = await this.ctx.services.store.entryEffectFor(uid, credentials.metadata.vipTier);
+    if (credentials.metadata.vipTier > 0 || effect) {
       void this.ctx.livekit
         .sendData(room.livekitRoom, LIVEKIT_TOPICS.entry, {
           user: credentials.metadata,
-          animation: entry,
+          effect,
         })
         .catch(() => undefined);
     }
@@ -355,7 +363,7 @@ export class LiveService {
     );
     if (host?.agencyId) {
       await this.ctx.services.agencies
-        .recordLiveTime(host.agencyId, room.hostId, seconds)
+        .recordLiveTime(host.agencyId, room.hostId, room.startedAt, now)
         .catch((err: unknown) => this.ctx.log.warn({ err }, 'agency live time failed'));
     }
     if (room.pkBattleId) {
@@ -438,7 +446,13 @@ export class LiveService {
         ? { $in: (q.hostId as { $in: string[] }).$in.filter((h) => !hidden.includes(h)) }
         : { $nin: hidden };
     }
-    const sort: Sort = opts.tab === 'new' ? { startedAt: -1 } : { viewerCount: -1, startedAt: -1 };
+    // Popular lists King, then VVIP, then VIP hosts first; within a tier, by audience.
+    const sort: Sort =
+      opts.tab === 'new'
+        ? { startedAt: -1 }
+        : opts.tab === 'popular'
+          ? { hostVipTier: -1, viewerCount: -1, startedAt: -1 }
+          : { viewerCount: -1, startedAt: -1 };
     const [rooms, total] = await Promise.all([
       this.ctx.col.liveRooms
         .find(q)

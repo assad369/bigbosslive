@@ -56,6 +56,53 @@ describe('wallet & recharges', () => {
     ).toBe(403);
   });
 
+  it('agents look up and recharge 3-digit short ids', async () => {
+    await h.user('small-id', { shortId: '321' });
+    const found = await h.api.get('/v1/agent/lookup/321').set(h.as('agent'));
+    expect(found.status).toBe(200);
+    expect(found.body.user).toMatchObject({ id: 'small-id', shortId: '321' });
+    const res = await h.api
+      .post('/v1/agent/recharge')
+      .set(h.as('agent'))
+      .set('Idempotency-Key', key())
+      .send({ target: '321', diamonds: 100 });
+    expect(res.status).toBe(200);
+  });
+
+  it('agent history pages newest first with recipients, filters and a summary', async () => {
+    await h.user('buyer2', { shortId: '55555556' });
+    // Two more transfers in the same instant: the _id tiebreak must keep paging exact.
+    for (const diamonds of [10, 20]) {
+      await h.api
+        .post('/v1/agent/recharge')
+        .set(h.as('agent'))
+        .set('Idempotency-Key', key())
+        .send({ target: '55555556', diamonds });
+    }
+    const first = await h.api.get('/v1/agent/history?limit=2').set(h.as('agent'));
+    expect(first.status).toBe(200);
+    expect(first.body.items.map((r: { diamonds: number }) => r.diamonds)).toEqual([20, 10]);
+    expect(first.body.items[0].user).toMatchObject({ id: 'buyer2', shortId: '55555556' });
+    const rest = await h.api
+      .get(`/v1/agent/history?limit=2&cursor=${first.body.nextCursor}`)
+      .set(h.as('agent'));
+    expect(rest.body.items.map((r: { diamonds: number }) => r.diamonds)).toEqual([100, 6000]);
+    expect(rest.body.nextCursor).toBeNull();
+
+    const filtered = await h.api.get('/v1/agent/history?q=321').set(h.as('agent'));
+    expect(filtered.body.items).toHaveLength(1);
+    expect(filtered.body.items[0].user.id).toBe('small-id');
+
+    const summary = await h.api.get('/v1/agent/summary').set(h.as('agent'));
+    expect(summary.body).toEqual({
+      count: 4,
+      totalDiamonds: 6130,
+      todayDiamonds: 6130,
+      monthDiamonds: 6130,
+    });
+    expect((await h.api.get('/v1/agent/history').set(h.as('buyer'))).status).toBe(403);
+  });
+
   it('admin balance corrections do not move level', async () => {
     await h.api
       .post('/v1/admin/users/buyer/wallet/adjust')
@@ -125,6 +172,9 @@ describe('VIP & cosmetics', () => {
       perks: [],
       badgeUrl: null,
       frameUrl: null,
+      frameFormat: 'none',
+      entryAnimationUrl: null,
+      entryAnimationFormat: 'none',
       active: true,
       sortOrder: 0,
     });
@@ -136,6 +186,9 @@ describe('VIP & cosmetics', () => {
       perks: [],
       badgeUrl: null,
       frameUrl: null,
+      frameFormat: 'none',
+      entryAnimationUrl: null,
+      entryAnimationFormat: 'none',
       active: true,
       sortOrder: 1,
     });
@@ -217,5 +270,79 @@ describe('VIP & cosmetics', () => {
         cosmeticId: new ObjectId(frame.id),
       }),
     ).toBe(1);
+  });
+  it('VIP holders wear their tier frame; an equipped frame wins; expiry drops it', async () => {
+    const king = await h.ctx.services.store.upsertVipPackage(null, {
+      tier: 3,
+      name: 'King',
+      priceDiamonds: 100,
+      durationDays: 30,
+      perks: [],
+      badgeUrl: null,
+      frameUrl: 'https://cdn.test/vip/king.svga',
+      frameFormat: 'svga',
+      entryAnimationUrl: 'https://cdn.test/vip/king-entry.mp4',
+      entryAnimationFormat: 'mp4',
+      active: true,
+      sortOrder: 2,
+    });
+    await h.user('royal', { wallet: { diamonds: 1000 } });
+    await h.api
+      .post(`/v1/store/vip/${king._id}/purchase`)
+      .set(h.as('royal'))
+      .set('Idempotency-Key', key())
+      .expect(200);
+    const me = await h.api.get('/v1/me').set(h.as('royal'));
+    expect(me.body.user ?? me.body).toMatchObject({
+      vipTier: 3,
+      frameUrl: 'https://cdn.test/vip/king.svga',
+      frameFormat: 'svga',
+    });
+    expect(await h.ctx.services.store.entryEffectFor('royal', 3)).toEqual({
+      url: 'https://cdn.test/vip/king-entry.mp4',
+      format: 'mp4',
+    });
+
+    // Editing the package re-syncs every holder of the tier.
+    await h.ctx.services.store.upsertVipPackage(king._id, {
+      ...king,
+      frameUrl: 'https://cdn.test/vip/king-v2.png',
+      frameFormat: 'none',
+    });
+    const brief = (await h.ctx.services.users.briefs(['royal'])).get('royal');
+    expect(brief).toMatchObject({
+      frameUrl: 'https://cdn.test/vip/king-v2.png',
+      frameFormat: 'none',
+    });
+
+    // An equipped store frame takes precedence over the tier's.
+    await h.ctx.col.users.updateOne(
+      { _id: 'royal' },
+      {
+        $set: { 'equipped.frameUrl': 'https://cdn.test/own.svga', 'equipped.frameFormat': 'svga' },
+      },
+    );
+    expect((await h.ctx.services.users.briefs(['royal'])).get('royal')!.frameUrl).toBe(
+      'https://cdn.test/own.svga',
+    );
+    await h.ctx.col.users.updateOne(
+      { _id: 'royal' },
+      { $set: { 'equipped.frameUrl': null, 'equipped.frameFormat': 'none' } },
+    );
+
+    h.clock.advance(31 * 86_400);
+    const expired = (await h.ctx.services.users.briefs(['royal'])).get('royal');
+    expect(expired).toMatchObject({ vipTier: 0, frameUrl: null, frameFormat: 'none' });
+  });
+
+  it('an admin VIP grant carries the tier frame', async () => {
+    await h.user('granted');
+    await h.user('boss-admin', { adminRole: 'admin' });
+    await h.api
+      .post('/v1/admin/users/granted/vip')
+      .set(h.as('boss-admin', 'admin'))
+      .send({ tier: 3, days: 7 });
+    const brief = (await h.ctx.services.users.briefs(['granted'])).get('granted');
+    expect(brief).toMatchObject({ vipTier: 3, frameUrl: 'https://cdn.test/vip/king-v2.png' });
   });
 });

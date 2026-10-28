@@ -539,7 +539,12 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
   }
 }
 
-/// Agent (reseller) tool: look up a user by BigBoss ID and transfer diamonds from stock.
+final _agentSummaryProvider = FutureProvider.autoDispose<AgentSummary>(
+  (ref) => ref.read(economyRepo).agentSummary(),
+);
+
+/// Agent (reseller) tool: transfer diamonds from stock to a user by BigBoss ID, and the
+/// history of those transfers.
 class AgentRechargeScreen extends ConsumerStatefulWidget {
   const AgentRechargeScreen({super.key});
   @override
@@ -548,10 +553,54 @@ class AgentRechargeScreen extends ConsumerStatefulWidget {
 }
 
 class _AgentRechargeScreenState extends ConsumerState<AgentRechargeScreen> {
+  final _history = PagedListController<AgentRecharge>();
+
+  @override
+  Widget build(BuildContext context) => DefaultTabController(
+    length: 2,
+    child: Scaffold(
+      appBar: AppBar(
+        title: const Text('Agent recharge'),
+        bottom: const TabBar(
+          tabs: [
+            Tab(text: 'Recharge'),
+            Tab(text: 'History'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        children: [
+          _AgentRechargeForm(
+            onRecharged: () {
+              ref.invalidate(_agentSummaryProvider);
+              unawaited(_history.refresh());
+            },
+          ),
+          _AgentHistory(controller: _history),
+        ],
+      ),
+    ),
+  );
+}
+
+class _AgentRechargeForm extends ConsumerStatefulWidget {
+  const _AgentRechargeForm({required this.onRecharged});
+  final VoidCallback onRecharged;
+  @override
+  ConsumerState<_AgentRechargeForm> createState() => _AgentRechargeFormState();
+}
+
+class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
+    with AutomaticKeepAliveClientMixin {
+  static const _quickAmounts = [100, 500, 1000, 5000, 10000];
   final _id = TextEditingController();
   final _amount = TextEditingController();
   UserBrief? _target;
   bool _busy = false;
+  bool _looking = false;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void dispose() {
@@ -561,12 +610,18 @@ class _AgentRechargeScreenState extends ConsumerState<AgentRechargeScreen> {
   }
 
   Future<void> _lookup() async {
+    final id = _id.text.trim();
+    if (id.isEmpty) return;
+    setState(() => _looking = true);
     try {
-      final u = await ref.read(economyRepo).agentLookup(_id.text.trim());
-      setState(() => _target = u);
+      final u = await ref.read(economyRepo).agentLookup(id);
+      if (mounted) setState(() => _target = u);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _target = null);
-      if (mounted) showError(context, e);
+      showError(context, e);
+    } finally {
+      if (mounted) setState(() => _looking = false);
     }
   }
 
@@ -574,6 +629,11 @@ class _AgentRechargeScreenState extends ConsumerState<AgentRechargeScreen> {
     final amount = int.tryParse(_amount.text.trim()) ?? 0;
     final target = _target;
     if (target == null || amount <= 0) return;
+    final stock = ref.read(meProvider).wallet.agentStock;
+    if (amount > stock) {
+      showMessage(context, 'Not enough stock (${Fmt.full(stock)} 💎)');
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -596,6 +656,7 @@ class _AgentRechargeScreenState extends ConsumerState<AgentRechargeScreen> {
       await ref.read(economyRepo).agentRecharge(target.id, amount);
       await ref.read(sessionProvider.notifier).refresh();
       _amount.clear();
+      widget.onRecharged();
       if (mounted) showMessage(context, 'Recharged ${target.displayName}');
     } catch (e) {
       if (mounted) showError(context, e);
@@ -606,54 +667,242 @@ class _AgentRechargeScreenState extends ConsumerState<AgentRechargeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final me = ref.watch(meProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Agent recharge')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: ListTile(
-              title: const Text('Your stock'),
-              trailing: DiamondAmount(
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: BBColors.goldGradient,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.verified, color: BBColors.ivory),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Agent stock',
+                  style: TextStyle(
+                    color: BBColors.ivory,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              DiamondAmount(
                 me.wallet.agentStock,
-                style: const TextStyle(fontSize: 18),
+                style: const TextStyle(color: BBColors.ivory, fontSize: 20),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _id,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: 'User BigBoss ID',
-              suffixIcon: IconButton(
-                onPressed: _lookup,
-                icon: const Icon(Icons.search),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _id,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: InputDecoration(
+            labelText: 'User BigBoss ID',
+            suffixIcon: _looking
+                ? const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    onPressed: _lookup,
+                    icon: const Icon(Icons.search),
+                  ),
+          ),
+          onChanged: (_) {
+            if (_target != null) setState(() => _target = null);
+          },
+          onSubmitted: (_) => _lookup(),
+        ),
+        if (_target != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Card(child: UserTile(user: _target!)),
+          ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _amount,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(labelText: 'Diamonds'),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final a in _quickAmounts)
+              ChoiceChip(
+                label: Text('💎 ${Fmt.compact(a)}'),
+                selected: _amount.text == '$a',
+                onSelected: (_) => setState(() => _amount.text = '$a'),
               ),
-            ),
-            onSubmitted: (_) => _lookup(),
-          ),
-          if (_target != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Card(child: UserTile(user: _target!)),
-            ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _amount,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(labelText: 'Diamonds'),
-          ),
-          const SizedBox(height: 20),
-          GoldButton(
-            label: 'Recharge',
-            loading: _busy,
-            onPressed: _target == null ? null : _recharge,
-          ),
-        ],
-      ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        GoldButton(
+          label: 'Recharge',
+          loading: _busy,
+          onPressed: _target == null ? null : _recharge,
+        ),
+      ],
     );
   }
+}
+
+class _AgentHistory extends ConsumerStatefulWidget {
+  const _AgentHistory({required this.controller});
+  final PagedListController<AgentRecharge> controller;
+  @override
+  ConsumerState<_AgentHistory> createState() => _AgentHistoryState();
+}
+
+class _AgentHistoryState extends ConsumerState<_AgentHistory>
+    with AutomaticKeepAliveClientMixin {
+  final _search = TextEditingController();
+  String? _shortId;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _apply() {
+    final q = _search.text.trim();
+    setState(() => _shortId = q.isEmpty ? null : q);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final summary = ref.watch(_agentSummaryProvider).value;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              _SummaryCell(
+                label: 'Transfers',
+                value: Fmt.compact(summary?.count ?? 0),
+              ),
+              _SummaryCell(
+                label: 'Today',
+                value: '💎 ${Fmt.compact(summary?.todayDiamonds ?? 0)}',
+              ),
+              _SummaryCell(
+                label: 'This month',
+                value: '💎 ${Fmt.compact(summary?.monthDiamonds ?? 0)}',
+              ),
+              _SummaryCell(
+                label: 'All time',
+                value: '💎 ${Fmt.compact(summary?.totalDiamonds ?? 0)}',
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TextField(
+            controller: _search,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Filter by user ID',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _shortId == null
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () {
+                        _search.clear();
+                        _apply();
+                      },
+                    ),
+            ),
+            onSubmitted: (_) => _apply(),
+          ),
+        ),
+        Expanded(
+          child: PagedList<AgentRecharge>(
+            key: ValueKey(_shortId),
+            controller: widget.controller,
+            separator: true,
+            load: (cursor) => ref
+                .read(economyRepo)
+                .agentHistory(cursor: cursor, shortId: _shortId),
+            empty: EmptyState(
+              icon: Icons.history,
+              title: _shortId == null
+                  ? 'No recharges yet'
+                  : 'No recharges to ID $_shortId',
+            ),
+            itemBuilder: (_, r) => ListTile(
+              leading: BBAvatar.user(r.user, fallbackName: '?'),
+              title: Text(
+                r.user?.displayName ?? 'Unknown user',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                [
+                  if (r.user != null) 'ID ${r.user!.shortId}',
+                  if (r.createdAt != null) Fmt.dateTime(r.createdAt!),
+                ].join(' · '),
+                style: const TextStyle(color: BBColors.inkSubtle),
+              ),
+              trailing: Text(
+                '+💎 ${Fmt.full(r.diamonds)}',
+                style: const TextStyle(
+                  color: BBColors.success,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SummaryCell extends StatelessWidget {
+  const _SummaryCell({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Column(
+      children: [
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: BBColors.inkSubtle, fontSize: 11),
+        ),
+      ],
+    ),
+  );
 }

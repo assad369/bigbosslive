@@ -4,8 +4,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/bb_colors.dart';
+import '../../core/widgets/frame_view.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import 'live_room_controller.dart';
 
 /// Floating hearts rising from the bottom-right. Remote reactions arrive on [reactions];
 /// local taps call [HeartLayerState.burst] through a [GlobalKey]. At most [_maxHearts] float
@@ -115,10 +117,11 @@ class _Heart {
   final int tint;
 }
 
-/// Slides in "Name entered" for VIP / entry-animation arrivals, one at a time.
+/// Slides in "Name entered" for VIP / entrance-effect arrivals, one at a time, in the
+/// arrival's tier colours (VIP purple, VVIP gold, King crimson).
 class EntryBanner extends StatefulWidget {
   const EntryBanner({super.key, required this.entries});
-  final Stream<UserBrief> entries;
+  final Stream<EntryEvent> entries;
 
   @override
   State<EntryBanner> createState() => _EntryBannerState();
@@ -127,15 +130,15 @@ class EntryBanner extends StatefulWidget {
 class _EntryBannerState extends State<EntryBanner> {
   final _queue = <UserBrief>[];
   UserBrief? _current;
-  StreamSubscription<UserBrief>? _sub;
+  StreamSubscription<EntryEvent>? _sub;
   Timer? _hide;
 
   @override
   void initState() {
     super.initState();
-    _sub = widget.entries.listen((u) {
+    _sub = widget.entries.listen((e) {
       // Keep the queue short in busy rooms.
-      if (_queue.length < 5) _queue.add(u);
+      if (_queue.length < 5) _queue.add(e.user);
       _next();
     });
   }
@@ -178,34 +181,105 @@ class _EntryBannerState extends State<EntryBanner> {
                 key: ValueKey(u.id),
                 padding: const EdgeInsets.fromLTRB(4, 4, 14, 4),
                 decoration: BoxDecoration(
-                  gradient: BBColors.goldGradient,
+                  gradient:
+                      BBColors.tierGradient(u.vipTier) ?? BBColors.goldGradient,
                   borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: BBColors.goldLight, width: 0.8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: BBColors.tierColor(u.vipTier)
+                          .withValues(alpha: 0.5),
+                      blurRadius: 12,
+                    ),
+                  ],
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    BBAvatar(
-                      url: u.avatarUrl,
-                      name: u.displayName,
-                      size: 26,
-                      vip: true,
-                    ),
+                    BBAvatar.user(u, size: 26, ring: true),
                     const SizedBox(width: 6),
                     if (u.vipTier > 0) ...[
-                      VipBadge(u.vipTier),
+                      VipBadge(u.vipTier, dense: true),
                       const SizedBox(width: 4),
                     ],
-                    Text(
-                      '${u.displayName} entered',
-                      style: const TextStyle(
-                        color: BBColors.ink,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
+                    LevelBadge(u.level, dense: true),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        '${u.displayName} entered',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: u.vipTier > 0 ? Colors.white : BBColors.ink,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
+      ),
+    );
+  }
+}
+
+/// Full-screen entrance effects (SVGA, Lottie or MP4), one at a time. Arrivals without an
+/// effect get only the [EntryBanner]. The queue is capped so a busy room never backs up.
+class EntryEffectOverlay extends StatefulWidget {
+  const EntryEffectOverlay({super.key, required this.entries});
+  final Stream<EntryEvent> entries;
+
+  @override
+  State<EntryEffectOverlay> createState() => _EntryEffectOverlayState();
+}
+
+class _EntryEffectOverlayState extends State<EntryEffectOverlay> {
+  final _queue = <EntryEvent>[];
+  EntryEvent? _current;
+  int _seq = 0;
+  StreamSubscription<EntryEvent>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.entries.listen((e) {
+      if (e.effectUrl == null || e.effectUrl!.isEmpty) return;
+      if (_queue.length < 5) _queue.add(e);
+      _next();
+    });
+  }
+
+  void _next() {
+    if (_current != null || _queue.isEmpty || !mounted) return;
+    setState(() {
+      _current = _queue.removeAt(0);
+      _seq++;
+    });
+  }
+
+  void _done() {
+    if (!mounted) return;
+    setState(() => _current = null);
+    _next();
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = _current;
+    if (e == null) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: EffectView(
+        key: ValueKey(_seq),
+        url: e.effectUrl!,
+        format: e.effectFormat,
+        onDone: _done,
       ),
     );
   }
