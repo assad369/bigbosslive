@@ -169,6 +169,10 @@ cd app && flutter analyze && flutter test && dart format lib test
 - The router's redirect (`redirectFor`) shows the splash only while nothing has loaded.
   A provider reloading with a value is not "booting": treating it as such sent users
   through `/splash` on every token refresh and dropped the live room.
+- `flutter_webrtc` is vendored in `app/third_party/flutter_webrtc` (via `dependency_overrides`)
+  with an Android patch: an exception in a native `PeerConnection.Observer` callback aborts
+  the process. Bump it together with `livekit_client`, re-apply the patch, and read its
+  `PATCHES.md` first.
 - Define providers at top level. A provider created inside `build()` is a new provider every
   frame.
 - `flutter analyze` must be clean and `dart format` stable. Both are enforced in CI.
