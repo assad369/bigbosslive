@@ -16,6 +16,11 @@ const EnvSchema = z.object({
   CORS_ORIGINS: csv.default([]),
   TRUST_PROXY: z.coerce.number().int().min(0).default(1),
   PUBLIC_BASE_URL: z.url().default('http://localhost:3000'),
+  /**
+   * Shared with link-web, which renders share-link pages for every visitor from one address:
+   * with this key, its `X-Client-Ip` header (the visitor) is what the preview rate limit counts.
+   */
+  LINK_SERVICE_KEY: z.string().min(16).optional(),
 
   MONGODB_URI: z.string().min(1),
   MONGODB_DB: z.string().min(1).default('bigbosslive'),

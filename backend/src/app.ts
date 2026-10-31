@@ -17,6 +17,7 @@ import { adminRoutes } from './routes/admin.js';
 import { contentRoutes } from './routes/content.js';
 import { economyRoutes } from './routes/economy.js';
 import { liveRoutes, livekitWebhookRoute } from './routes/live.js';
+import { shareRoutes } from './routes/share.js';
 import { socialRoutes } from './routes/social.js';
 import { docsRoutes } from './routes/docs.js';
 
@@ -102,6 +103,8 @@ export function createApp(ctx: Ctx): Express {
   app.use('/v1/webhooks', livekitWebhookRoute(ctx));
 
   app.use(express.json({ limit: '256kb' }));
+  // Share-link previews (public, read by link-web): their own rate limit, see shareRoutes.
+  app.use('/v1', shareRoutes(ctx));
   app.use('/v1', createRateLimiter(ctx.redis, { windowMs: 60_000, limit: 600, prefix: 'global' }));
 
   app.use('/v1', accountRoutes(ctx));

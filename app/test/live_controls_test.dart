@@ -59,47 +59,94 @@ LiveBottomBar _bottomBar(LiveRoomController c) => LiveBottomBar(
   c: c,
   onCompose: () {},
   onGift: () {},
-  onRequests: () {},
+  onInvite: () {},
   onStageAction: () {},
+  onHeart: () {},
+);
+
+Widget _rail(LiveRoomController c) => _wrap(
+  LiveSideRail(
+    c: c,
+    onPk: () {},
+    onLock: () {},
+    onRequests: () {},
+    onShare: (_) {},
+    onGames: () {},
+    onMore: () {},
+  ),
 );
 
 void main() {
   // LiveKit's Room starts a periodic timer, so controllers are built outside the
   // widget tests' fake-async zone.
-  late LiveRoomController host, guest, viewer, railHost, barHost;
+  late LiveRoomController host, guest, viewer, railHost, barHost, foldHost;
   setUpAll(() {
     host = _controller('host')..cameraOn = true;
     guest = _controller('guest', mods: ['guest'])..cameraOn = true;
     viewer = _controller('viewer');
     railHost = _controller('host');
     barHost = _controller('host');
+    foldHost = _controller('host');
   });
 
-  testWidgets('host and seated guests get the chat field without overflow', (
+  testWidgets('every role gets the chat field, gift, phone and heart', (
     tester,
   ) async {
     await _narrow(tester);
     for (final c in [host, guest, viewer]) {
       await tester.pumpWidget(_wrap(_bottomBar(c)));
       expect(find.text('Say something…'), findsOneWidget);
-      expect(find.byTooltip('Chat'), findsNothing);
-      // Flip camera lives on the side rail now.
+      expect(find.byTooltip('Send a gift'), findsOneWidget);
+      expect(find.byTooltip('Send hearts'), findsOneWidget);
+      // Media controls live on the side rail now.
       expect(find.byTooltip('Flip camera'), findsNothing);
+      expect(find.byTooltip('Mute'), findsNothing);
       expect(tester.takeException(), isNull);
     }
+    await tester.pumpWidget(_wrap(_bottomBar(host)));
+    expect(find.byTooltip('Invite guests'), findsOneWidget);
+    await tester.pumpWidget(_wrap(_bottomBar(guest)));
+    expect(find.byTooltip('Leave the stage'), findsOneWidget);
+    await tester.pumpWidget(_wrap(_bottomBar(viewer)));
+    expect(find.byTooltip('Ask to join the stage'), findsOneWidget);
   });
 
-  testWidgets('the side rail offers flip camera only with the camera on', (
+  testWidgets('the side rail gives the host the camera tools and folds away', (
     tester,
   ) async {
     final c = railHost;
-    Widget rail() =>
-        _wrap(LiveSideRail(c: c, onPk: () {}, onLock: () {}, onHeart: () {}));
-    await tester.pumpWidget(rail());
-    expect(find.byTooltip('Flip camera'), findsNothing);
-    c.cameraOn = true;
-    await tester.pumpWidget(rail());
+    await tester.pumpWidget(_rail(c));
+    expect(find.byTooltip('Share'), findsOneWidget);
+    expect(find.byTooltip('More'), findsOneWidget);
+    expect(find.byTooltip('Lock live'), findsOneWidget);
+    // Flip stays put with the camera off, and explains itself instead.
     expect(find.byTooltip('Flip camera'), findsOneWidget);
+    await tester.tap(find.byTooltip('Flip camera'));
+    await tester.pump();
+    expect(find.text('Turn your camera on to flip it'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Hide chat'));
+    expect(c.chatVisible, isFalse);
+    await tester.pumpWidget(_rail(c));
+    expect(find.byTooltip('Show chat'), findsOneWidget);
+  });
+
+  testWidgets('the chevron folds the rail controls', (tester) async {
+    await tester.pumpWidget(_rail(foldHost));
+    await tester.tap(find.byTooltip('Hide controls'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Share'), findsNothing);
+    await tester.tap(find.byTooltip('Show controls'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Share'), findsOneWidget);
+  });
+
+  testWidgets('a viewer gets no stage tools on the rail', (tester) async {
+    await tester.pumpWidget(_rail(viewer));
+    expect(find.byTooltip('Share'), findsOneWidget);
+    expect(find.byTooltip('Mute'), findsNothing);
+    expect(find.byTooltip('Flip camera'), findsNothing);
+    expect(find.byTooltip('Lock live'), findsNothing);
   });
 
   testWidgets('top bar keeps close in the corner with a full viewer strip', (
@@ -112,20 +159,24 @@ void main() {
           UserBrief(id: 'v$i', shortId: '2$i', displayName: 'V$i', vipTier: i),
       ];
     var closed = 0;
-    await tester.pumpWidget(
-      _wrap(
-        LiveTopBar(
-          c: c,
-          onClose: () => closed++,
-          onViewers: () {},
-          onTapUser: (_) {},
-        ),
+    Widget bar() => _wrap(
+      LiveTopBar(
+        c: c,
+        onClose: () => closed++,
+        onViewers: () {},
+        onTapUser: (_) {},
       ),
     );
+    await tester.pumpWidget(bar());
     expect(tester.takeException(), isNull);
     final close = find.byTooltip('End live');
-    expect(tester.getTopRight(close).dx, closeTo(320 - 10, 1));
+    expect(tester.getTopRight(close).dx, closeTo(320 - 8, 1));
     await tester.tap(close);
     expect(closed, 1);
+
+    await tester.tap(find.byTooltip('Mute room audio'));
+    expect(c.roomAudioOn, isFalse);
+    await tester.pumpWidget(bar());
+    expect(find.byTooltip('Unmute room audio'), findsOneWidget);
   });
 }

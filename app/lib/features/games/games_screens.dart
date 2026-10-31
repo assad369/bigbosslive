@@ -100,6 +100,94 @@ class GamesScreen extends ConsumerWidget {
 
 /// Hosts a WebView game. The Firebase ID token travels in the URL fragment (never sent to a
 /// server); refreshes are pushed through `window.bbSetToken` when the game asks.
+/// The live room's Games button: the same games in a sheet. A game opens on top of the
+/// live, which keeps running underneath.
+class LiveGamesSheet extends ConsumerWidget {
+  const LiveGamesSheet({super.key});
+
+  static Future<void> show(BuildContext context) => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (_) => const LiveGamesSheet(),
+  );
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final games = ref.watch(_gamesProvider);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Games',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            AsyncView(
+              value: games,
+              onRetry: () => ref.invalidate(_gamesProvider),
+              data: (items) => items.isEmpty
+                  ? const EmptyState(
+                      icon: Icons.casino_outlined,
+                      title: 'Games are resting',
+                      message: 'Check back soon.',
+                    )
+                  : GridView.extent(
+                      shrinkWrap: true,
+                      maxCrossAxisExtent: 92,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 92 / 100,
+                      children: [
+                        for (final g in items)
+                          InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () {
+                              final router = GoRouter.of(context);
+                              Navigator.pop(context);
+                              unawaited(router.push('/games/play', extra: g));
+                            },
+                            child: Column(
+                              children: [
+                                Container(
+                                  width: 60,
+                                  height: 60,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    gradient:
+                                        GamesScreen._art[g.key]?.$2 ??
+                                        BBColors.goldGradient,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    GamesScreen._art[g.key]?.$1 ?? '🎲',
+                                    style: const TextStyle(fontSize: 32),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  g.name,
+                                  maxLines: 2,
+                                  textAlign: TextAlign.center,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class GameWebViewScreen extends ConsumerStatefulWidget {
   const GameWebViewScreen({super.key, required this.game});
   final GameInfo game;

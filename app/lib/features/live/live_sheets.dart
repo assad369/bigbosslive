@@ -332,6 +332,7 @@ class ParticipantsSheet extends ConsumerStatefulWidget {
   final void Function(UserBrief user) onTapUser;
   final int initialTab;
 
+  static const stageTab = 1;
   static const requestsTab = 2;
 
   static Future<void> show(
@@ -764,3 +765,61 @@ Future<void> showEmptySeatSheet(
     ),
   ),
 );
+
+/// The rail's "More": the viewer list, the stage (host and admins) and Report.
+class LiveMoreSheet {
+  static Future<void> show(
+    BuildContext context,
+    LiveRoomController c, {
+    required void Function([int tab]) onParticipants,
+  }) => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) {
+      void then(VoidCallback action) {
+        ctx.pop();
+        action();
+      }
+
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                'More',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.people_alt_rounded),
+              title: const Text('Viewers'),
+              onTap: () => then(onParticipants),
+            ),
+            if (c.isModerator)
+              ListTile(
+                leading: const Icon(Icons.event_seat_rounded),
+                title: const Text('Stage'),
+                onTap: () =>
+                    then(() => onParticipants(ParticipantsSheet.stageTab)),
+              ),
+            if (!c.isHost)
+              ListTile(
+                leading: const Icon(Icons.flag_rounded, color: BBColors.danger),
+                title: const Text('Report live'),
+                onTap: () => then(
+                  () => ReportSheet.show(
+                    context,
+                    targetType: 'room',
+                    targetId: c.roomId,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}

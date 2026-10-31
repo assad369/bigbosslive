@@ -16,6 +16,7 @@ Replace the remaining `example.com` placeholders (games, Coolify panel) with you
 | Redis 7 | VPS | Database, Redis | none (internal only) | 6379 |
 | Admin dashboard | VPS | Application, Dockerfile `admin/Dockerfile` | `https://bigbosslive.asadsoft.cloud` | 80 |
 | Mini-games | VPS | Application, Dockerfile `games/Dockerfile` | `https://games.example.com` | 80 |
+| Share links (link-web) | VPS | Application, Dockerfile `link-web/Dockerfile` | `https://<LINK_HOST>` | 3000 |
 | MongoDB (replica set) | MongoDB Atlas | none | none | n/a |
 | LiveKit SFU | LiveKit Cloud | none | `wss://<project>.livekit.cloud` | n/a |
 | Auth, FCM | Firebase | none | none | n/a |
@@ -178,7 +179,8 @@ regardless (`npm ci --include=dev`).
 | `LIVEKIT_TOKEN_TTL_SECONDS` | `21600` |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` | storage credentials (`S3_REGION=auto` for R2); overridden by dashboard settings |
 | `STORAGE_SETTINGS_PASSCODE` | passcode for Settings → Storage (R2) in the dashboard (default `9797`) |
-| `GOOGLE_PLAY_PACKAGE_NAME` | `com.bigbosslive.app` |
+| `GOOGLE_PLAY_PACKAGE_NAME` | `com.bigbosslive.bigboss_live` |
+| `LINK_SERVICE_KEY` | shared with link-web, see §7.1 (`openssl rand -hex 32`) |
 | `APPLE_BUNDLE_ID`, `APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY_BASE64`, `APPLE_ENVIRONMENT` | App Store Server API (`base64 -i AuthKey_XXX.p8 \| tr -d '\n'`) |
 | `JOBS_ENABLED` | `true` |
 | `AGENCY_RESET_TIMEZONE` | `Asia/Dhaka` |
@@ -218,6 +220,57 @@ Both images serve static files with nginx and the same headers as the `vercel.js
 fallback for admin, and multi-page `/golden-wheel/`, `/fortune-ferris/` and `/teen-patti/` for
 games. Hashed `/assets/*` files are cached for a year, and `index.html` is never cached, so a
 redeploy takes effect right away.
+
+## 7.1 Share links (link-web)
+
+The app shares links on a host of your choice (`LINK_HOST`), for example
+`https://<LINK_HOST>/live/<roomId>`, `/u/<shortId>` and `/post/<postId>`. The list of link kinds
+is `DEEP_LINK_ROUTES` in `packages/shared`.
+
+- **App installed:** Android App Links and iOS Universal Links open the app on that screen. A
+  signed-out user signs in first, then lands there.
+- **No app, or an in-app browser:** link-web renders a preview page (OpenGraph tags, "Open in
+  BigBoss Live" on Android, the Smart App Banner and store buttons on iOS). Removed or unknown
+  content is a real 404. Previews come from the API's anonymous
+  `GET /v1/share/preview/:kind/:id`.
+
+**Coolify application:** Dockerfile `/link-web/Dockerfile`, base directory `/`, port `3000`,
+domain `https://<LINK_HOST>`. Point the host's DNS A record at the VPS first.
+
+| Variable | Value |
+|---|---|
+| `NODE_ENV` | `production` |
+| `PUBLIC_HOST` | `<LINK_HOST>`, a bare hostname |
+| `API_INTERNAL_URL` | the API's internal URL, e.g. `http://<api-container>:3000` |
+| `LINK_SERVICE_KEY` | same value as the API's |
+| `CLIENT_IP_HEADER` | `x-forwarded-for` (Traefik), or `cf-connecting-ip` behind Cloudflare's proxy |
+| `ANDROID_PACKAGE` | `com.bigbosslive.bigboss_live` |
+| `ANDROID_SHA256_FINGERPRINTS` | SHA-256 of every release signing certificate, comma-separated (below) |
+| `ANDROID_STORE_URL` | Play listing (or an https APK page); empty shows "coming soon" |
+| `IOS_BUNDLE_ID` | `com.bigbosslive.bigbossLive` |
+| `APPLE_TEAM_ID` | 10-character Team ID; until set, iOS Universal Links stay off |
+| `IOS_APP_STORE_ID` | numeric App Store id (Smart App Banner, store button) |
+
+**Fingerprints.** The upload key:
+`keytool -list -v -keystore app/android/app/upload-keystore.jks -alias upload | grep SHA256`.
+Once on Google Play, also add the *App signing key certificate* SHA-256 (Play Console → Test and
+release → App integrity). Debug-signed builds open links in the browser.
+
+**Build the apps with the same host:** `--dart-define=LINK_HOST=<host>` sets the Dart side and
+the Android manifest. On iOS also set the Runner target's `LINK_HOST` build setting (it is
+`links.example.com` in the project) and the signing Team; automatic signing enables Associated
+Domains on the App ID.
+
+**Verify:**
+```bash
+curl -si https://<LINK_HOST>/.well-known/assetlinks.json | head -3            # 200, application/json, no redirect
+curl -si https://<LINK_HOST>/.well-known/apple-app-site-association | head -3
+adb shell pm verify-app-links --re-verify com.bigbosslive.bigboss_live
+adb shell pm get-app-links com.bigbosslive.bigboss_live                       # <LINK_HOST>: verified
+adb shell am start -a android.intent.action.VIEW -d https://<LINK_HOST>/live/<roomId>
+```
+On iPhone, tap a link in Notes or Messages (typing it into Safari never opens apps). Apple's CDN
+can take up to a day to pick up a changed association file.
 
 ## 8. First deploy
 

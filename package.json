@@ -1,7 +1,7 @@
 {
   "name": "bigbosslive",
   "private": true,
-  "description": "BigBoss Live — live-streaming social platform (backend, admin dashboard, mini-games, Flutter app).",
+  "description": "BigBoss Live \u2014 live-streaming social platform (backend, admin dashboard, mini-games, Flutter app).",
   "license": "UNLICENSED",
   "packageManager": "npm@10.9.4",
   "engines": {
@@ -11,10 +11,11 @@
     "packages/shared",
     "backend",
     "admin",
-    "games"
+    "games",
+    "link-web"
   ],
   "scripts": {
-    "build": "npm run build -w @bigboss/shared && npm run build -w backend -w admin -w games",
+    "build": "npm run build -w @bigboss/shared && npm run build -w backend -w admin -w games -w link-web",
     "build:shared": "npm run build -w @bigboss/shared",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -23,7 +24,8 @@
     "test": "npm run build:shared && npm run test --workspaces --if-present",
     "dev:backend": "npm run dev -w backend",
     "dev:admin": "npm run dev -w admin",
-    "dev:games": "npm run dev -w games"
+    "dev:games": "npm run dev -w games",
+    "dev:link": "npm run dev -w link-web"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

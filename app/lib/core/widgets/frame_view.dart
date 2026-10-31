@@ -32,6 +32,10 @@ enum MediaFormat {
 /// Parsed SVGA movies, shared by every widget showing the same URL. Chat rows, seats and
 /// viewer strips repeat the same frames, and decoding is the expensive part, so a movie is
 /// decoded once, reference-counted while on screen, and kept in a small LRU once idle.
+///
+/// Movies are silent by default (frames, decorations): their audio tracks are dropped so a
+/// looping frame never spins up players. [retain] with `withAudio` (one-shot gifts and
+/// entrances) keeps the sound as a separate entry.
 class SvgaMovieCache {
   SvgaMovieCache._();
   static final instance = SvgaMovieCache._();
@@ -41,32 +45,43 @@ class SvgaMovieCache {
   // Insertion-ordered (a Dart set literal is a LinkedHashSet): first is least recent.
   final _idle = <String>{};
 
-  Future<MovieEntity> retain(String url) {
-    final entry = _entries.putIfAbsent(url, () {
+  static String _key(String url, bool withAudio) =>
+      withAudio ? '$url#audio' : url;
+
+  /// Pair with [release], passing the same [withAudio].
+  Future<MovieEntity> retain(String url, {bool withAudio = false}) {
+    final key = _key(url, withAudio);
+    final entry = _entries.putIfAbsent(key, () {
       final e = _MovieEntry(SVGAParser.shared.decodeFromURL(url));
       e.future.then(
         (m) {
           // The cache owns disposal; a controller must never free a shared movie.
           m.autorelease = false;
+          if (!withAudio) {
+            m
+              ..audios.clear()
+              ..audiosData.clear();
+          }
           e.movie = m;
         },
         onError: (_) {
-          if (identical(_entries[url], e)) _entries.remove(url);
+          if (identical(_entries[key], e)) _entries.remove(key);
         },
       );
       return e;
     });
     entry.refs++;
-    _idle.remove(url);
+    _idle.remove(key);
     return entry.future;
   }
 
-  void release(String url) {
-    final entry = _entries[url];
+  void release(String url, {bool withAudio = false}) {
+    final key = _key(url, withAudio);
+    final entry = _entries[key];
     if (entry == null) return;
     entry.refs = (entry.refs - 1).clamp(0, 1 << 30);
     if (entry.refs > 0) return;
-    _idle.add(url);
+    _idle.add(key);
     while (_idle.length > _maxIdle) {
       final oldest = _idle.first;
       _idle.remove(oldest);
@@ -191,6 +206,10 @@ class _SvgaLoopState extends State<_SvgaLoop>
 
 /// Plays a one-shot effect (entrance, big gift) once, then calls [onDone]. Never blocks the
 /// queue it belongs to: a failed load, or an effect that runs past [maxDuration], ends it.
+///
+/// With [sound], the clip's own audio (MP4 track, SVGA audio) plays, mixed with the live's
+/// audio rather than taking the session or audio focus; a video then gets its full length
+/// instead of [maxDuration]. A video pauses while its route is covered.
 class EffectView extends StatefulWidget {
   const EffectView({
     super.key,
@@ -199,6 +218,7 @@ class EffectView extends StatefulWidget {
     required this.onDone,
     this.fit = BoxFit.cover,
     this.maxDuration = const Duration(seconds: 8),
+    this.sound = false,
   });
 
   final String url;
@@ -206,6 +226,7 @@ class EffectView extends StatefulWidget {
   final VoidCallback onDone;
   final BoxFit fit;
   final Duration maxDuration;
+  final bool sound;
 
   @override
   State<EffectView> createState() => _EffectViewState();
@@ -218,6 +239,9 @@ class _EffectViewState extends State<EffectView> with TickerProviderStateMixin {
   Timer? _guard;
   bool _done = false;
   bool _retainedSvga = false;
+  bool _tickersOn = true;
+  // Fixed at start: the cache entry retained must be the one released.
+  late final bool _sound = widget.sound;
   late final MediaFormat _format = MediaFormat.resolve(
     widget.format,
     widget.url,
@@ -244,10 +268,13 @@ class _EffectViewState extends State<EffectView> with TickerProviderStateMixin {
   Future<void> _playSvga() async {
     final c = _svga = SVGAAnimationController(vsync: this);
     try {
-      final movie = await SvgaMovieCache.instance.retain(widget.url);
+      final movie = await SvgaMovieCache.instance.retain(
+        widget.url,
+        withAudio: _sound,
+      );
       if (!mounted) {
         // Disposed while it loaded (e.g. the guard fired): dispose() saw nothing retained.
-        SvgaMovieCache.instance.release(widget.url);
+        SvgaMovieCache.instance.release(widget.url, withAudio: _sound);
         return;
       }
       _retainedSvga = true;
@@ -268,9 +295,15 @@ class _EffectViewState extends State<EffectView> with TickerProviderStateMixin {
     );
     try {
       await v.initialize();
-      // Muted: a room's audio belongs to the live session.
-      await v.setVolume(0);
-      if (!mounted) return;
+      // Mixed in (see above) when it has sound; otherwise silent.
+      await v.setVolume(_sound ? 1 : 0);
+      if (!mounted || _done) return;
+      if (_sound) {
+        // Cutting a clip off mid-sound is worse than a long one: allow its length, plus
+        // slack for a stalled stream.
+        _guard?.cancel();
+        _guard = Timer(v.value.duration + const Duration(seconds: 8), _finish);
+      }
       setState(() {});
       v.addListener(() {
         final value = v.value;
@@ -281,10 +314,22 @@ class _EffectViewState extends State<EffectView> with TickerProviderStateMixin {
           _finish();
         }
       });
-      await v.play();
+      if (_tickersOn) await v.play();
     } catch (_) {
       _finish();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Covered by another route: pause, so the clip isn't heard behind it.
+    final on = TickerMode.valuesOf(context).enabled;
+    if (on == _tickersOn) return;
+    _tickersOn = on;
+    final v = _video;
+    if (v == null || !v.value.isInitialized || _done) return;
+    unawaited(on ? v.play() : v.pause());
   }
 
   void _finish() {
@@ -305,7 +350,9 @@ class _EffectViewState extends State<EffectView> with TickerProviderStateMixin {
           ..videoItem = null;
       }
       svga.dispose();
-      if (_retainedSvga) SvgaMovieCache.instance.release(widget.url);
+      if (_retainedSvga) {
+        SvgaMovieCache.instance.release(widget.url, withAudio: _sound);
+      }
     }
     _lottie?.dispose();
     _video?.dispose();

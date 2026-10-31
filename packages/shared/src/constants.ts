@@ -224,6 +224,20 @@ export const SOCKET = {
   },
 } as const;
 
+/**
+ * Share links: `https://<LINK_HOST>/<prefix>/<id>`. link-web renders their preview pages and
+ * serves the `.well-known` files that let the app claim these paths; the backend's
+ * `/v1/share/preview/:kind/:id` describes the target; the app opens `appRoute`. Adding a
+ * kind: an entry here, a preview in `modules/share`, a `DeepLink` in the app and its
+ * Android manifest prefix (app/test/deep_link_test.dart checks the prefixes match).
+ */
+export const DEEP_LINK_ROUTES = [
+  { kind: 'live', prefix: 'live', id: /^[a-f0-9]{24}$/, appRoute: '/live/:id' },
+  { kind: 'user', prefix: 'u', id: SHORT_ID_PATTERN, appRoute: '/u/:id' },
+  { kind: 'post', prefix: 'post', id: /^[a-f0-9]{24}$/, appRoute: '/post/:id' },
+] as const;
+export type DeepLinkKind = (typeof DEEP_LINK_ROUTES)[number]['kind'];
+
 /** Topics published on the LiveKit data channel by the server. */
 export const LIVEKIT_TOPICS = {
   gift: 'bb.gift',

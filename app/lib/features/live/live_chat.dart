@@ -191,7 +191,7 @@ class _LiveChatListState extends State<LiveChatList> {
           listenable: _voice,
           builder: (context, _) => ListView.builder(
             reverse: true,
-            padding: const EdgeInsets.fromLTRB(10, 0, 70, 4),
+            padding: const EdgeInsets.fromLTRB(10, 0, 4, 4),
             itemCount: lines.length,
             itemBuilder: (_, i) {
               final line = lines[lines.length - 1 - i];

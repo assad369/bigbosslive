@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/deep_links/deep_link.dart';
+import '../../core/deep_links/share_link.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
@@ -252,8 +254,22 @@ class _PostCardState extends ConsumerState<PostCard> {
                       );
                     }
                     if (v == 'delete') await _delete();
+                    if (v == 'share' && context.mounted) {
+                      final name = post.author?.displayName;
+                      await shareDeepLink(
+                        context,
+                        PostLink(post.id),
+                        name == null
+                            ? 'A moment on BigBoss Live'
+                            : '$name\'s moment on BigBoss Live',
+                      );
+                    }
                   },
                   itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'share',
+                      child: Text('Share link'),
+                    ),
                     if (isMine)
                       const PopupMenuItem(
                         value: 'delete',

@@ -5,7 +5,7 @@ touching money, live rooms, PK or games: those rules exist because the naive ver
 
 ## Layout
 
-npm workspaces: `packages/shared`, `backend`, `admin`, `games`. The Flutter app in `app/` is
+npm workspaces: `packages/shared`, `backend`, `admin`, `games`, `link-web`. The Flutter app in `app/` is
 separate (pub). `packages/shared` must be built (`npm run build:shared`) before the others
 typecheck. It holds the API types, `SOCKET` and `LIVEKIT_TOPICS` names, and the colour tokens.
 
@@ -14,7 +14,8 @@ typecheck. It holds the API types, `SOCKET` and `LIVEKIT_TOPICS` names, and the 
 ```bash
 npm run lint | format:check | typecheck
 npm test -w backend                      # MONGOMS_SYSTEM_BINARY=/path/to/mongod to skip the download
-npm run dev:backend | dev:admin | dev:games
+npm run dev:backend | dev:admin | dev:games | dev:link
+npm test -w link-web                     # node:test via tsx
 cd app && flutter analyze && flutter test && dart format lib test
 ```
 
@@ -118,6 +119,10 @@ cd app && flutter analyze && flutter test && dart format lib test
   (`storage.isOwnUpload`). Clients must ignore data packets that have a participant sender.
   Only server packets (`participant == null`) are trusted.
 - Rooms with no heartbeat for `live.staleAfterSec` are ended by the `live.sweep` job.
+- Gift and entrance effects keep the clip's own sound (`EffectView(sound: true)`), mixed with
+  LiveKit (`mixWithOthers`, never taking the audio session). Everything else (frames, looping
+  cosmetics) is silent: `SvgaMovieCache` drops audio unless retained `withAudio`. The room's
+  speaker toggle (`roomAudioOn`) disables remote audio tracks and mutes effects on this device.
 
 ## PK battles
 
@@ -138,6 +143,20 @@ cd app && flutter analyze && flutter test && dart format lib test
   on `status: 'placed'`.
 - Commit–reveal RNG (`rng.ts`). Never expose `serverSeed` before settlement (`toRound` hides it).
 - `updateConfig` rejects weighted configs with RTP > 100%.
+
+## Share links
+
+- `DEEP_LINK_ROUTES` (`packages/shared`) is the contract: `https://<LINK_HOST>/<prefix>/<id>`.
+  Adding a kind touches it, `modules/share` (preview), the app's `DeepLink` and the Android
+  manifest prefixes; `app/test/deep_link_test.dart` checks the prefixes.
+- `link-web` serves the `.well-known` files and the preview page. It reads the anonymous
+  `GET /v1/share/preview/:kind/:id`, which is mounted before the global `/v1` limit and limited
+  per visitor when `LINK_SERVICE_KEY` matches. Never serve a placeholder AASA.
+- In the app, links and push taps go through `pendingRouteProvider` and `_dispatchPending`
+  (`app.dart`), which waits for sign-in and the boot screens. Never `router.push` them directly.
+  Flutter's own deep linking is off on both platforms (`DeepLinkService` handles them).
+- `LINK_HOST` is one dart-define for Dart and the Android manifest. On iOS it is the Runner
+  `LINK_HOST` build setting.
 
 ## Realtime & jobs
 

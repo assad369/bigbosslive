@@ -214,6 +214,12 @@ class LiveRoomController extends ChangeNotifier {
   bool cameraOn = false;
   bool frontCamera = true;
 
+  /// The speaker toggle: everyone else's audio (and effect sounds) on this device only.
+  bool roomAudioOn = true;
+
+  /// The chat over the stage, shown or hidden by its rail button.
+  bool chatVisible = true;
+
   /// The user's own mic/camera choice while on stage, so syncing seat state never undoes it.
   bool _micOffByMe = false;
   bool _cameraOffByMe = false;
@@ -469,7 +475,11 @@ class LiveRoomController extends ChangeNotifier {
     final l = room.createListener();
     _listener = l;
     l
-      ..on<TrackSubscribedEvent>((_) => _notify())
+      ..on<TrackSubscribedEvent>((_) {
+        // Someone new started speaking while the room is silenced on this device.
+        if (!roomAudioOn) _applyRoomAudio();
+        _notify();
+      })
       ..on<TrackUnsubscribedEvent>((_) => _notify())
       ..on<TrackMutedEvent>((_) => _notify())
       ..on<TrackUnmutedEvent>((_) => _notify())
@@ -987,6 +997,26 @@ class LiveRoomController extends ChangeNotifier {
     } catch (e) {
       _notice('Couldn\'t switch cameras');
     }
+    _notify();
+  }
+
+  void toggleRoomAudio() {
+    if (_disposed) return;
+    roomAudioOn = !roomAudioOn;
+    _applyRoomAudio();
+    _notify();
+  }
+
+  void _applyRoomAudio() {
+    for (final p in room.remoteParticipants.values) {
+      for (final pub in p.audioTrackPublications) {
+        unawaited(roomAudioOn ? pub.enable() : pub.disable());
+      }
+    }
+  }
+
+  void toggleChat() {
+    chatVisible = !chatVisible;
     _notify();
   }
 

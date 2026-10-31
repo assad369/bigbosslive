@@ -31,6 +31,14 @@ abstract final class Env {
     defaultValue: 'com.bigbosslive.bigboss_live',
   );
 
+  /// Host of the share links (`https://<host>/live/<id>`), served by link-web and claimed by
+  /// the app (Android App Links, iOS Universal Links). Set it per deployment; the Android
+  /// manifest and the iOS entitlements read the same define at build time.
+  static const linkHost = String.fromEnvironment(
+    'LINK_HOST',
+    defaultValue: 'links.example.com',
+  );
+
   /// Firebase Auth emulator host:port for local development, e.g. 10.0.2.2:9099.
   static const authEmulator = String.fromEnvironment('AUTH_EMULATOR');
 }

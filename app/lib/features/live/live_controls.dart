@@ -11,8 +11,10 @@ import '../../models/models.dart';
 import '../profile/profile_screens.dart';
 import 'live_room_controller.dart';
 
-/// Host pill (with follow) on the left; top viewers, viewer count and close in the
-/// right-hand corner.
+/// The live room's header, two rows:
+///  1. the host (name, live timer under it, Follow for viewers), the top viewers, the
+///     speaker toggle and the gold close button;
+///  2. a stats card: beans this live, viewers (tap for the list), the lock, the host's ID.
 class LiveTopBar extends ConsumerWidget {
   const LiveTopBar({
     super.key,
@@ -26,132 +28,163 @@ class LiveTopBar extends ConsumerWidget {
   final VoidCallback onViewers;
   final void Function(UserBrief user) onTapUser;
 
+  static const _rowHeight = 48.0;
+  static const _gap = 6.0;
+
+  /// Both rows with their padding; the stage starts below it.
+  static const height = _gap + _rowHeight + _gap + _StatsCard.height + _gap;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final host = c.detail!.room.host;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-      child: LayoutBuilder(
-        builder: (context, box) => Row(
-          children: [
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: GestureDetector(
-                  onTap: () => onTapUser(host),
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(3, 3, 6, 3),
-                    decoration: BoxDecoration(
-                      color: BBColors.scrim,
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        BBAvatar.user(host, size: 34),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                host.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: BBColors.ivory,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      'ID ${host.shortId}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: BBColors.champagne,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                  ),
-                                  if (host.vipTier > 0) ...[
-                                    const SizedBox(width: 4),
-                                    VipTag(host.vipTier),
-                                  ],
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (!c.isHost) ...[
-                          const SizedBox(width: 6),
-                          _FollowButton(uid: host.id),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            // A share of the width, so a busy room never squeezes the host pill.
-            ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: box.maxWidth * 0.3),
-              child: _TopViewers(
-                viewers: [
-                  for (final v in c.topViewers)
-                    if (v.id != host.id) v,
-                ],
-                onTapUser: onTapUser,
-              ),
-            ),
-            const SizedBox(width: 4),
-            InkWell(
-              onTap: onViewers,
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: BoxDecoration(
-                  color: BBColors.scrim,
-                  borderRadius: BorderRadius.circular(16),
-                ),
+    // Fixed-height chrome over the stage: very large text stops growing at 1.3×.
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.3,
+      child: SizedBox(
+        height: height,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, _gap, 8, _gap),
+          child: Column(
+            children: [
+              SizedBox(
+                height: _rowHeight,
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.person_outline_rounded,
-                      size: 14,
-                      color: BBColors.champagne,
-                    ),
-                    const SizedBox(width: 2),
-                    Text(
-                      Fmt.compact(c.viewerCount),
-                      style: const TextStyle(
-                        color: BBColors.ivory,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
+                    Flexible(
+                      flex: 0,
+                      child: _HostChip(
+                        c: c,
+                        host: host,
+                        onTap: () => onTapUser(host),
                       ),
+                    ),
+                    Expanded(
+                      child: _TopViewers(
+                        viewers: [
+                          for (final v in c.topViewers)
+                            if (v.id != host.id) v,
+                        ],
+                        onTapUser: onTapUser,
+                      ),
+                    ),
+                    Semantics(
+                      toggled: !c.roomAudioOn,
+                      child: IconButton(
+                        tooltip: c.roomAudioOn
+                            ? 'Mute room audio'
+                            : 'Unmute room audio',
+                        onPressed: c.toggleRoomAudio,
+                        icon: Icon(
+                          c.roomAudioOn
+                              ? Icons.volume_up_rounded
+                              : Icons.volume_off_rounded,
+                          size: 26,
+                          color: BBColors.ivory,
+                        ),
+                      ),
+                    ),
+                    _CloseButton(
+                      label: c.isHost ? 'End live' : 'Leave',
+                      onTap: onClose,
                     ),
                   ],
                 ),
               ),
-            ),
-            _CloseButton(
-              label: c.isHost ? 'End live' : 'Leave',
-              onTap: onClose,
-            ),
-          ],
+              const SizedBox(height: _gap),
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: _StatsCard(c: c, onViewers: onViewers),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+/// The host's avatar with their name and the live timer under it, then Follow for
+/// viewers. A long name ends in an ellipsis so the viewers keep some room.
+class _HostChip extends StatelessWidget {
+  const _HostChip({required this.c, required this.host, required this.onTap});
+  final LiveRoomController c;
+  final UserBrief host;
+  final VoidCallback onTap;
+
+  static const _nameMaxWidth = 96.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final room = c.detail!.room;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Semantics(
+            button: true,
+            label: 'Host ${host.displayName}. View profile',
+            child: GestureDetector(
+              onTap: onTap,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox.square(
+                    dimension: 44,
+                    child: Center(child: BBAvatar.user(host, size: 38)),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: _nameMaxWidth,
+                      ),
+                      child: ExcludeSemantics(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              host.displayName,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: BBColors.ivory,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                height: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            if (room.startedAt != null)
+                              LiveElapsed(
+                                since: room.startedAt!,
+                                offset: c.detail!.clockOffset,
+                                style: const TextStyle(
+                                  color: BBColors.champagne,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (!c.isHost) _FollowPill(uid: host.id),
+      ],
+    );
+  }
+}
+
 /// The highest-ranked viewers (VIP tier, then level, as the server sorts them). Scrolls
-/// sideways when it is given less room than it needs.
+/// sideways and fades out at its right edge when there are more than fit.
 class _TopViewers extends StatelessWidget {
   const _TopViewers({required this.viewers, required this.onTapUser});
   final List<UserBrief> viewers;
@@ -162,65 +195,79 @@ class _TopViewers extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (viewers.isEmpty) return const SizedBox.shrink();
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final v in viewers)
-            GestureDetector(
-              onTap: () => onTapUser(v),
-              child: Tooltip(
-                message: v.displayName,
-                // Room around the avatar for its frame and the VIP tag.
-                child: SizedBox(
-                  width: _size + 6,
-                  height: _size + 10,
-                  child: Stack(
-                    alignment: Alignment.topCenter,
-                    children: [
-                      Positioned(top: 4, child: BBAvatar.user(v, size: _size)),
-                      if (v.vipTier > 0)
-                        Positioned(bottom: 0, child: VipTag(v.vipTier)),
-                    ],
+    return ShaderMask(
+      shaderCallback: (r) => const LinearGradient(
+        colors: [Colors.black, Colors.black, Colors.transparent],
+        stops: [0, 0.85, 1],
+      ).createShader(r),
+      blendMode: BlendMode.dstIn,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(left: 6),
+        child: Row(
+          children: [
+            for (final v in viewers)
+              GestureDetector(
+                onTap: () => onTapUser(v),
+                child: Tooltip(
+                  message: v.displayName,
+                  // Room around the avatar for its frame and the VIP tag.
+                  child: SizedBox(
+                    width: _size + 4,
+                    height: _size + 10,
+                    child: Stack(
+                      alignment: Alignment.topCenter,
+                      children: [
+                        Positioned(
+                          top: 4,
+                          child: BBAvatar.user(v, size: _size),
+                        ),
+                        if (v.vipTier > 0)
+                          Positioned(bottom: 0, child: VipTag(v.vipTier)),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Close in the top-right corner: a 30px disc with a full-size touch target.
+/// The gold close button at the end of the header.
 class _CloseButton extends StatelessWidget {
   const _CloseButton({required this.label, required this.onTap});
   final String label;
   final VoidCallback onTap;
+
+  static const _disc = 36.0;
 
   @override
   Widget build(BuildContext context) => Tooltip(
     message: label,
     child: InkResponse(
       onTap: onTap,
-      radius: 22,
-      child: SizedBox(
-        width: 38,
-        height: 40,
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: Container(
-            width: 30,
-            height: 30,
-            decoration: const BoxDecoration(
+      radius: _disc / 2 + 6,
+      child: const SizedBox.square(
+        dimension: 44,
+        child: Center(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: BBColors.scrim,
+              gradient: BBColors.goldGradient,
+              boxShadow: [
+                BoxShadow(
+                  color: BBColors.goldShadow,
+                  blurRadius: 6,
+                  offset: Offset(0, 2),
+                ),
+              ],
             ),
-            child: const Icon(
-              Icons.close_rounded,
-              size: 18,
-              color: BBColors.ivory,
+            child: SizedBox.square(
+              dimension: _disc,
+              child: Icon(Icons.close_rounded, size: 22, color: BBColors.ink),
             ),
           ),
         ),
@@ -229,124 +276,155 @@ class _CloseButton extends StatelessWidget {
   );
 }
 
-/// Follow + for the host pill; hidden once following.
-class _FollowButton extends ConsumerStatefulWidget {
-  const _FollowButton({required this.uid});
+/// "Follow" beside the host; hidden once following.
+class _FollowPill extends ConsumerStatefulWidget {
+  const _FollowPill({required this.uid});
   final String uid;
   @override
-  ConsumerState<_FollowButton> createState() => _FollowButtonState();
+  ConsumerState<_FollowPill> createState() => _FollowPillState();
 }
 
-class _FollowButtonState extends ConsumerState<_FollowButton> {
+class _FollowPillState extends ConsumerState<_FollowPill> {
   bool _busy = false;
+
+  Future<void> _follow() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(accountRepo).follow(widget.uid, true);
+      ref.invalidate(userProvider(widget.uid));
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final following =
         ref.watch(userProvider(widget.uid)).value?.isFollowing ?? false;
     if (following) return const SizedBox.shrink();
-    return GestureDetector(
-      onTap: _busy
-          ? null
-          : () async {
-              setState(() => _busy = true);
-              try {
-                await ref.read(accountRepo).follow(widget.uid, true);
-                ref.invalidate(userProvider(widget.uid));
-              } catch (e) {
-                if (context.mounted) showError(context, e);
-              } finally {
-                if (mounted) setState(() => _busy = false);
-              }
-            },
-      child: Container(
-        width: 26,
-        height: 26,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: BBColors.goldGradient,
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: Tooltip(
+        message: 'Follow',
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: _busy ? null : _follow,
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: const ShapeDecoration(
+              shape: StadiumBorder(),
+              gradient: BBColors.goldGradient,
+            ),
+            child: const Text(
+              'Follow',
+              style: TextStyle(
+                color: BBColors.ink,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         ),
-        child: const Icon(Icons.add_rounded, size: 18, color: BBColors.ink),
       ),
     );
   }
 }
 
-/// Under the top bar: beans earned this live, elapsed time, the lock state and Report.
-class LiveInfoRow extends StatelessWidget {
-  const LiveInfoRow({super.key, required this.c});
+/// The full-width card under the header's first row: 🫘 beans this live, viewers (tap
+/// for the list), the lock state, and the host's ID at the end. Scales down rather than
+/// overflow on a narrow phone.
+class _StatsCard extends StatelessWidget {
+  const _StatsCard({required this.c, required this.onViewers});
   final LiveRoomController c;
+  final VoidCallback onViewers;
+
+  static const height = 36.0;
 
   @override
   Widget build(BuildContext context) {
     final room = c.detail!.room;
-    Widget chip(Widget child, {Color? border}) => Container(
-      margin: const EdgeInsets.only(right: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: BBColors.scrim,
-        borderRadius: BorderRadius.circular(12),
-        border: border == null ? null : Border.all(color: border),
-      ),
-      child: child,
+    const figure = TextStyle(
+      color: BBColors.ivory,
+      fontSize: 15,
+      fontWeight: FontWeight.w700,
+      fontFeatures: [FontFeature.tabularFigures()],
     );
-    const label = TextStyle(color: BBColors.ivory, fontSize: 11);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-      child: Row(
-        children: [
-          chip(
-            Text(
-              '🫘 ${Fmt.compact(room.giftBeans)}',
-              style: label.copyWith(
-                color: BBColors.goldLight,
-                fontWeight: FontWeight.w700,
+    Widget stat(Widget icon, String value, String label, [VoidCallback? tap]) =>
+        Semantics(
+          button: tap != null,
+          label: '$label $value',
+          excludeSemantics: true,
+          child: GestureDetector(
+            onTap: tap,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  icon,
+                  const SizedBox(width: 5),
+                  Text(value, style: figure),
+                ],
               ),
             ),
           ),
-          if (room.startedAt != null)
-            chip(
-              LiveElapsed(
-                since: room.startedAt!,
-                offset: c.detail!.clockOffset,
-                style: label,
-              ),
-            ),
-          if (room.locked)
-            chip(
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.lock_rounded,
-                    size: 12,
-                    color: BBColors.goldLight,
-                  ),
-                  const SizedBox(width: 3),
-                  Text(room.hasPassword ? 'Password' : 'Locked', style: label),
-                ],
-              ),
-              border: BBColors.goldOutline,
-            ),
-          const Spacer(),
-          if (!c.isHost)
-            GestureDetector(
-              onTap: () => ReportSheet.show(
-                context,
-                targetType: 'room',
-                targetId: c.roomId,
-              ),
-              child: chip(
-                const Text(
-                  'Report',
-                  style: TextStyle(
-                    color: BBColors.ivory,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
+        );
+    return Container(
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: BBColors.scrim,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: BBColors.goldOutline),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    stat(
+                      const Text('🫘', style: TextStyle(fontSize: 15)),
+                      Fmt.compact(room.giftBeans),
+                      'Beans this live',
+                    ),
+                    stat(
+                      const Icon(
+                        Icons.remove_red_eye_rounded,
+                        size: 18,
+                        color: BBColors.champagne,
+                      ),
+                      Fmt.compact(c.viewerCount),
+                      'Viewers',
+                      onViewers,
+                    ),
+                    if (room.locked)
+                      stat(
+                        const Icon(
+                          Icons.lock_rounded,
+                          size: 16,
+                          color: BBColors.goldLight,
+                        ),
+                        room.hasPassword ? 'Password' : 'Locked',
+                        'Entry',
+                      ),
+                  ],
                 ),
-                border: BBColors.danger,
               ),
+            ),
+          ),
+          if (room.host.shortId.isNotEmpty)
+            Text(
+              'ID ${room.host.shortId}',
+              style: const TextStyle(color: BBColors.champagne, fontSize: 11),
             ),
         ],
       ),
@@ -433,7 +511,9 @@ class _LiveElapsedState extends State<LiveElapsed> {
   );
 }
 
-/// Round 36px button used on the side rail and bottom bar.
+/// Round control of the live room: a scrim disc with a gold glyph, centred in a tap target
+/// of at least [minWidth] × [rowExtent] (the rail stacks them at that pitch). [gold] fills
+/// the disc with the gold gradient instead; [danger] turns the glyph red (mic off, leave).
 class LiveRoundButton extends StatelessWidget {
   const LiveRoundButton({
     super.key,
@@ -443,7 +523,8 @@ class LiveRoundButton extends StatelessWidget {
     this.gold = false,
     this.danger = false,
     this.badge = 0,
-    this.size = 40,
+    this.toggled,
+    this.size = disc,
   });
   final IconData icon;
   final VoidCallback? onTap;
@@ -451,214 +532,343 @@ class LiveRoundButton extends StatelessWidget {
   final bool gold;
   final bool danger;
   final int badge;
+
+  /// For on/off controls: announced as a toggle (true = the "off" state is showing).
+  final bool? toggled;
+
+  /// The disc's diameter.
   final double size;
 
+  /// Default disc on the rail.
+  static const disc = 34.0;
+
+  /// Minimum tap target width (and the rail's column width).
+  static const minWidth = 44.0;
+
+  /// Minimum tap target height: the rail's pitch.
+  static const rowExtent = 42.0;
+
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: InkWell(
-      customBorder: const CircleBorder(),
-      onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: gold ? null : (danger ? BBColors.danger : BBColors.scrim),
-              gradient: gold ? BBColors.goldGradient : null,
-            ),
-            child: Icon(
-              icon,
-              color: gold ? BBColors.ink : BBColors.ivory,
-              size: size * 0.52,
-            ),
+  Widget build(BuildContext context) {
+    Widget face = DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: gold ? null : BBColors.scrim,
+        gradient: gold ? BBColors.goldGradient : null,
+      ),
+      child: SizedBox.square(
+        dimension: size,
+        child: Icon(
+          icon,
+          size: size * 0.6,
+          color: gold
+              ? BBColors.ink
+              : (danger ? BBColors.danger : BBColors.goldLight),
+        ),
+      ),
+    );
+    if (badge > 0) {
+      face = Badge(
+        backgroundColor: BBColors.danger,
+        textColor: BBColors.ivory,
+        label: Text(badge > 99 ? '99+' : '$badge'),
+        child: face,
+      );
+    }
+    return Semantics(
+      button: true,
+      toggled: toggled,
+      child: Tooltip(
+        message: tooltip,
+        child: InkResponse(
+          onTap: onTap,
+          radius: size / 2 + 6,
+          highlightShape: BoxShape.circle,
+          child: SizedBox(
+            width: size > minWidth ? size : minWidth,
+            height: size > rowExtent ? size : rowExtent,
+            child: Center(child: face),
           ),
-          if (badge > 0)
-            Positioned(
-              right: -3,
-              top: -3,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: BBColors.danger,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  badge > 99 ? '99+' : '$badge',
-                  style: const TextStyle(
-                    color: BBColors.ivory,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+/// The PK battle entry on the rail: a bold "PK" wordmark in a control's slot, no disc.
+class _PkButton extends StatelessWidget {
+  const _PkButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: 'PK battle',
+    excludeSemantics: true,
+    child: Tooltip(
+      message: 'PK battle',
+      child: InkResponse(
+        onTap: onTap,
+        radius: LiveRoundButton.disc / 2 + 6,
+        child: const SizedBox(
+          width: LiveRoundButton.minWidth,
+          height: LiveRoundButton.rowExtent,
+          child: Center(
+            child: Text(
+              'PK',
+              style: TextStyle(
+                color: BBColors.goldLight,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                height: 1,
+                shadows: [
+                  Shadow(
+                    color: BBColors.espressoShade,
+                    offset: Offset(0, 1),
+                    blurRadius: 3,
                   ),
-                ),
+                ],
               ),
             ),
-        ],
+          ),
+        ),
       ),
     ),
   );
 }
 
-/// Right-hand column: PK (host), lock (host), flip camera (on stage, camera on) and hearts
-/// (everyone).
-class LiveSideRail extends ConsumerWidget {
+/// The right-hand column of controls, top to bottom: Games, PK, Share, Chat, Lock, Stage
+/// requests, Mic, Camera, Flip, More, and the chevron that folds the rest away. Each shows
+/// by role: the host gets most of them, a guest on stage their mic/camera tools, a viewer
+/// Games, Share, Chat and More. It scrolls, anchored at the bottom, on a short screen.
+class LiveSideRail extends ConsumerStatefulWidget {
   const LiveSideRail({
     super.key,
     required this.c,
     required this.onPk,
     required this.onLock,
-    required this.onHeart,
+    required this.onRequests,
+    required this.onShare,
+    required this.onGames,
+    required this.onMore,
   });
   final LiveRoomController c;
   final VoidCallback onPk;
   final VoidCallback onLock;
-  final VoidCallback onHeart;
+  final VoidCallback onRequests;
+
+  /// Gets the button's context, so the iPad share sheet can anchor to it.
+  final void Function(BuildContext anchor) onShare;
+  final VoidCallback onGames;
+  final VoidCallback onMore;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final pkEnabled =
-        ref.watch(appConfigProvider).value?.feature('pkEnabled') ?? true;
+  ConsumerState<LiveSideRail> createState() => _LiveSideRailState();
+}
+
+class _LiveSideRailState extends ConsumerState<LiveSideRail> {
+  bool _expanded = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.c;
+    final config = ref.watch(appConfigProvider).value;
     final canPk =
         c.isHost &&
         c.isVideoRoom &&
-        pkEnabled &&
+        (config?.feature('pkEnabled') ?? true) &&
         c.pk == null &&
         c.pkOutgoing == null;
-    final canFlip = (c.isHost || c.onSeat) && c.isVideoRoom && c.cameraOn;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (canPk) ...[
-          LiveRoundButton(
-            icon: Icons.bolt_rounded,
-            tooltip: 'PK battle',
-            gold: true,
-            onTap: onPk,
-          ),
-          const SizedBox(height: 8),
-        ],
-        if (c.isHost) ...[
-          LiveRoundButton(
-            icon: c.locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-            tooltip: c.locked ? 'Unlock live' : 'Lock live',
-            onTap: onLock,
-          ),
-          const SizedBox(height: 8),
-        ],
-        if (canFlip) ...[
-          LiveRoundButton(
-            icon: Icons.cameraswitch_rounded,
-            tooltip: 'Flip camera',
-            onTap: c.flipCamera,
-          ),
-          const SizedBox(height: 8),
-        ],
-        LiveRoundButton(
-          icon: Icons.favorite_rounded,
-          tooltip: 'Send hearts',
-          onTap: onHeart,
-        ),
-      ],
-    );
-  }
-}
-
-/// Chat field plus the role-specific actions: media toggles on stage, stage request /
-/// leave for viewers and guests, the request inbox for the host and admins, and gifts.
-class LiveBottomBar extends StatelessWidget {
-  const LiveBottomBar({
-    super.key,
-    required this.c,
-    required this.onCompose,
-    required this.onGift,
-    required this.onRequests,
-    required this.onStageAction,
-  });
-  final LiveRoomController c;
-  final VoidCallback onCompose;
-  final VoidCallback onGift;
-  final VoidCallback onRequests;
-  final VoidCallback onStageAction;
-
-  /// The chat field never gets narrower than this; a crowded bar shrinks its buttons.
-  static const _minField = 110.0;
-  static const _gap = 8.0;
-
-  List<Widget> _buttons(double size) {
     final staged = c.isHost || c.onSeat;
-    return [
-      if (staged) ...[
+    final camTools = staged && c.isVideoRoom;
+    final controls = <Widget>[
+      if (config?.feature('gamesEnabled') ?? true)
         LiveRoundButton(
-          icon: c.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-          tooltip: c.micOn ? 'Mute' : 'Unmute',
-          danger: !c.micOn,
-          size: size,
-          onTap: c.toggleMic,
+          icon: Icons.sports_esports_rounded,
+          tooltip: 'Games',
+          onTap: widget.onGames,
         ),
-        if (c.isVideoRoom)
-          LiveRoundButton(
-            icon: c.cameraOn
-                ? Icons.videocam_rounded
-                : Icons.videocam_off_rounded,
-            tooltip: c.cameraOn ? 'Camera off' : 'Camera on',
-            danger: !c.cameraOn,
-            size: size,
-            onTap: c.toggleCamera,
-          ),
-      ],
-      if (!c.isHost)
+      if (canPk) _PkButton(onTap: widget.onPk),
+      Builder(
+        builder: (anchor) => LiveRoundButton(
+          icon: Icons.share_rounded,
+          tooltip: 'Share',
+          onTap: () => widget.onShare(anchor),
+        ),
+      ),
+      LiveRoundButton(
+        icon: c.chatVisible
+            ? Icons.chat_bubble_outline_rounded
+            : Icons.comments_disabled_outlined,
+        tooltip: c.chatVisible ? 'Hide chat' : 'Show chat',
+        toggled: !c.chatVisible,
+        onTap: c.toggleChat,
+      ),
+      if (c.isHost)
         LiveRoundButton(
-          icon: c.onSeat
-              ? Icons.call_end_rounded
-              : (c.seatRequestPending
-                    ? Icons.call_end_rounded
-                    : Icons.add_call),
-          tooltip: c.onSeat
-              ? 'Leave the stage'
-              : (c.seatRequestPending
-                    ? 'Cancel request'
-                    : 'Ask to join the stage'),
-          danger: c.onSeat || c.seatRequestPending,
-          size: size,
-          onTap: onStageAction,
+          icon: c.locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+          tooltip: c.locked ? 'Unlock live' : 'Lock live',
+          toggled: c.locked,
+          onTap: widget.onLock,
         ),
       if (c.isModerator)
         LiveRoundButton(
           icon: Icons.groups_rounded,
           tooltip: 'Stage requests',
           badge: c.seatRequests.length,
-          size: size,
-          onTap: onRequests,
+          onTap: widget.onRequests,
         ),
+      if (staged)
+        LiveRoundButton(
+          icon: c.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+          tooltip: c.micOn ? 'Mute' : 'Unmute',
+          danger: !c.micOn,
+          toggled: !c.micOn,
+          onTap: c.toggleMic,
+        ),
+      if (camTools) ...[
+        LiveRoundButton(
+          icon: c.cameraOn
+              ? Icons.videocam_rounded
+              : Icons.videocam_off_rounded,
+          tooltip: c.cameraOn ? 'Camera off' : 'Camera on',
+          danger: !c.cameraOn,
+          toggled: !c.cameraOn,
+          onTap: c.toggleCamera,
+        ),
+        LiveRoundButton(
+          icon: Icons.cameraswitch_rounded,
+          tooltip: 'Flip camera',
+          // There's nothing to flip while the camera is off.
+          onTap: c.cameraOn
+              ? c.flipCamera
+              : () => showMessage(context, 'Turn your camera on to flip it'),
+        ),
+      ],
       LiveRoundButton(
-        icon: Icons.card_giftcard_rounded,
-        tooltip: 'Send a gift',
-        gold: true,
-        size: size,
-        onTap: onGift,
+        icon: Icons.more_horiz_rounded,
+        tooltip: 'More',
+        onTap: widget.onMore,
       ),
     ];
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: SingleChildScrollView(
+        reverse: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRect(
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.bottomCenter,
+                child: _expanded
+                    ? Column(mainAxisSize: MainAxisSize.min, children: controls)
+                    : const SizedBox(width: LiveRoundButton.minWidth),
+              ),
+            ),
+            LiveRoundButton(
+              icon: _expanded
+                  ? Icons.keyboard_arrow_down_rounded
+                  : Icons.keyboard_arrow_up_rounded,
+              tooltip: _expanded ? 'Hide controls' : 'Show controls',
+              toggled: !_expanded,
+              onTap: () => setState(() => _expanded = !_expanded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The bottom row: the chat field, then Gift, the stage phone and the heart. The phone
+/// depends on the role: the host invites guests, a viewer asks for a seat (or cancels the
+/// request), a guest on stage leaves it.
+class LiveBottomBar extends StatelessWidget {
+  const LiveBottomBar({
+    super.key,
+    required this.c,
+    required this.onCompose,
+    required this.onGift,
+    required this.onInvite,
+    required this.onStageAction,
+    required this.onHeart,
+  });
+  final LiveRoomController c;
+  final VoidCallback onCompose;
+  final VoidCallback onGift;
+
+  /// The host's phone: the stage list, to invite someone up.
+  final VoidCallback onInvite;
+
+  /// A viewer's or guest's phone: ask for a seat, cancel the request, or leave.
+  final VoidCallback onStageAction;
+  final VoidCallback onHeart;
+
+  /// The gift, phone and heart discs.
+  static const button = 48.0;
+  static const _gap = 6.0;
+
+  /// The row with its padding.
+  static const height = button + 14;
+
+  Widget _phone() {
+    if (c.isHost) {
+      return LiveRoundButton(
+        icon: Icons.call_rounded,
+        tooltip: 'Invite guests',
+        size: button,
+        onTap: onInvite,
+      );
+    }
+    if (c.onSeat) {
+      return LiveRoundButton(
+        icon: Icons.call_end_rounded,
+        tooltip: 'Leave the stage',
+        danger: true,
+        size: button,
+        onTap: onStageAction,
+      );
+    }
+    return LiveRoundButton(
+      icon: c.seatRequestPending
+          ? Icons.phone_in_talk_rounded
+          : Icons.call_rounded,
+      tooltip: c.seatRequestPending
+          ? 'Cancel request'
+          : 'Ask to join the stage',
+      toggled: c.seatRequestPending,
+      size: button,
+      onTap: onStageAction,
+    );
   }
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
-    child: LayoutBuilder(
-      builder: (context, box) {
-        final count = _buttons(40).length;
-        final size = box.maxWidth - count * (40 + _gap) >= _minField
-            ? 40.0
-            : 34.0;
-        return Row(
-          children: [
-            Expanded(child: _ChatField(onTap: onCompose)),
-            for (final b in _buttons(size)) ...[const SizedBox(width: _gap), b],
-          ],
-        );
-      },
+    padding: const EdgeInsets.fromLTRB(12, 4, 8, 10),
+    child: Row(
+      children: [
+        Expanded(child: _ChatField(onTap: onCompose)),
+        const SizedBox(width: _gap),
+        LiveRoundButton(
+          icon: Icons.card_giftcard_rounded,
+          tooltip: 'Send a gift',
+          gold: true,
+          size: button,
+          onTap: onGift,
+        ),
+        const SizedBox(width: _gap),
+        _phone(),
+        const SizedBox(width: _gap),
+        LiveRoundButton(
+          icon: Icons.favorite_rounded,
+          tooltip: 'Send hearts',
+          size: button,
+          onTap: onHeart,
+        ),
+      ],
     ),
   );
 }
@@ -677,29 +887,21 @@ class _ChatField extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
-        height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         decoration: BoxDecoration(
           color: BBColors.scrim,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: BBColors.champagneVeil),
         ),
-        child: const Row(
-          children: [
-            Icon(
-              Icons.chat_bubble_outline_rounded,
-              size: 16,
-              color: BBColors.inkSubtle,
-            ),
-            SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                'Say something…',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: BBColors.inkSubtle),
-              ),
-            ),
-          ],
+        child: const Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Say something…',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: BBColors.champagne, fontSize: 14),
+          ),
         ),
       ),
     ),

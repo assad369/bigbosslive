@@ -8,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/deep_links/deep_link.dart';
+import '../../core/deep_links/share_link.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
@@ -336,6 +338,29 @@ class _MenuItem extends StatelessWidget {
   );
 }
 
+/// Opens a profile from its short ID (a shared `/u/<shortId>` link): the API resolves it,
+/// then the usual profile shows under its uid.
+class UserByShortIdScreen extends ConsumerWidget {
+  const UserByShortIdScreen({super.key, required this.shortId});
+  final String shortId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(userProvider(shortId));
+    return switch (user) {
+      AsyncData(:final value) => UserProfileScreen(uid: value.id),
+      _ => Scaffold(
+        appBar: AppBar(),
+        body: AsyncView(
+          value: user,
+          onRetry: () => ref.invalidate(userProvider(shortId)),
+          data: (_) => const SizedBox.shrink(),
+        ),
+      ),
+    };
+  }
+}
+
 class UserProfileScreen extends ConsumerWidget {
   const UserProfileScreen({super.key, required this.uid});
   final String uid;
@@ -347,6 +372,18 @@ class UserProfileScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         actions: [
+          if (user.value?.brief case final u? when u.shortId.isNotEmpty)
+            Builder(
+              builder: (anchor) => IconButton(
+                tooltip: 'Share',
+                icon: const Icon(Icons.share_rounded),
+                onPressed: () => shareDeepLink(
+                  anchor,
+                  ProfileLink(u.shortId),
+                  'Follow ${u.displayName} on BigBoss Live',
+                ),
+              ),
+            ),
           if (!isMe)
             PopupMenuButton<String>(
               onSelected: (v) async {

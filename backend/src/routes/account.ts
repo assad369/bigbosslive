@@ -1,3 +1,4 @@
+import { SHORT_ID_PATTERN } from '@bigboss/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import type { Ctx } from '../context.js';
@@ -80,7 +81,9 @@ export function accountRoutes(ctx: Ctx): Router {
 
   r.get('/users/:uid', auth, async (req, res) => {
     const { uid } = parseParams(req, uidParam);
-    res.json({ user: await users.publicProfile(uid, currentUser(req).uid) });
+    // A shared profile link carries the short ID people see (`/u/<shortId>`).
+    const target = SHORT_ID_PATTERN.test(uid) ? (await users.resolve(uid))._id : uid;
+    res.json({ user: await users.publicProfile(target, currentUser(req).uid) });
   });
 
   r.post('/users/:uid/follow', auth, async (req, res) => {

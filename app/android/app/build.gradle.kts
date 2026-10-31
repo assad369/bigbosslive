@@ -1,3 +1,4 @@
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -14,6 +15,15 @@ val keystoreProperties = Properties().apply {
     val f = rootProject.file("key.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
+
+/** Share-link host (see lib/core/config/env.dart); must match link-web's PUBLIC_HOST. */
+val linkHost: String = (project.findProperty("dart-defines") as String?)
+    ?.split(",")
+    ?.map { String(Base64.getDecoder().decode(it)) }
+    ?.firstOrNull { it.startsWith("LINK_HOST=") }
+    ?.substringAfter("=")
+    ?.takeIf { it.isNotBlank() }
+    ?: "links.example.com"
 
 android {
     namespace = "com.bigbosslive.bigboss_live"
@@ -39,12 +49,19 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // App Links host for AndroidManifest.xml. Same flag the Dart side reads
+        // (--dart-define=LINK_HOST=…); Flutter hands dart-defines to Gradle base64-encoded.
+        manifestPlaceholders["linkHost"] = linkHost
     }
 
     signingConfigs {
         create("release") {
             if (keystoreProperties.isNotEmpty()) {
-                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                val storePath = keystoreProperties.getProperty("storeFile")
+                if (!storePath.isNullOrEmpty()) {
+                    val candidate = file(storePath)
+                    storeFile = if (candidate.exists()) candidate else rootProject.file(storePath)
+                }
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")

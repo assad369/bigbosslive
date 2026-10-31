@@ -171,6 +171,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/user/:uid',
         builder: (_, s) => UserProfileScreen(uid: s.pathParameters['uid']!),
       ),
+      // A shared profile link carries the short ID people see; the profile itself is
+      // addressed by uid.
+      GoRoute(
+        path: '/u/:shortId',
+        builder: (_, s) =>
+            UserByShortIdScreen(shortId: s.pathParameters['shortId']!),
+      ),
       GoRoute(
         path: '/user/:uid/:direction(followers|following)',
         builder: (_, s) => FollowListScreen(

@@ -270,8 +270,11 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
 
 /// Queued, full-screen gift celebrations plus a sliding banner.
 class GiftOverlay extends StatefulWidget {
-  const GiftOverlay({super.key, required this.gifts});
+  const GiftOverlay({super.key, required this.gifts, this.muted = false});
   final Stream<GiftEvent> gifts;
+
+  /// The viewer silenced the room (speaker off): gift animations play without sound.
+  final bool muted;
 
   @override
   State<GiftOverlay> createState() => _GiftOverlayState();
@@ -376,6 +379,7 @@ class _GiftOverlayState extends State<GiftOverlay> {
                         url: g.gift.animationUrl!,
                         format: g.gift.animationFormat,
                         fit: BoxFit.contain,
+                        sound: !widget.muted,
                         onDone: _onEffectDone,
                       ),
                     )

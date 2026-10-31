@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/deep_links/deep_link.dart';
+import '../../core/deep_links/share_link.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/json.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../games/games_screens.dart';
 import 'active_live.dart';
 import 'gift_panel.dart';
 import 'live_chat.dart';
@@ -243,6 +246,18 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
     c.react();
   }
 
+  Future<void> _share(BuildContext anchor) {
+    final room = c.detail!.room;
+    final name = room.host.displayName;
+    return shareDeepLink(
+      anchor,
+      LiveLink(room.id),
+      room.isAudio
+          ? 'Join $name\'s party on BigBossLive'
+          : 'Watch $name live on BigBossLive',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Rebuild when the active session changes, to notice being orphaned.
@@ -354,22 +369,64 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                         onViewers: _openParticipants,
                         onTapUser: _openUser,
                       ),
-                      LiveInfoRow(c: c),
                       PkWaitingBanner(c: c),
                       if (c.status == LiveStatus.reconnecting)
                         const _Pill(text: 'Reconnecting…'),
-                      const Spacer(),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 10, bottom: 6),
-                        child: EntryBanner(entries: c.entries),
-                      ),
-                      LiveChatList(
-                        c: c,
-                        onTapUser: _openUser,
-                        onReply: (line) => setState(() {
-                          _replyTo = line;
-                          _composing = true;
-                        }),
+                      Expanded(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      left: 10,
+                                      bottom: 6,
+                                    ),
+                                    child: EntryBanner(entries: c.entries),
+                                  ),
+                                  if (c.chatVisible)
+                                    LiveChatList(
+                                      c: c,
+                                      onTapUser: _openUser,
+                                      onReply: (line) => setState(() {
+                                        _replyTo = line;
+                                        _composing = true;
+                                      }),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            // Hidden while typing: the keyboard leaves no room for it.
+                            if (!_composing)
+                              LiveSideRail(
+                                c: c,
+                                onPk: () => PkPickerSheet.show(
+                                  context,
+                                  c,
+                                  ref
+                                          .read(appConfigProvider)
+                                          .value
+                                          ?.pkDurations ??
+                                      const [60, 180, 300, 600],
+                                ),
+                                onLock: () => LockSheet.show(context, c),
+                                onRequests: () => _openParticipants(
+                                  ParticipantsSheet.requestsTab,
+                                ),
+                                onShare: _share,
+                                onGames: () => LiveGamesSheet.show(context),
+                                onMore: () => LiveMoreSheet.show(
+                                  context,
+                                  c,
+                                  onParticipants: _openParticipants,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                       if (_composing)
                         ChatComposer(
@@ -383,32 +440,24 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                           c: c,
                           onCompose: () => setState(() => _composing = true),
                           onGift: _openGifts,
-                          onRequests: () =>
-                              _openParticipants(ParticipantsSheet.requestsTab),
+                          onInvite: () =>
+                              _openParticipants(ParticipantsSheet.stageTab),
                           onStageAction: _stageAction,
+                          onHeart: _heart,
                         ),
                     ],
                   ),
                 ),
               ),
-              if (!_composing)
-                Positioned(
-                  right: 10,
-                  bottom: MediaQuery.paddingOf(context).bottom + 66,
-                  child: LiveSideRail(
-                    c: c,
-                    onPk: () => PkPickerSheet.show(
-                      context,
-                      c,
-                      ref.read(appConfigProvider).value?.pkDurations ??
-                          const [60, 180, 300, 600],
-                    ),
-                    onLock: () => LockSheet.show(context, c),
-                    onHeart: _heart,
-                  ),
+              Positioned.fill(
+                child: EntryEffectOverlay(
+                  entries: c.entries,
+                  muted: !c.roomAudioOn,
                 ),
-              Positioned.fill(child: EntryEffectOverlay(entries: c.entries)),
-              Positioned.fill(child: GiftOverlay(gifts: c.gifts)),
+              ),
+              Positioned.fill(
+                child: GiftOverlay(gifts: c.gifts, muted: !c.roomAudioOn),
+              ),
             ],
           ),
         },

@@ -15,6 +15,7 @@ import { ModerationService } from './modules/moderation/moderation.service.js';
 import { NotificationsService } from './modules/notifications/notifications.service.js';
 import { PkService } from './modules/pk/pk.service.js';
 import { StorageSettingsService } from './modules/config/storage-settings.service.js';
+import { ShareService } from './modules/share/share.service.js';
 import { StoreService } from './modules/store/store.service.js';
 import { UsersService } from './modules/users/users.service.js';
 import { IapService } from './modules/wallet/iap.service.js';
@@ -37,6 +38,7 @@ export interface Services {
   moderation: ModerationService;
   notifications: NotificationsService;
   pk: PkService;
+  share: ShareService;
   stats: StatsService;
   storageSettings: StorageSettingsService;
   store: StoreService;
@@ -66,6 +68,7 @@ export function createServices(ctx: Ctx): Services {
     moderation: new ModerationService(ctx),
     notifications: new NotificationsService(ctx),
     pk: new PkService(ctx),
+    share: new ShareService(ctx),
     stats: new StatsService(ctx),
     storageSettings: new StorageSettingsService(ctx),
     store: new StoreService(ctx),

@@ -57,6 +57,18 @@ services:
       redis: { condition: service_healthy }
       livekit: { condition: service_started }
 
+  link-web:
+    build:
+      context: ..
+      dockerfile: link-web/Dockerfile
+    environment:
+      NODE_ENV: development
+      PUBLIC_HOST: links.example.com
+      API_INTERNAL_URL: http://backend:3000
+    ports: ['3100:3000']
+    depends_on:
+      backend: { condition: service_started }
+
 volumes:
   mongo-data:
   redis-data:

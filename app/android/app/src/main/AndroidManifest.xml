@@ -41,13 +41,28 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- bigboss://live/<roomId>, bigboss://user/<uid>, … (handled by go_router) -->
+            <!-- bigboss://live/<roomId>, bigboss://user/<uid>, … (handled by DeepLinkService) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="bigboss" />
             </intent-filter>
+            <!-- Share links (App Links), verified against https://${linkHost}/.well-known/assetlinks.json.
+                 Only content paths are claimed, so the landing page stays in the browser.
+                 Prefixes mirror DEEP_LINK_ROUTES in packages/shared. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${linkHost}" />
+                <data android:pathPrefix="/live/" />
+                <data android:pathPrefix="/u/" />
+                <data android:pathPrefix="/post/" />
+            </intent-filter>
+            <!-- Links are routed by DeepLinkService (app_links), not by Flutter's own deep
+                 linking, which would push them a second time. -->
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

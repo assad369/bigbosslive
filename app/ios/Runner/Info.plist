@@ -37,6 +37,9 @@
 		<string>audio</string>
 		<string>remote-notification</string>
 	</array>
+	<!-- Links are routed by DeepLinkService (app_links), not Flutter's own deep linking. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

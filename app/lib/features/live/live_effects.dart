@@ -229,8 +229,15 @@ class _EntryBannerState extends State<EntryBanner> {
 /// Full-screen entrance effects (SVGA, Lottie or MP4), one at a time. Arrivals without an
 /// effect get only the [EntryBanner]. The queue is capped so a busy room never backs up.
 class EntryEffectOverlay extends StatefulWidget {
-  const EntryEffectOverlay({super.key, required this.entries});
+  const EntryEffectOverlay({
+    super.key,
+    required this.entries,
+    this.muted = false,
+  });
   final Stream<EntryEvent> entries;
+
+  /// The viewer silenced the room (speaker off): effects play without sound.
+  final bool muted;
 
   @override
   State<EntryEffectOverlay> createState() => _EntryEffectOverlayState();
@@ -281,6 +288,7 @@ class _EntryEffectOverlayState extends State<EntryEffectOverlay> {
         key: ValueKey(_seq),
         url: e.effectUrl!,
         format: e.effectFormat,
+        sound: !widget.muted,
         onDone: _done,
       ),
     );
