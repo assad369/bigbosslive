@@ -108,6 +108,22 @@ export type CosmeticType = (typeof COSMETIC_TYPES)[number];
 export const ANIMATION_FORMATS = ['none', 'svga', 'lottie', 'mp4'] as const;
 export type AnimationFormat = (typeof ANIMATION_FORMATS)[number];
 
+/** Formats an avatar frame may use. The app's `FrameView` draws nothing for MP4. */
+export const FRAME_FORMATS = [
+  'none',
+  'svga',
+  'lottie',
+] as const satisfies readonly AnimationFormat[];
+
+/** Cosmetic types a user can wear; the others can be owned but not equipped yet. */
+export const EQUIPPABLE_COSMETIC_TYPES = ['frame', 'entry_animation'] as const;
+export type EquippableCosmeticType = (typeof EQUIPPABLE_COSMETIC_TYPES)[number];
+
+/** Most decorations one bulk-create request may carry. Larger uploads are chunked. */
+export const MAX_COSMETICS_PER_BATCH = 100;
+/** Longest an admin may grant VIP or a decoration for, in days. */
+export const MAX_GRANT_DAYS = 3650;
+
 /**
  * Media the admin dashboard may upload, by MIME type. `format` is the
  * {@link AnimationFormat} a file of that type plays as. SVGA has no registered MIME type,

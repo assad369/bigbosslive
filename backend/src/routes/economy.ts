@@ -4,6 +4,7 @@ import {
   AGENCY_ROLES,
   CURRENCIES,
   COSMETIC_TYPES,
+  EQUIPPABLE_COSMETIC_TYPES,
   GAME_KEYS,
   SHORT_ID_PATTERN,
 } from '@bigboss/shared';
@@ -171,7 +172,7 @@ export function economyRoutes(ctx: Ctx): Router {
   r.post('/store/equip', async (req, res) => {
     const { itemId, type } = parseBody(
       req,
-      z.object({ itemId: objectIdString.nullable(), type: z.enum(['frame', 'entry_animation']) }),
+      z.object({ itemId: objectIdString.nullable(), type: z.enum(EQUIPPABLE_COSMETIC_TYPES) }),
     );
     await store.equip(currentUser(req).uid, itemId ? toObjectId(itemId) : null, type);
     res.status(204).end();

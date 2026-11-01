@@ -1,23 +1,11 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { App, Button, Image, Input, Progress, Space, Tooltip, Typography, Upload } from 'antd';
-import {
-  DeleteOutlined,
-  FileOutlined,
-  InboxOutlined,
-  LinkOutlined,
-  UploadOutlined,
-} from '@ant-design/icons';
+import { App, Button, Input, Progress, Space, Tooltip, Typography, Upload } from 'antd';
+import { DeleteOutlined, InboxOutlined, LinkOutlined, UploadOutlined } from '@ant-design/icons';
 import { isCancel } from 'axios';
 import type { AdminUploadKind, MediaType } from '@bigboss/shared';
-import {
-  acceptAttr,
-  checkFile,
-  describeAccepted,
-  isImage,
-  mediaTypeOfUrl,
-  uploadAsset,
-} from '../lib/upload';
+import { acceptAttr, checkFile, describeAccepted, uploadAsset } from '../lib/upload';
 import { brand } from '../theme';
+import { DecorationPreview } from './DecorationPreview';
 import { UploadTracker } from './uploadTracker';
 
 /**
@@ -121,7 +109,7 @@ export function MediaUpload({
   if (compact) {
     return (
       <Space>
-        {value && <Preview url={value} size={32} />}
+        {value && <DecorationPreview url={value} size={32} />}
         {uploading ||
           picker(
             <Button size="small" icon={<UploadOutlined />} disabled={disabled}>
@@ -209,7 +197,7 @@ export function MediaUpload({
       }}
     >
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <Preview url={value} size={64} />
+        <DecorationPreview url={value} size={64} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <Typography.Link
             href={value}
@@ -236,46 +224,6 @@ export function MediaUpload({
         </div>
       </div>
       {pasteForm}
-    </div>
-  );
-}
-
-/** Thumbnail for an image, a muted inline player for MP4, a file chip for SVGA/Lottie. */
-function Preview({ url, size }: { url: string; size: number }) {
-  const type = mediaTypeOfUrl(url);
-  const box = {
-    width: size,
-    height: size,
-    borderRadius: 8,
-    flex: 'none',
-    background: brand.palette.ivory,
-    border: `1px solid ${brand.palette.border}`,
-  } as const;
-  if (isImage(type) || type === null) {
-    return (
-      <Image
-        src={url}
-        width={size}
-        height={size}
-        style={{ ...box, objectFit: 'contain' }}
-        fallback="data:image/gif;base64,R0lGODlhAQABAAAAACw="
-      />
-    );
-  }
-  if (type === 'video/mp4') {
-    return (
-      <video src={url} muted loop autoPlay playsInline style={{ ...box, objectFit: 'contain' }} />
-    );
-  }
-  return (
-    <div
-      style={{ ...box, display: 'grid', placeItems: 'center', color: brand.palette.bronze }}
-      title={type === 'application/json' ? 'Lottie animation' : 'SVGA animation'}
-    >
-      <div style={{ textAlign: 'center', fontSize: size > 40 ? 11 : 9, fontWeight: 700 }}>
-        <FileOutlined style={{ fontSize: size > 40 ? 20 : 14 }} />
-        {size > 40 && <div>{type === 'application/json' ? 'LOTTIE' : 'SVGA'}</div>}
-      </div>
     </div>
   );
 }

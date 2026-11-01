@@ -19,8 +19,8 @@ export const configSchema = z
     /** The share-link host; must match the app's LINK_HOST (Android manifest, iOS entitlements). */
     PUBLIC_HOST: z
       .string()
-      .regex(/^[a-z0-9.-]+$/, 'PUBLIC_HOST is a bare hostname, e.g. links.example.com')
-      .default('links.example.com'),
+      .regex(/^[a-z0-9.-]+$/, 'PUBLIC_HOST is a bare hostname, e.g. bigbosslive.ctll.online')
+      .default('bigbosslive.ctll.online'),
     /** The API as this container reaches it (Docker network), without the /v1 prefix. */
     API_INTERNAL_URL: z.url().default('http://localhost:3000'),
     /** Same value as the API's LINK_SERVICE_KEY: previews are then rate limited per visitor. */

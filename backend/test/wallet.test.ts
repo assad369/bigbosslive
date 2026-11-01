@@ -220,7 +220,7 @@ describe('VIP & cosmetics', () => {
   });
 
   it('purchase is idempotent and equipping requires ownership', async () => {
-    const frame = await h.ctx.services.store.upsertCosmetic(null, {
+    const frame = await h.ctx.services.store.createCosmetic({
       type: 'frame',
       name: 'Gilded',
       assetUrl: 'https://cdn.test/f.svga',
@@ -229,6 +229,7 @@ describe('VIP & cosmetics', () => {
       priceDiamonds: 200,
       durationDays: 7,
       vipTierRequired: 0,
+      vipIncluded: false,
       active: true,
       sortOrder: 0,
     });
@@ -341,7 +342,9 @@ describe('VIP & cosmetics', () => {
     await h.api
       .post('/v1/admin/users/granted/vip')
       .set(h.as('boss-admin', 'admin'))
-      .send({ tier: 3, days: 7 });
+      .set('Idempotency-Key', key())
+      .send({ tier: 3, days: 7 })
+      .expect(200);
     const brief = (await h.ctx.services.users.briefs(['granted'])).get('granted');
     expect(brief).toMatchObject({ vipTier: 3, frameUrl: 'https://cdn.test/vip/king-v2.png' });
   });

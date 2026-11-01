@@ -9,24 +9,44 @@ import {
   Form,
   Input,
   InputNumber,
+  Segmented,
   Select,
   Space,
   Switch,
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, DeleteOutlined, GiftOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MEDIA_TYPES, VIP_TIERS, vipTierLabel, type Cosmetic, type Gift } from '@bigboss/shared';
+import {
+  COSMETIC_TYPES,
+  FRAME_FORMATS,
+  MAX_GRANT_DAYS,
+  MEDIA_TYPES,
+  VIP_TIERS,
+  vipTierLabel,
+  type AdminCosmetic,
+  type AnimationFormat,
+  type Cosmetic,
+  type CosmeticType,
+  type Gift,
+} from '@bigboss/shared';
 import { get, send } from '../../lib/api';
 import { money, num } from '../../lib/format';
-import { PageHeader, ToggleSwitch, VipTag } from '../../components/common';
+import { ActionButton, PageHeader, ToggleSwitch, VipTag } from '../../components/common';
+import { AssignDecorationModal } from '../../components/AssignDecorationModal';
+import { cosmeticTypeLabel } from '../../lib/decorations';
+import { DecorationThumb } from '../../components/CosmeticPicker';
+import { DecorationPreview } from '../../components/DecorationPreview';
 import { FormModal } from '../../components/FormModal';
 import { MediaUpload } from '../../components/MediaUpload';
+import { ServerTable } from '../../components/ServerTable';
 import { UploadTrackerProvider, useUploadTracker } from '../../components/uploadTracker';
 import { brand } from '../../theme';
+import { BulkDecorationsModal } from './BulkDecorationsModal';
 
 const card = { variant: 'borderless' as const, styles: { body: { padding: 0 } } };
 const animationOptions = ['none', 'svga', 'lottie', 'mp4'].map((v) => ({ value: v, label: v }));
@@ -238,23 +258,64 @@ interface VipPackage {
   sortOrder: number;
 }
 
+const NEW_VIP: Partial<Omit<VipPackage, '_id'>> = {
+  durationDays: 30,
+  perks: [],
+  active: true,
+  sortOrder: 0,
+  badgeUrl: null,
+  frameUrl: null,
+  frameFormat: 'none',
+  entryAnimationUrl: null,
+  entryAnimationFormat: 'none',
+};
+
+type DecorationForm = Omit<Cosmetic, 'id'>;
+const NEW_DECORATION: Partial<DecorationForm> = {
+  type: 'frame',
+  animationFormat: 'svga',
+  durationDays: 30,
+  vipTierRequired: 0,
+  vipIncluded: false,
+  priceDiamonds: 0,
+  active: true,
+  sortOrder: 0,
+  previewUrl: null,
+};
+
+const typeOptions = COSMETIC_TYPES.map((t) => ({ value: t, label: cosmeticTypeLabel(t) }));
+const frameFormatOptions = animationOptions.filter((o) =>
+  (FRAME_FORMATS as readonly string[]).includes(o.value),
+);
+
+function VipAsset({ url, format }: { url: string | null; format?: string }) {
+  return url ? (
+    <DecorationPreview url={url} format={format as AnimationFormat} size={36} />
+  ) : (
+    <Typography.Text type="secondary">—</Typography.Text>
+  );
+}
+
 export function StorePage() {
   const [vip, setVip] = useState<VipPackage | 'new' | null>(null);
-  const [item, setItem] = useState<Cosmetic | 'new' | null>(null);
   const vipQ = useQuery({
     queryKey: ['vip-packages'],
     queryFn: () => get<{ items: VipPackage[] }>('/admin/vip-packages'),
   });
-  const itemsQ = useQuery({
-    queryKey: ['cosmetics'],
-    queryFn: () => get<{ items: Cosmetic[] }>('/admin/cosmetics'),
-  });
 
   return (
     <>
-      <PageHeader title="VIP & store" subtitle="Memberships and cosmetics bought with diamonds" />
+      <PageHeader
+        title="VIP & store"
+        subtitle="Memberships, and an unlimited library of frames, entrance effects and other decorations"
+      />
       <Tabs
         items={[
+          {
+            key: 'items',
+            label: 'Decorations',
+            children: <DecorationsTab />,
+          },
           {
             key: 'vip',
             label: 'VIP tiers',
@@ -273,6 +334,7 @@ export function StorePage() {
                   loading={vipQ.isLoading}
                   dataSource={vipQ.data?.items ?? []}
                   pagination={false}
+                  scroll={{ x: 'max-content' }}
                   columns={[
                     {
                       title: 'Tier',
@@ -280,6 +342,23 @@ export function StorePage() {
                       render: (t: number) => (vipTierLabel(t) ? <VipTag tier={t} /> : `Tier ${t}`),
                     },
                     { title: 'Name', dataIndex: 'name' },
+                    {
+                      title: 'Badge',
+                      key: 'badge',
+                      render: (_, v) => <VipAsset url={v.badgeUrl} />,
+                    },
+                    {
+                      title: 'Frame',
+                      key: 'frame',
+                      render: (_, v) => <VipAsset url={v.frameUrl} format={v.frameFormat} />,
+                    },
+                    {
+                      title: 'Entrance',
+                      key: 'entry',
+                      render: (_, v) => (
+                        <VipAsset url={v.entryAnimationUrl} format={v.entryAnimationFormat} />
+                      ),
+                    },
                     {
                       title: 'Price',
                       dataIndex: 'priceDiamonds',
@@ -307,71 +386,10 @@ export function StorePage() {
                     },
                   ]}
                 />
-              </Card>
-            ),
-          },
-          {
-            key: 'items',
-            label: 'Cosmetics',
-            children: (
-              <Card
-                {...card}
-                title=" "
-                extra={
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setItem('new')}>
-                    New item
-                  </Button>
-                }
-              >
-                <Table<Cosmetic>
-                  rowKey="id"
-                  loading={itemsQ.isLoading}
-                  dataSource={itemsQ.data?.items ?? []}
-                  pagination={{ pageSize: 50 }}
-                  scroll={{ x: 'max-content' }}
-                  columns={[
-                    {
-                      title: 'Item',
-                      key: 'i',
-                      render: (_, c) => (
-                        <Space>
-                          <Avatar shape="square" src={c.previewUrl ?? undefined} />
-                          <Typography.Text strong>{c.name}</Typography.Text>
-                        </Space>
-                      ),
-                    },
-                    {
-                      title: 'Type',
-                      dataIndex: 'type',
-                      render: (t: string) => <Tag>{t.replace('_', ' ')}</Tag>,
-                    },
-                    {
-                      title: 'Price',
-                      dataIndex: 'priceDiamonds',
-                      render: (p: number) => (p ? `${num(p)} 💎` : 'Free'),
-                    },
-                    { title: 'Days', dataIndex: 'durationDays' },
-                    {
-                      title: 'VIP',
-                      dataIndex: 'vipTierRequired',
-                      render: (v: number) => (v ? `VIP ${v}+` : '—'),
-                    },
-                    {
-                      title: 'Active',
-                      dataIndex: 'active',
-                      render: (a: boolean) => (a ? <Tag color="green">yes</Tag> : <Tag>no</Tag>),
-                    },
-                    {
-                      title: '',
-                      key: 'e',
-                      render: (_, c) => (
-                        <Button size="small" onClick={() => setItem(c)}>
-                          Edit
-                        </Button>
-                      ),
-                    },
-                  ]}
-                />
+                <Typography.Paragraph type="secondary" style={{ padding: 16, margin: 0 }}>
+                  Each tier carries one default frame and entrance effect. For more tier-exclusive
+                  designs, add decorations marked “Included with tier” in the Decorations tab.
+                </Typography.Paragraph>
               </Card>
             ),
           },
@@ -381,21 +399,7 @@ export function StorePage() {
         open={vip !== null}
         title={vip === 'new' ? 'New VIP tier' : 'Edit VIP tier'}
         onClose={() => setVip(null)}
-        initialValues={
-          vip && vip !== 'new'
-            ? vip
-            : {
-                durationDays: 30,
-                perks: [],
-                active: true,
-                sortOrder: 0,
-                badgeUrl: null,
-                frameUrl: null,
-                frameFormat: 'none',
-                entryAnimationUrl: null,
-                entryAnimationFormat: 'none',
-              }
-        }
+        initialValues={vip && vip !== 'new' ? vip : NEW_VIP}
         invalidate={[['vip-packages']]}
         submit={(v) =>
           vip === 'new'
@@ -416,11 +420,11 @@ export function StorePage() {
                 <InputNumber min={1} max={366} />
               </Form.Item>
             </Space>
-            <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+            <Form.Item name="name" label="Name" rules={[{ required: true, max: 40 }]}>
               <Input />
             </Form.Item>
             <Form.Item name="perks" label="Perks">
-              <Select mode="tags" tokenSeparators={[',']} />
+              <Select mode="tags" tokenSeparators={[',']} maxCount={20} />
             </Form.Item>
             <Form.Item name="badgeUrl" label="Badge" rules={[{ type: 'url' }]}>
               <MediaUpload kind="vip-badge" />
@@ -439,7 +443,7 @@ export function StorePage() {
               />
             </Form.Item>
             <Form.Item name="frameFormat" label="Frame format" style={{ width: 180 }}>
-              <Select options={animationOptions.filter((o) => o.value !== 'mp4')} />
+              <Select options={frameFormatOptions} />
             </Form.Item>
             <Form.Item
               name="entryAnimationUrl"
@@ -481,58 +485,232 @@ export function StorePage() {
           </>
         )}
       </FormModal>
-      <FormModal<Omit<Cosmetic, 'id'> & { sortOrder: number }>
-        open={item !== null}
-        title={item === 'new' ? 'New store item' : 'Edit store item'}
-        onClose={() => setItem(null)}
-        initialValues={
-          item && item !== 'new'
-            ? { ...item, sortOrder: 0 }
-            : {
-                type: 'frame',
-                animationFormat: 'svga',
-                durationDays: 30,
-                vipTierRequired: 0,
-                priceDiamonds: 0,
-                active: true,
-                sortOrder: 0,
-                previewUrl: null,
-              }
+    </>
+  );
+}
+
+interface DecorationFilters {
+  type?: CosmeticType;
+  vipTier?: number;
+  access?: 'store' | 'included';
+  status?: 'active' | 'inactive';
+  q?: string;
+}
+
+/** The decoration library: paged on the server, so it scales to any number of items. */
+function DecorationsTab() {
+  const [filters, setFilters] = useState<DecorationFilters>({});
+  const [editing, setEditing] = useState<AdminCosmetic | 'new' | null>(null);
+  const [assigning, setAssigning] = useState<AdminCosmetic | null>(null);
+  const [bulk, setBulk] = useState(false);
+  const set = (p: Partial<DecorationFilters>) => setFilters((f) => ({ ...f, ...p }));
+  const inv = [['cosmetics'], ['cosmetic-picker']];
+
+  return (
+    <>
+      <ServerTable<AdminCosmetic>
+        queryKey="cosmetics"
+        url="/admin/cosmetics"
+        filters={filters as Record<string, unknown>}
+        rowKey="id"
+        pageSize={25}
+        title={
+          <Space wrap style={{ padding: '12px 0' }}>
+            <Segmented
+              value={filters.type ?? 'all'}
+              onChange={(v) => set({ type: v === 'all' ? undefined : (v as CosmeticType) })}
+              options={[{ value: 'all', label: 'All' }, ...typeOptions]}
+            />
+            <Select
+              allowClear
+              placeholder="Any tier"
+              style={{ width: 130 }}
+              value={filters.vipTier}
+              onChange={(v?: number) => set({ vipTier: v })}
+              options={tierRequiredOptions}
+            />
+            <Select
+              allowClear
+              placeholder="Any access"
+              style={{ width: 170 }}
+              value={filters.access}
+              onChange={(v?: DecorationFilters['access']) => set({ access: v })}
+              options={[
+                { value: 'store', label: 'Sold in store' },
+                { value: 'included', label: 'Included with VIP' },
+              ]}
+            />
+            <Select
+              allowClear
+              placeholder="Any status"
+              style={{ width: 130 }}
+              value={filters.status}
+              onChange={(v?: DecorationFilters['status']) => set({ status: v })}
+              options={[
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+              ]}
+            />
+            <Input.Search
+              allowClear
+              placeholder="Search by name"
+              style={{ width: 200 }}
+              onSearch={(q) => set({ q: q.trim() || undefined })}
+            />
+          </Space>
         }
-        invalidate={[['cosmetics']]}
+        toolbar={
+          <Space>
+            <Button icon={<CloudUploadOutlined />} onClick={() => setBulk(true)}>
+              Bulk upload
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>
+              New decoration
+            </Button>
+          </Space>
+        }
+        columns={[
+          {
+            title: 'Decoration',
+            key: 'i',
+            render: (_, c) => (
+              <Space>
+                <DecorationThumb item={c} size={44} />
+                <div>
+                  <Typography.Text strong>{c.name}</Typography.Text>
+                  <br />
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {c.animationFormat === 'none' ? 'image' : c.animationFormat}
+                  </Typography.Text>
+                </div>
+              </Space>
+            ),
+          },
+          {
+            title: 'Type',
+            dataIndex: 'type',
+            render: (t: CosmeticType) => <Tag>{cosmeticTypeLabel(t)}</Tag>,
+          },
+          {
+            title: 'Access',
+            key: 'access',
+            render: (_, c) =>
+              c.vipIncluded ? (
+                <Space size={4}>
+                  <Tag color="gold">Included</Tag>
+                  <VipTag tier={c.vipTierRequired} />
+                </Space>
+              ) : (
+                <Space size={4}>
+                  {c.priceDiamonds ? `${num(c.priceDiamonds)} 💎` : 'Free'}
+                  {c.vipTierRequired > 0 && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      · {vipTierLabel(c.vipTierRequired)}+
+                    </Typography.Text>
+                  )}
+                </Space>
+              ),
+          },
+          { title: 'Days', dataIndex: 'durationDays' },
+          { title: 'Holders', dataIndex: 'ownerCount', render: num },
+          { title: 'Order', dataIndex: 'sortOrder' },
+          {
+            title: 'Active',
+            dataIndex: 'active',
+            render: (a: boolean, c) => (
+              <ToggleSwitch
+                checked={a}
+                onToggle={(active) => send('patch', `/admin/cosmetics/${c.id}`, { active })}
+                invalidate={inv}
+              />
+            ),
+          },
+          {
+            title: '',
+            key: 'actions',
+            render: (_, c) => (
+              <Space size={4}>
+                <Button size="small" onClick={() => setEditing(c)}>
+                  Edit
+                </Button>
+                <Button size="small" icon={<GiftOutlined />} onClick={() => setAssigning(c)}>
+                  Assign
+                </Button>
+                <Tooltip
+                  title={
+                    c.ownerCount
+                      ? 'Users hold this decoration. Deactivate it instead.'
+                      : 'Delete permanently'
+                  }
+                >
+                  <span>
+                    <ActionButton
+                      danger
+                      type="text"
+                      icon={<DeleteOutlined />}
+                      label=""
+                      disabled={c.ownerCount > 0}
+                      confirm={`Delete “${c.name}” permanently?`}
+                      run={() => send('delete', `/admin/cosmetics/${c.id}`)}
+                      invalidate={inv}
+                      success="Deleted"
+                    />
+                  </span>
+                </Tooltip>
+              </Space>
+            ),
+          },
+        ]}
+      />
+      <FormModal<DecorationForm>
+        open={editing !== null}
+        title={editing === 'new' ? 'New decoration' : 'Edit decoration'}
+        onClose={() => setEditing(null)}
+        initialValues={editing && editing !== 'new' ? editing : NEW_DECORATION}
+        invalidate={inv}
         submit={(v) =>
-          item === 'new'
+          editing === 'new'
             ? send('post', '/admin/cosmetics', v)
-            : send('put', `/admin/cosmetics/${(item as Cosmetic).id}`, v)
+            : send('patch', `/admin/cosmetics/${(editing as AdminCosmetic).id}`, v)
         }
       >
         {(form) => (
           <>
-            <Space size="large">
+            <Space size="large" align="start">
               <Form.Item
                 name="type"
                 label="Type"
                 rules={[{ required: true }]}
-                style={{ width: 180 }}
+                style={{ width: 190 }}
+                extra={editing !== 'new' ? "Type can't change once created." : undefined}
               >
-                <Select
-                  options={['frame', 'entry_animation', 'room_background', 'chat_bubble'].map(
-                    (t) => ({ value: t, label: t.replace('_', ' ') }),
-                  )}
-                />
+                <Select options={typeOptions} disabled={editing !== 'new'} />
               </Form.Item>
-              <Form.Item name="animationFormat" label="Format" style={{ width: 120 }}>
-                <Select options={animationOptions} />
+              <Form.Item noStyle dependencies={['type']}>
+                {({ getFieldValue }) => (
+                  <Form.Item
+                    name="animationFormat"
+                    label="Format"
+                    style={{ width: 130 }}
+                    rules={[{ required: true }]}
+                  >
+                    <Select
+                      options={
+                        getFieldValue('type') === 'frame' ? frameFormatOptions : animationOptions
+                      }
+                    />
+                  </Form.Item>
+                )}
               </Form.Item>
             </Space>
-            <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+            <Form.Item name="name" label="Name" rules={[{ required: true, max: 40 }]}>
               <Input />
             </Form.Item>
             <Form.Item
               name="assetUrl"
               label="Asset"
               rules={[{ required: true, message: 'Upload the asset' }, { type: 'url' }]}
-              extra="Image, SVGA, Lottie (.json) or MP4. The format is set from the file."
+              extra="Image, SVGA, Lottie (.json) or MP4 (not for frames). The format is set from the file."
             >
               <MediaUpload
                 kind="cosmetic-asset"
@@ -541,18 +719,48 @@ export function StorePage() {
                 }
               />
             </Form.Item>
-            <Form.Item name="previewUrl" label="Preview image" rules={[{ type: 'url' }]}>
+            <Form.Item
+              name="previewUrl"
+              label="Preview image"
+              rules={[{ type: 'url' }]}
+              extra="Optional still image for the store grid."
+            >
               <MediaUpload kind="cosmetic-preview" />
             </Form.Item>
-            <Space size="large">
-              <Form.Item name="priceDiamonds" label="Price" rules={[{ required: true }]}>
-                <InputNumber min={0} />
+            <Space size="large" align="start" wrap>
+              <Form.Item name="vipTierRequired" label="VIP tier">
+                <Select
+                  options={tierRequiredOptions}
+                  style={{ width: 140 }}
+                  onChange={(t: number) => t === 0 && form.setFieldValue('vipIncluded', false)}
+                />
+              </Form.Item>
+              <Form.Item noStyle dependencies={['vipTierRequired']}>
+                {({ getFieldValue }) => (
+                  <Form.Item
+                    name="vipIncluded"
+                    label="Included with tier"
+                    valuePropName="checked"
+                    tooltip="Holders of this tier or higher wear it free; it is not sold in the store."
+                  >
+                    <Switch disabled={!getFieldValue('vipTierRequired')} />
+                  </Form.Item>
+                )}
+              </Form.Item>
+              <Form.Item noStyle dependencies={['vipIncluded']}>
+                {({ getFieldValue }) => (
+                  <Form.Item name="priceDiamonds" label="Price" rules={[{ required: true }]}>
+                    <InputNumber min={0} disabled={!!getFieldValue('vipIncluded')} />
+                  </Form.Item>
+                )}
               </Form.Item>
               <Form.Item name="durationDays" label="Days" rules={[{ required: true }]}>
-                <InputNumber min={1} />
+                <InputNumber min={1} max={MAX_GRANT_DAYS} />
               </Form.Item>
-              <Form.Item name="vipTierRequired" label="VIP">
-                <Select options={tierRequiredOptions} style={{ width: 140 }} />
+            </Space>
+            <Space size="large">
+              <Form.Item name="sortOrder" label="Sort order">
+                <InputNumber />
               </Form.Item>
               <Form.Item name="active" label="Active" valuePropName="checked">
                 <Switch />
@@ -561,6 +769,12 @@ export function StorePage() {
           </>
         )}
       </FormModal>
+      <AssignDecorationModal
+        open={assigning !== null}
+        item={assigning}
+        onClose={() => setAssigning(null)}
+      />
+      <BulkDecorationsModal open={bulk} onClose={() => setBulk(false)} />
     </>
   );
 }

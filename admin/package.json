@@ -19,10 +19,12 @@
     "antd": "^6.3.0",
     "axios": "^1.13.0",
     "dayjs": "^1.11.19",
+    "lottie-web": "^5.13.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.0",
-    "recharts": "^3.7.0"
+    "recharts": "^3.7.0",
+    "svgaplayerweb": "^2.3.2"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",

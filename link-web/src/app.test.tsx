@@ -6,7 +6,7 @@ import { loadConfig } from './config.js';
 import { apiPreviewFetcher, type PreviewFetcher, type PreviewResult } from './preview.js';
 
 const FP = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0')).join(':');
-const HOST = 'links.example.com';
+const HOST = 'bigbosslive.ctll.online';
 const ROOM = '65f0c0ffee0123456789abcd';
 const POST = '65f0c0ffee0123456789beef';
 const UA = {

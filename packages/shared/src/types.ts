@@ -235,7 +235,37 @@ export interface Cosmetic {
   priceDiamonds: number;
   durationDays: number;
   vipTierRequired: number;
+  /** Holders of `vipTierRequired` or higher may wear it free, without buying it. */
+  vipIncluded: boolean;
   active: boolean;
+  sortOrder: number;
+}
+
+/**
+ * A decoration a user may wear: one they own (`source: 'owned'`, until `expiresAt`) or one
+ * their VIP tier includes (`source: 'vip'`, until the membership's expiry).
+ */
+export interface OwnedCosmetic {
+  item: Cosmetic;
+  expiresAt: IsoDate | null;
+  equipped: boolean;
+  source: 'owned' | 'vip';
+}
+
+/** A decoration as the admin catalog lists it. */
+export interface AdminCosmetic extends Cosmetic {
+  /** Users holding it now (unexpired ownership). */
+  ownerCount: number;
+  createdAt: IsoDate;
+}
+
+/** A row of the admin's view of one user's decorations. */
+export interface AdminUserCosmetic extends OwnedCosmetic {
+  acquiredAt: IsoDate | null;
+  /** How the user got it; null for VIP entitlements and rows older than this field. */
+  grantSource: 'purchase' | 'admin' | null;
+  /** The admin uid behind the latest admin grant. */
+  grantedBy: string | null;
 }
 
 export interface Report {

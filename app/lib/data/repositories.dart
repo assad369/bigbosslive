@@ -376,13 +376,19 @@ class EconomyRepository {
     idempotent: true,
     idempotencyKey: idempotencyKey,
   );
-  Future<List<({StoreItem item, DateTime? expiresAt, bool equipped})>>
+
+  /// What the user may wear: items they own, then items their VIP tier includes
+  /// (`viaVip`, available until the membership ends).
+  Future<
+    List<({StoreItem item, DateTime? expiresAt, bool equipped, bool viaVip})>
+  >
   owned() async => (await _api.get('/store/mine')).list(
     'items',
     (j) => (
       item: StoreItem.fromJson(j.obj('item')),
       expiresAt: j.date('expiresAt'),
       equipped: j.flag('equipped'),
+      viaVip: j.str('source') == 'vip',
     ),
   );
   Future<void> equip(String? itemId, String type) =>

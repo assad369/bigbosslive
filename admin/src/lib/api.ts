@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import axios, { type AxiosError } from 'axios';
 import type { ApiErrorBody } from '@bigboss/shared';
 import { auth } from './firebase';
@@ -49,8 +50,23 @@ api.interceptors.response.use(
   },
 );
 
-/** Idempotency key for money-moving admin actions (one per user click). */
+/** Idempotency key for money-moving admin actions. Prefer {@link useIntentKey} in dialogs. */
 export const newIdempotencyKey = () => `admin-${crypto.randomUUID()}`;
+
+/**
+ * One idempotency key per intent: a fresh key each time `open` turns true (a dialog opens),
+ * kept for every retry while it stays open. A request that timed out may still have gone
+ * through, and a new key per click would then apply the action twice.
+ */
+export function useIntentKey(open: boolean): string {
+  const [state, setState] = useState(() => ({ open, key: newIdempotencyKey() }));
+  if (state.open !== open) {
+    const next = { open, key: open ? newIdempotencyKey() : state.key };
+    setState(next);
+    return next.key;
+  }
+  return state.key;
+}
 
 export interface Paged<T> {
   items: T[];

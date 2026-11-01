@@ -23,7 +23,7 @@ val linkHost: String = (project.findProperty("dart-defines") as String?)
     ?.firstOrNull { it.startsWith("LINK_HOST=") }
     ?.substringAfter("=")
     ?.takeIf { it.isNotBlank() }
-    ?: "links.example.com"
+    ?: "bigbosslive.ctll.online"
 
 android {
     namespace = "com.bigbosslive.bigboss_live"

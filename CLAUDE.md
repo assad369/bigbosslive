@@ -93,6 +93,20 @@ cd app && flutter analyze && flutter test && dart format lib test
 - Entrance effect at `/join`: the equipped entry animation, else the tier's
   `entryAnimationUrl`. The app plays SVGA, Lottie and MP4 (muted) via `EffectView`, and draws
   every avatar with `BBAvatar.user()`.
+- The decoration library (`cosmetics`) is unlimited and paged in the admin. A decoration with
+  `vipIncluded` is a tier perk: holders of `vipTierRequired`+ wear it free without an ownership
+  row, and it can't be bought. Equipping records `equipped.frameVipTier` /
+  `entryAnimationVipTier` (0 = owned, else the entitling tier), so `resolveFrame()` and
+  `entryEffectFor()` drop it the moment the tier lapses. The hourly `store.sweep` only tidies up.
+- Editing a decoration re-syncs its wearers (`syncEquipped`). Its type never changes. Frames
+  can't be MP4 (`FRAME_FORMATS`; `FrameView` draws nothing for it), and the format must match
+  the file's extension.
+- Admin grants (`POST /admin/users/:uid/vip` and `/admin/users/:uid/cosmetics`) are keyed by
+  `Idempotency-Key`, scoped to the admin, and audited once. A granted frame or entrance effect
+  is equipped at once. VIP `extend` adds to an unexpired membership of the same tier.
+  `applyVip()` also re-ranks the host's live room (`hostVipTier`).
+- A decoration is deleted only while nobody holds or wears it. Otherwise it is deactivated.
+  Grants may use inactive items, which is how event-only decorations reach users.
 
 ## Live rooms
 

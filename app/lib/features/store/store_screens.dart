@@ -305,6 +305,40 @@ class _StoreGrid extends ConsumerWidget {
     }
   }
 
+  /// A VIP-included item is never bought: holders wear it at once, others see the tiers.
+  Future<void> _wearIncluded(
+    BuildContext context,
+    WidgetRef ref,
+    StoreItem item,
+  ) async {
+    final tier = ref.read(sessionProvider).value?.brief.vipTier ?? 0;
+    if (tier < item.vipTierRequired) {
+      showMessage(
+        context,
+        'Included with ${VipBadge.labelFor(item.vipTierRequired)}',
+      );
+      await context.push('/vip');
+      return;
+    }
+    if (item.type != 'frame' && item.type != 'entry_animation') {
+      showMessage(context, '${item.name} is in Mine');
+      return;
+    }
+    try {
+      final ran = await ref.read(_actionsProvider.notifier).run(
+        'item:${item.id}',
+        (_) async {
+          await ref.read(economyRepo).equip(item.id, item.type);
+          await ref.read(sessionProvider.notifier).refresh();
+        },
+      );
+      ref.invalidate(_ownedProvider);
+      if (ran && context.mounted) showMessage(context, '${item.name} equipped');
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(_itemsProvider(type));
@@ -343,7 +377,11 @@ class _StoreGrid extends ConsumerWidget {
                   return Card(
                     child: InkWell(
                       borderRadius: BorderRadius.circular(18),
-                      onTap: buying ? null : () => _buy(context, ref, item),
+                      onTap: buying
+                          ? null
+                          : () => item.vipIncluded
+                                ? _wearIncluded(context, ref, item)
+                                : _buy(context, ref, item),
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(
@@ -384,7 +422,9 @@ class _StoreGrid extends ConsumerWidget {
                               ),
                             ),
                             Text(
-                              '${item.durationDays} days${item.vipTierRequired > 0 ? ' · ${VipBadge.labelFor(item.vipTierRequired)}+' : ''}',
+                              item.vipIncluded
+                                  ? '${VipBadge.labelFor(item.vipTierRequired)} perk'
+                                  : '${item.durationDays} days${item.vipTierRequired > 0 ? ' · ${VipBadge.labelFor(item.vipTierRequired)}+' : ''}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -398,6 +438,17 @@ class _StoreGrid extends ConsumerWidget {
                                 dimension: 18,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
+                                ),
+                              )
+                            else if (item.vipIncluded)
+                              const FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  'Included',
+                                  style: TextStyle(
+                                    color: BBColors.gold,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               )
                             else
@@ -470,9 +521,13 @@ class _OwnedList extends ConsumerWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  o.expiresAt == null
-                      ? 'Never expires'
-                      : 'Expires ${Fmt.relative(o.expiresAt)}',
+                  [
+                    if (o.viaVip)
+                      '${VipBadge.labelFor(o.item.vipTierRequired)} perk',
+                    o.expiresAt == null
+                        ? 'Never expires'
+                        : '${o.viaVip ? 'Until' : 'Expires'} ${Fmt.relative(o.expiresAt)}',
+                  ].join(' · '),
                 ),
                 trailing:
                     o.item.type == 'frame' || o.item.type == 'entry_animation'

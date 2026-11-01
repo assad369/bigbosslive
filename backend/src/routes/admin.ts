@@ -8,7 +8,8 @@ import {
   ADMIN_UPLOAD_KINDS,
   CURRENCIES,
   GAME_KEYS,
-  MAX_VIP_TIER,
+  MAX_COSMETICS_PER_BATCH,
+  MAX_GRANT_DAYS,
   REPORT_STATUSES,
   REPORT_TARGETS,
   ROOM_STATUSES,
@@ -48,7 +49,13 @@ import { addDays } from '../lib/time.js';
 import { CONFIG_SCHEMAS, type ConfigKey } from '../modules/config/config.service.js';
 import { giftInput } from '../modules/gifts/gifts.service.js';
 import { levelConfigInput } from '../modules/levels/levels.service.js';
-import { cosmeticInput, vipPackageInput } from '../modules/store/store.service.js';
+import {
+  cosmeticInput,
+  cosmeticListQuery,
+  vipGrantInput,
+  vipPackageInput,
+} from '../modules/store/store.service.js';
+import { resolveFrame } from '../modules/users/users.presenter.js';
 import { agencyInput } from '../modules/agencies/agencies.service.js';
 import { announcementInput } from '../modules/notifications/notifications.service.js';
 import { bannerInput } from '../modules/banners/banners.service.js';
@@ -330,15 +337,47 @@ export function adminRoutes(ctx: Ctx): Router {
 
   r.post('/users/:uid/vip', can('users.edit'), async (req, res) => {
     const { uid } = parseParams(req, uidParam);
-    const { tier, days } = parseBody(
+    const input = parseBody(req, vipGrantInput);
+    const result = await s.store.grantVip(uid, input, currentUser(req).uid, idempotencyKey(req));
+    if (!result.replayed) await audit(req, 'user.vip', 'user', uid, { ...input, ...result });
+    res.json(result);
+  });
+
+  // ── User decorations (frames, entrance effects, …) ──────────────────────────────
+  r.get('/users/:uid/cosmetics', can('users.read'), async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    const user = await ctx.col.users.findOne({ _id: uid }, { projection: { vip: 1, equipped: 1 } });
+    if (!user) throw notFound('User');
+    res.json({
+      items: await s.store.wardrobe(uid),
+      frame: resolveFrame(user, ctx.clock.now()),
+    });
+  });
+
+  r.post('/users/:uid/cosmetics', can('users.edit'), async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    const { cosmeticId, days } = parseBody(
       req,
       z.object({
-        tier: z.number().int().min(0).max(MAX_VIP_TIER),
-        days: z.number().int().min(1).max(3650),
+        cosmeticId: objectIdString,
+        days: z.number().int().min(1).max(MAX_GRANT_DAYS).optional(),
       }),
     );
-    await s.store.grantVip(uid, tier, days);
-    await audit(req, 'user.vip', 'user', uid, { tier, days });
+    const result = await s.store.grantCosmetic(
+      uid,
+      toObjectId(cosmeticId),
+      days,
+      currentUser(req).uid,
+      idempotencyKey(req),
+    );
+    if (!result.replayed) await audit(req, 'user.cosmetic.grant', 'user', uid, result);
+    res.json(result);
+  });
+
+  r.delete('/users/:uid/cosmetics/:cosmeticId', can('users.edit'), async (req, res) => {
+    const { uid, cosmeticId } = parseParams(req, uidParam.extend({ cosmeticId: objectIdString }));
+    await s.store.revokeCosmetic(uid, toObjectId(cosmeticId));
+    await audit(req, 'user.cosmetic.revoke', 'user', uid, { cosmeticId });
     res.status(204).end();
   });
 
@@ -551,20 +590,43 @@ export function adminRoutes(ctx: Ctx): Router {
     res.json({ package: pkg });
   });
 
-  r.get('/cosmetics', can('catalog.manage'), async (_req, res) => {
-    res.json({ items: await s.store.cosmetics(undefined, true) });
+  r.get('/cosmetics', can('catalog.manage'), async (req, res) => {
+    const q = parseQuery(req, pageQuery.merge(cosmeticListQuery));
+    res.json(await s.store.adminCosmetics(q, q.page, q.pageSize));
   });
 
   r.post('/cosmetics', can('catalog.manage'), async (req, res) => {
-    const item = await s.store.upsertCosmetic(null, parseBody(req, cosmeticInput));
+    const item = await s.store.createCosmetic(parseBody(req, cosmeticInput));
     await audit(req, 'cosmetic.create', 'cosmetic', item.id, item);
     res.status(201).json({ item });
   });
 
-  r.put('/cosmetics/:id', can('catalog.manage'), async (req, res) => {
-    const item = await s.store.upsertCosmetic(oid(req), parseBody(req, cosmeticInput));
-    await audit(req, 'cosmetic.update', 'cosmetic', item.id, item);
+  /** Bulk upload: many decorations in one request, all or nothing. */
+  r.post('/cosmetics/bulk', can('catalog.manage'), async (req, res) => {
+    const { items: inputs } = parseBody(
+      req,
+      z.object({ items: z.array(cosmeticInput).min(1).max(MAX_COSMETICS_PER_BATCH) }),
+    );
+    const items = await s.store.createCosmetics(inputs);
+    await audit(req, 'cosmetic.bulk_create', 'cosmetic', null, {
+      count: items.length,
+      ids: items.map((i) => i.id),
+    });
+    res.status(201).json({ items });
+  });
+
+  r.patch('/cosmetics/:id', can('catalog.manage'), async (req, res) => {
+    const patch = parsePatch(req, cosmeticInput);
+    const item = await s.store.updateCosmetic(oid(req), patch);
+    await audit(req, 'cosmetic.update', 'cosmetic', item.id, patch);
     res.json({ item });
+  });
+
+  r.delete('/cosmetics/:id', can('catalog.manage'), async (req, res) => {
+    const id = oid(req);
+    await s.store.deleteCosmetic(id);
+    await audit(req, 'cosmetic.delete', 'cosmetic', String(id));
+    res.status(204).end();
   });
 
   // ── Agencies ────────────────────────────────────────────────────────────────

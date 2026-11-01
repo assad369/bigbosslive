@@ -36,7 +36,7 @@ abstract final class Env {
   /// manifest and the iOS entitlements read the same define at build time.
   static const linkHost = String.fromEnvironment(
     'LINK_HOST',
-    defaultValue: 'links.example.com',
+    defaultValue: 'bigbosslive.ctll.online',
   );
 
   /// Firebase Auth emulator host:port for local development, e.g. 10.0.2.2:9099.

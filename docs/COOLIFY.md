@@ -16,7 +16,7 @@ Replace the remaining `example.com` placeholders (games, Coolify panel) with you
 | Redis 7 | VPS | Database, Redis | none (internal only) | 6379 |
 | Admin dashboard | VPS | Application, Dockerfile `admin/Dockerfile` | `https://bigbosslive.asadsoft.cloud` | 80 |
 | Mini-games | VPS | Application, Dockerfile `games/Dockerfile` | `https://games.example.com` | 80 |
-| Share links (link-web) | VPS | Application, Dockerfile `link-web/Dockerfile` | `https://<LINK_HOST>` | 3000 |
+| Share links (link-web) | VPS | Application, Dockerfile `link-web/Dockerfile` | `https://bigbosslive.ctll.online` | 3000 |
 | MongoDB (replica set) | MongoDB Atlas | none | none | n/a |
 | LiveKit SFU | LiveKit Cloud | none | `wss://<project>.livekit.cloud` | n/a |
 | Auth, FCM | Firebase | none | none | n/a |
@@ -223,8 +223,8 @@ redeploy takes effect right away.
 
 ## 7.1 Share links (link-web)
 
-The app shares links on a host of your choice (`LINK_HOST`), for example
-`https://<LINK_HOST>/live/<roomId>`, `/u/<shortId>` and `/post/<postId>`. The list of link kinds
+The app shares links on `bigbosslive.ctll.online` (`LINK_HOST`), for example
+`https://bigbosslive.ctll.online/live/<roomId>`, `/u/<shortId>` and `/post/<postId>`. The list of link kinds
 is `DEEP_LINK_ROUTES` in `packages/shared`.
 
 - **App installed:** Android App Links and iOS Universal Links open the app on that screen. A
@@ -235,12 +235,12 @@ is `DEEP_LINK_ROUTES` in `packages/shared`.
   `GET /v1/share/preview/:kind/:id`.
 
 **Coolify application:** Dockerfile `/link-web/Dockerfile`, base directory `/`, port `3000`,
-domain `https://<LINK_HOST>`. Point the host's DNS A record at the VPS first.
+domain `https://bigbosslive.ctll.online`. Point the host's DNS A record at the VPS first.
 
 | Variable | Value |
 |---|---|
 | `NODE_ENV` | `production` |
-| `PUBLIC_HOST` | `<LINK_HOST>`, a bare hostname |
+| `PUBLIC_HOST` | `bigbosslive.ctll.online` (the default) |
 | `API_INTERNAL_URL` | the API's internal URL, e.g. `http://<api-container>:3000` |
 | `LINK_SERVICE_KEY` | same value as the API's |
 | `CLIENT_IP_HEADER` | `x-forwarded-for` (Traefik), or `cf-connecting-ip` behind Cloudflare's proxy |
@@ -256,18 +256,19 @@ domain `https://<LINK_HOST>`. Point the host's DNS A record at the VPS first.
 Once on Google Play, also add the *App signing key certificate* SHA-256 (Play Console → Test and
 release → App integrity). Debug-signed builds open links in the browser.
 
-**Build the apps with the same host:** `--dart-define=LINK_HOST=<host>` sets the Dart side and
-the Android manifest. On iOS also set the Runner target's `LINK_HOST` build setting (it is
-`links.example.com` in the project) and the signing Team; automatic signing enables Associated
-Domains on the App ID.
+**The apps default to this host** (Dart, the Android manifest and the iOS Runner `LINK_HOST`
+build setting), so a normal build needs nothing extra. To use another host, pass
+`--dart-define=LINK_HOST=<host>` (Dart and Android) and change the Runner target's `LINK_HOST`
+build setting on iOS. Also select the signing Team in Xcode; automatic signing enables
+Associated Domains on the App ID.
 
 **Verify:**
 ```bash
-curl -si https://<LINK_HOST>/.well-known/assetlinks.json | head -3            # 200, application/json, no redirect
-curl -si https://<LINK_HOST>/.well-known/apple-app-site-association | head -3
+curl -si https://bigbosslive.ctll.online/.well-known/assetlinks.json | head -3            # 200, application/json, no redirect
+curl -si https://bigbosslive.ctll.online/.well-known/apple-app-site-association | head -3
 adb shell pm verify-app-links --re-verify com.bigbosslive.bigboss_live
-adb shell pm get-app-links com.bigbosslive.bigboss_live                       # <LINK_HOST>: verified
-adb shell am start -a android.intent.action.VIEW -d https://<LINK_HOST>/live/<roomId>
+adb shell pm get-app-links com.bigbosslive.bigboss_live                       # bigbosslive.ctll.online: verified
+adb shell am start -a android.intent.action.VIEW -d https://bigbosslive.ctll.online/live/<roomId>
 ```
 On iPhone, tap a link in Notes or Messages (typing it into Safari never opens apps). Apple's CDN
 can take up to a day to pick up a changed association file.

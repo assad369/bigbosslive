@@ -48,16 +48,19 @@ export function activeVipTier(vip: UserDoc['vip'], now = new Date()): number {
 }
 
 /**
- * The avatar frame a user shows: an equipped store frame wins, otherwise the frame of the VIP
- * tier they hold while it is active. An expired VIP drops its frame without any job running.
+ * The avatar frame a user shows: an equipped store frame wins (one worn through VIP only while
+ * that tier is still held), otherwise the frame of the VIP tier they hold while it is active.
+ * An expired VIP drops both without any job running.
  */
 export function resolveFrame(
   u: { vip: UserDoc['vip']; equipped?: UserDoc['equipped'] },
   now = new Date(),
 ): { frameUrl: string | null; frameFormat: AnimationFormat } {
   const e = u.equipped;
-  if (e?.frameUrl) return { frameUrl: e.frameUrl, frameFormat: e.frameFormat ?? 'none' };
-  if (e?.vipFrameUrl && activeVipTier(u.vip, now) > 0)
+  const tier = activeVipTier(u.vip, now);
+  if (e?.frameUrl && (e.frameVipTier ?? 0) <= tier)
+    return { frameUrl: e.frameUrl, frameFormat: e.frameFormat ?? 'none' };
+  if (e?.vipFrameUrl && tier > 0)
     return { frameUrl: e.vipFrameUrl, frameFormat: e.vipFrameFormat ?? 'none' };
   return { frameUrl: null, frameFormat: 'none' };
 }

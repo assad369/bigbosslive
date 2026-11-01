@@ -70,6 +70,35 @@ describe('admin uploads', () => {
     // Size is required: it is what gets signed.
     expect((await presign(as, { kind: 'banner', contentType: 'image/png' })).status).toBe(422);
   });
+
+  it('decoration slots take animations into their own folders; VIP frames take no video', async () => {
+    const as = h.as('boss', 'admin');
+    const lottie = await presign(as, {
+      kind: 'cosmetic-asset',
+      contentType: 'application/json',
+      size: 500_000,
+    });
+    expect(lottie.status).toBe(200);
+    expect(lottie.body.key).toMatch(/^admin\/cosmetics\/assets\/boss\/.+\.json$/);
+    const frame = await presign(as, {
+      kind: 'vip-frame',
+      contentType: 'application/octet-stream',
+      size: 500_000,
+    });
+    expect(frame.body.key).toMatch(/^admin\/vip\/frames\/boss\/.+\.svga$/);
+    expect(
+      (await presign(as, { kind: 'vip-frame', contentType: 'video/mp4', size: 1000 })).status,
+    ).toBe(400);
+    expect(
+      (
+        await presign(h.as('modr', 'moderator'), {
+          kind: 'cosmetic-asset',
+          contentType: 'image/png',
+          size: 1000,
+        })
+      ).status,
+    ).toBe(403);
+  });
 });
 
 describe('user uploads', () => {

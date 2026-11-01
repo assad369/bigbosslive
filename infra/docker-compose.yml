@@ -63,7 +63,7 @@ services:
       dockerfile: link-web/Dockerfile
     environment:
       NODE_ENV: development
-      PUBLIC_HOST: links.example.com
+      PUBLIC_HOST: bigbosslive.ctll.online
       API_INTERNAL_URL: http://backend:3000
     ports: ['3100:3000']
     depends_on:

@@ -59,15 +59,20 @@ export interface UserDoc {
   level: { level: number; points: number };
   vip: { tier: number; expiresAt: Date | null };
   /**
-   * What the user shows. `frameUrl`/`frameFormat` are copied from an equipped store frame;
-   * `vipFrame*` from the package of the VIP tier they hold (kept in sync when that package
-   * changes). Readers resolve the shown frame with `resolveFrame()`, never these directly.
+   * What the user shows. `frameUrl`/`frameFormat` are copied from an equipped store frame
+   * (kept in sync when that item changes); `vipFrame*` from the package of the VIP tier they
+   * hold (kept in sync when that package changes). `frameVipTier`/`entryAnimationVipTier`
+   * are 0 for an item the user owns, else the VIP tier that lets them wear it unowned
+   * (`vipIncluded`), so a lapsed membership drops it at read time. Readers resolve the shown
+   * frame with `resolveFrame()`, never these directly.
    */
   equipped: {
     frameId: ObjectId | null;
     entryAnimationId: ObjectId | null;
     frameUrl: string | null;
     frameFormat?: AnimationFormat;
+    frameVipTier?: number;
+    entryAnimationVipTier?: number;
     vipFrameUrl?: string | null;
     vipFrameFormat?: AnimationFormat;
   };
@@ -290,6 +295,8 @@ export interface CosmeticDoc {
   priceDiamonds: number;
   durationDays: number;
   vipTierRequired: number;
+  /** Holders of `vipTierRequired`+ wear it free; it is not sold. Absent on older rows. */
+  vipIncluded?: boolean;
   active: boolean;
   sortOrder: number;
   createdAt: Date;
@@ -302,6 +309,10 @@ export interface UserCosmeticDoc {
   type: CosmeticType;
   expiresAt: Date;
   acquiredAt: Date;
+  /** How the latest extension came about. Absent on rows older than this field. */
+  source?: 'purchase' | 'admin';
+  /** Admin uid behind the latest admin grant, else null. */
+  grantedBy?: string | null;
 }
 
 export interface AgencyDoc {

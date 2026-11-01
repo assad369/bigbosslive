@@ -22,6 +22,23 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { adminRole: 1 }, partialFilterExpression: { adminRole: { $type: 'string' } } },
     { key: { 'level.level': -1 } },
     { key: { agencyId: 1 }, partialFilterExpression: { agencyId: { $type: 'objectId' } } },
+    {
+      key: { 'equipped.frameId': 1 },
+      partialFilterExpression: { 'equipped.frameId': { $type: 'objectId' } },
+    },
+    {
+      key: { 'equipped.entryAnimationId': 1 },
+      partialFilterExpression: { 'equipped.entryAnimationId': { $type: 'objectId' } },
+    },
+    // Items worn through VIP, for the sweep that takes them off once the tier lapses.
+    {
+      key: { 'equipped.frameVipTier': 1 },
+      partialFilterExpression: { 'equipped.frameVipTier': { $gt: 0 } },
+    },
+    {
+      key: { 'equipped.entryAnimationVipTier': 1 },
+      partialFilterExpression: { 'equipped.entryAnimationVipTier': { $gt: 0 } },
+    },
   ],
   follows: [
     { key: { followerId: 1, followeeId: 1 }, unique: true },
@@ -86,10 +103,15 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   ],
   rechargePackages: [{ key: { sku: 1 }, unique: true }],
   vipPackages: [{ key: { tier: 1 }, unique: true }],
-  cosmetics: [{ key: { type: 1, active: 1, sortOrder: 1 } }],
+  cosmetics: [
+    { key: { type: 1, active: 1, sortOrder: 1 } },
+    { key: { type: 1, sortOrder: 1, _id: -1 } },
+    { key: { vipIncluded: 1, vipTierRequired: 1, type: 1 } },
+  ],
   userCosmetics: [
     { key: { userId: 1, cosmeticId: 1 }, unique: true },
     { key: { userId: 1, type: 1, expiresAt: -1 } },
+    { key: { cosmeticId: 1, expiresAt: -1 } },
   ],
   agencies: [
     { key: { ownerId: 1 }, unique: true },

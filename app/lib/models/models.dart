@@ -753,6 +753,7 @@ class StoreItem {
     required this.priceDiamonds,
     required this.durationDays,
     required this.vipTierRequired,
+    this.vipIncluded = false,
     this.animationFormat = 'none',
   });
   final String id;
@@ -763,6 +764,9 @@ class StoreItem {
   final int priceDiamonds;
   final int durationDays;
   final int vipTierRequired;
+
+  /// Holders of [vipTierRequired] or higher wear it free; it can't be bought.
+  final bool vipIncluded;
   final String animationFormat;
   factory StoreItem.fromJson(Json j) => StoreItem(
     id: j.str('id'),
@@ -774,6 +778,7 @@ class StoreItem {
     priceDiamonds: j.integer('priceDiamonds'),
     durationDays: j.integer('durationDays'),
     vipTierRequired: j.integer('vipTierRequired'),
+    vipIncluded: j.flag('vipIncluded'),
   );
 }
 
