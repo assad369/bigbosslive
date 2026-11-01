@@ -183,7 +183,7 @@ export function adminRoutes(ctx: Ctx): Router {
         q: z.string().trim().max(100).optional(),
         status: z.enum(USER_STATUSES).optional(),
         agent: z.enum(['true', 'false']).optional(),
-        sort: z.enum(['new', 'level', 'diamonds', 'beans']).default('new'),
+        sort: z.enum(['new', 'level', 'diamonds']).default('new'),
       }),
     );
     const filter: Filter<UserDoc> = {};
@@ -203,7 +203,6 @@ export function adminRoutes(ctx: Ctx): Router {
       new: { createdAt: -1 },
       level: { 'level.level': -1 },
       diamonds: { 'wallet.diamonds': -1 },
-      beans: { 'wallet.beans': -1 },
     }[q.sort] as Record<string, 1 | -1>;
     const [items, total] = await Promise.all([
       ctx.col.users

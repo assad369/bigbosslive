@@ -16,7 +16,7 @@ export interface AdminUser {
   email: string | null;
   phone: string | null;
   country: string | null;
-  wallet: { diamonds: number; beans: number; agentStock: number };
+  wallet: { diamonds: number; agentStock: number };
   level: { level: number; points: number };
   vip: { tier: number; expiresAt: string | null };
   stats: {
@@ -79,7 +79,6 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
                 { value: 'new', label: 'Newest' },
                 { value: 'level', label: 'Highest level' },
                 { value: 'diamonds', label: 'Most diamonds' },
-                { value: 'beans', label: 'Most beans' },
               ]}
             />
           </Space>
@@ -118,12 +117,6 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
             key: 'd',
             align: 'right',
             render: (_, u) => <Money value={u.wallet.diamonds} unit="diamonds" />,
-          },
-          {
-            title: 'Beans',
-            key: 'b',
-            align: 'right',
-            render: (_, u) => <Money value={u.wallet.beans} unit="beans" />,
           },
           ...(agentsOnly
             ? [

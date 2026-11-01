@@ -1,6 +1,7 @@
 import {
   AccessToken,
   DataPacket_Kind,
+  ParticipantInfo_State,
   RoomServiceClient,
   TrackType,
   WebhookReceiver,
@@ -27,6 +28,11 @@ export interface LiveKitGateway {
   createToken(req: TokenRequest): Promise<string>;
   sendData(room: string, topic: string, payload: unknown, identities?: string[]): Promise<void>;
   removeParticipant(room: string, identity: string): Promise<void>;
+  /**
+   * Identities connected to a room right now. Throws when LiveKit can't answer, so callers
+   * never mistake an outage for an empty room.
+   */
+  listParticipants(room: string): Promise<string[]>;
   /** Grant/revoke publishing and, optionally, replace the server-minted metadata (role). */
   updateParticipant(
     room: string,
@@ -91,6 +97,12 @@ export function createLiveKitGateway(env: Env): LiveKitGateway {
     },
     async removeParticipant(room, identity) {
       await rooms.removeParticipant(room, identity);
+    },
+    async listParticipants(room) {
+      const list = await rooms.listParticipants(room);
+      return list
+        .filter((p) => p.state !== ParticipantInfo_State.DISCONNECTED)
+        .map((p) => p.identity);
     },
     async updateParticipant(room, identity, { canPublish, metadata }) {
       await rooms.updateParticipant(room, identity, {

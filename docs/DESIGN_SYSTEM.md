@@ -46,6 +46,6 @@ Sources of truth, kept identical:
    rewards, not for every border.
 3. On gold surfaces, text is `ink` or `bronzeDeep`, never white.
 4. On espresso surfaces, text is `ivory` and `champagne`, and accents are `goldLight`.
-5. Money always shows its unit: 💎 for diamonds, 🫘 for beans, `$` for payouts.
+5. Money always shows its unit: 💎 for diamonds, `$` for payouts.
 6. Level badges use the tier gradient: bronze (1–19), silver (20–39), gold (40–69), dark gold
    (70+).

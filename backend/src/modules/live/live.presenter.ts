@@ -23,7 +23,7 @@ export function toLiveRoom(r: LiveRoomDoc, host: UserBrief | undefined): LiveRoo
     },
     viewerCount: r.viewerCount,
     peakViewers: r.peakViewers,
-    giftBeans: r.giftBeans,
+    giftDiamonds: r.giftDiamonds,
     pkBattleId: r.pkBattleId ? String(r.pkBattleId) : null,
     locked: Boolean(r.locked),
     hasPassword: Boolean(r.locked && r.passwordHash),
@@ -37,6 +37,8 @@ export function toRoomDetail(
   host: UserBrief | undefined,
   users: Map<string, UserBrief>,
   now: Date,
+  /** Diamond balances of the people on seats, shown on their stage tiles. */
+  balances: Map<string, number> = new Map(),
 ) {
   return {
     ...toLiveRoom(r, host),
@@ -52,6 +54,7 @@ export function toRoomDetail(
       videoMuted: Boolean(s.videoMuted),
       locked: s.locked,
       user: s.userId ? (users.get(s.userId) ?? null) : null,
+      diamonds: s.userId ? (balances.get(s.userId) ?? 0) : 0,
     })),
     /** Lets clients correct their clock for the elapsed-time display. */
     serverTime: now.toISOString(),

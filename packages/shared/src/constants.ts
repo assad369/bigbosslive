@@ -34,8 +34,11 @@ export type RoomType = (typeof ROOM_TYPES)[number];
 export const ROOM_STATUSES = ['live', 'ended'] as const;
 export type RoomStatus = (typeof ROOM_STATUSES)[number];
 
-/** Spendable diamonds, withdrawable beans (gift earnings), and an agent's resale stock. */
-export const CURRENCIES = ['diamonds', 'beans', 'agent_stock'] as const;
+/**
+ * Diamonds are the only user currency: bought, spent on gifts and purchases, earned from gifts
+ * received, and withdrawn. `agent_stock` is an agent's resale inventory, not spendable.
+ */
+export const CURRENCIES = ['diamonds', 'agent_stock'] as const;
 export type Currency = (typeof CURRENCIES)[number];
 
 export const LEDGER_REASONS = [
@@ -55,6 +58,8 @@ export const LEDGER_REASONS = [
   'withdrawal_hold',
   'withdrawal_release',
   'admin_adjustment',
+  // One-off: a legacy bean balance folded into diamonds (2026-11 single-currency migration).
+  'currency_merge',
 ] as const;
 export type LedgerReason = (typeof LEDGER_REASONS)[number];
 

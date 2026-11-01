@@ -44,8 +44,8 @@ Future<void> showLiveSummary(BuildContext context, Json? s) => showDialog<void>(
         _SummaryRow('Peak viewers', Fmt.full(s?.integer('peakViewers') ?? 0)),
         _SummaryRow('Gifts', Fmt.full(s?.integer('giftCount') ?? 0)),
         _SummaryRow(
-          'Beans earned',
-          '🫘 ${Fmt.full(s?.integer('giftBeans') ?? 0)}',
+          'Diamonds earned',
+          '💎 ${Fmt.full(s?.integer('giftDiamonds') ?? 0)}',
         ),
       ],
     ),

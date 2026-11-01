@@ -56,7 +56,7 @@ class _FakeSession extends SessionController {
     'id': 'me',
     'shortId': '1',
     'displayName': 'Me',
-    'wallet': {'diamonds': 0, 'beans': 0, 'agentStock': 0},
+    'wallet': {'diamonds': 0, 'agentStock': 0},
     'levelProgress': {
       'level': 1,
       'points': 0,

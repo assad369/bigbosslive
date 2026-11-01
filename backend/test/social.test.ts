@@ -138,7 +138,7 @@ describe('notifications & announcements', () => {
     const res = await h.api
       .post('/v1/admin/announcements')
       .set(h.as('boss', 'admin'))
-      .send({ title: 'Gala night', body: 'Double beans this weekend' });
+      .send({ title: 'Gala night', body: 'Double diamonds this weekend' });
     expect(res.status).toBe(202);
     await h.jobs.drain();
     const ann = await h.ctx.col.announcements.findOne({});

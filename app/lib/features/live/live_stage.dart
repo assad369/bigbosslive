@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
 
 import '../../core/theme/bb_colors.dart';
+import '../../core/utils/format.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import 'live_room_controller.dart';
@@ -236,7 +237,8 @@ class ParticipantGrid extends StatelessWidget {
 }
 
 /// One person on stage: their video (or avatar when the camera is off), a speaking ring,
-/// mute/camera-off markers and a name plate with their room role.
+/// their diamond balance, mute/camera-off markers and a name plate with avatar, room role,
+/// level and VIP tier. Balance and level follow the room's `balances` events.
 class StageTile extends StatelessWidget {
   const StageTile({
     super.key,
@@ -298,12 +300,11 @@ class StageTile extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             media,
-            if (!compact)
-              Positioned(
-                left: 4,
-                top: 4,
-                child: _Chip(text: '${seat.index + 1}'),
-              ),
+            Positioned(
+              left: 4,
+              top: 4,
+              child: DiamondChip(seat.diamonds, compact: compact),
+            ),
             Positioned(
               right: 4,
               top: 4,
@@ -320,7 +321,13 @@ class StageTile extends StatelessWidget {
               left: 4,
               right: 4,
               bottom: 4,
-              child: _NamePlate(user: user, role: role, compact: compact),
+              child: _NamePlate(
+                user: user,
+                role: role,
+                compact: compact,
+                // The camera-off fallback already shows a large avatar.
+                showAvatar: track != null,
+              ),
             ),
           ],
         ),
@@ -353,10 +360,12 @@ class _NamePlate extends StatelessWidget {
     required this.user,
     required this.role,
     required this.compact,
+    required this.showAvatar,
   });
   final UserBrief user;
   final RoomRole role;
   final bool compact;
+  final bool showAvatar;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -367,12 +376,38 @@ class _NamePlate extends StatelessWidget {
     ),
     child: Row(
       children: [
+        if (showAvatar) ...[
+          // Frames are left off at this size: they would cover the name.
+          ClipOval(
+            child: SizedBox.square(
+              dimension: compact ? 14 : 18,
+              child: user.avatarUrl == null
+                  ? const ColoredBox(
+                      color: BBColors.espressoGlow,
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: 12,
+                        color: BBColors.champagne,
+                      ),
+                    )
+                  : CachedNetworkImage(
+                      imageUrl: user.avatarUrl!,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, _, _) =>
+                          const ColoredBox(color: BBColors.espressoGlow),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 3),
+        ],
         if (!compact) ...[
           RoleBadge(role, dense: true),
           if (role == RoomRole.host || role == RoomRole.admin)
             const SizedBox(width: 3),
         ],
-        if (user.vipTier > 0) ...[
+        LevelBadge(user.level, dense: true),
+        const SizedBox(width: 3),
+        if (!compact && user.vipTier > 0) ...[
           VipTag(user.vipTier),
           const SizedBox(width: 3),
         ],
@@ -393,22 +428,38 @@ class _NamePlate extends StatelessWidget {
   );
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip({required this.text});
-  final String text;
+/// "💎 12.3K" over a stage tile or under an audio seat.
+class DiamondChip extends StatelessWidget {
+  const DiamondChip(this.diamonds, {super.key, this.compact = false});
+  final int diamonds;
+  final bool compact;
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-    decoration: BoxDecoration(
-      color: BBColors.scrim,
-      borderRadius: BorderRadius.circular(4),
-    ),
-    child: Text(
-      text,
-      style: const TextStyle(
-        color: BBColors.ivory,
-        fontSize: 10,
-        fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) => Semantics(
+    label: '${Fmt.full(diamonds)} diamonds',
+    excludeSemantics: true,
+    child: Container(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: BBColors.scrim,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: BBColors.goldOutline, width: 0.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('💎', style: TextStyle(fontSize: compact ? 8 : 10)),
+          const SizedBox(width: 2),
+          Text(
+            Fmt.compact(diamonds),
+            style: TextStyle(
+              color: BBColors.goldLight,
+              fontSize: compact ? 9 : 11,
+              fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -488,13 +539,13 @@ class SeatGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final seats = c.detail!.seats;
+    final seats = c.displaySeats;
     return GridView.count(
       crossAxisCount: 4,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 0.78,
+      childAspectRatio: 0.7,
       children: [
         for (final s in seats)
           InkWell(
@@ -567,17 +618,22 @@ class SeatGrid extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (s.user != null)
+                if (s.user != null) ...[
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       RoleBadge(c.roleOf(s.user!.id), dense: true),
+                      const SizedBox(width: 2),
+                      LevelBadge(s.user!.level, dense: true),
                       if (s.user!.vipTier > 0) ...[
                         const SizedBox(width: 2),
                         VipTag(s.user!.vipTier),
                       ],
                     ],
                   ),
+                  const SizedBox(height: 2),
+                  DiamondChip(s.diamonds, compact: true),
+                ],
               ],
             ),
           ),

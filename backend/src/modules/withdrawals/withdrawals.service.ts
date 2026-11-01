@@ -12,7 +12,7 @@ import {
 } from '../../lib/errors.js';
 
 export const withdrawalInput = z.object({
-  beans: z.number().int().positive(),
+  diamonds: z.number().int().positive(),
   method: z.enum(['bank', 'mobile_wallet', 'paypal', 'other']),
   account: z
     .record(z.string().min(1).max(40), z.string().trim().min(1).max(200))
@@ -23,8 +23,8 @@ export const withdrawalInput = z.object({
 });
 
 /**
- * Bean withdrawals. Requesting moves the beans out of the balance immediately (a "hold"), so
- * a user can never spend or double-withdraw beans under review. Rejection releases the hold;
+ * Diamond withdrawals. Requesting moves the diamonds out of the balance immediately (a "hold"), so
+ * a user can never spend or double-withdraw diamonds under review. Rejection releases the hold;
  * approval and payout only change status. At most one pending request per user.
  */
 export class WithdrawalsService {
@@ -40,8 +40,8 @@ export class WithdrawalsService {
       this.ctx.services.config.get('economy'),
     ]);
     if (!features.withdrawalsEnabled) throw forbidden('Withdrawals are temporarily disabled');
-    if (input.beans < economy.minWithdrawBeans)
-      throw badRequest(`Minimum withdrawal is ${economy.minWithdrawBeans} beans`);
+    if (input.diamonds < economy.minWithdrawDiamonds)
+      throw badRequest(`Minimum withdrawal is ${economy.minWithdrawDiamonds} diamonds`);
 
     const idempotencyKey = `${uid}:${rawKey}`;
     const existing = await this.ctx.col.withdrawals.findOne({ idempotencyKey });
@@ -50,8 +50,8 @@ export class WithdrawalsService {
     const doc: WithdrawalDoc = {
       _id: new ObjectId(),
       userId: uid,
-      beans: input.beans,
-      amountUsd: Math.floor((input.beans / economy.beansPerUsd) * 100) / 100,
+      diamonds: input.diamonds,
+      amountUsd: Math.floor((input.diamonds / economy.diamondsPerUsd) * 100) / 100,
       method: input.method,
       account: input.account,
       status: 'pending',
@@ -66,8 +66,8 @@ export class WithdrawalsService {
         await this.ctx.col.withdrawals.insertOne(doc, { session });
         await this.ctx.services.wallet.debit(session, {
           uid,
-          currency: 'beans',
-          amount: input.beans,
+          currency: 'diamonds',
+          amount: input.diamonds,
           reason: 'withdrawal_hold',
           refId: String(doc._id),
         });
@@ -104,9 +104,9 @@ export class WithdrawalsService {
         .toArray(),
       this.ctx.col.withdrawals.countDocuments(q),
       this.ctx.col.withdrawals
-        .aggregate<{ beans: number; usd: number }>([
+        .aggregate<{ diamonds: number; usd: number }>([
           { $match: { status: 'pending' } },
-          { $group: { _id: null, beans: { $sum: '$beans' }, usd: { $sum: '$amountUsd' } } },
+          { $group: { _id: null, diamonds: { $sum: '$diamonds' }, usd: { $sum: '$amountUsd' } } },
         ])
         .toArray(),
     ]);
@@ -116,7 +116,7 @@ export class WithdrawalsService {
       total,
       page,
       pageSize,
-      pending: { beans: pendingSum[0]?.beans ?? 0, usd: pendingSum[0]?.usd ?? 0 },
+      pending: { diamonds: pendingSum[0]?.diamonds ?? 0, usd: pendingSum[0]?.usd ?? 0 },
     };
   }
 
@@ -137,8 +137,8 @@ export class WithdrawalsService {
         if (!w) throw notFound('Reviewable withdrawal');
         await this.ctx.services.wallet.credit(session, {
           uid: w.userId,
-          currency: 'beans',
-          amount: w.beans,
+          currency: 'diamonds',
+          amount: w.diamonds,
           reason: 'withdrawal_release',
           refId: String(w._id),
         });
@@ -164,7 +164,7 @@ export class WithdrawalsService {
       pending: 'Your withdrawal is under review',
       approved: 'Your withdrawal was approved and will be paid soon',
       paid: `Your withdrawal of $${w.amountUsd.toFixed(2)} has been paid`,
-      rejected: `Your withdrawal was declined${w.note ? `: ${w.note}` : ''}. Beans were returned.`,
+      rejected: `Your withdrawal was declined${w.note ? `: ${w.note}` : ''}. Diamonds were returned.`,
     };
     await this.ctx.services.notifications
       .notify(w.userId, {

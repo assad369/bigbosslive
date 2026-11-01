@@ -54,6 +54,9 @@ export type SeatAction =
 /** Viewers shown as avatars in the room's top bar (the host has its own pill). */
 const TOP_VIEWERS = 4;
 
+/** How long a seated guest may be missing from LiveKit before `live.sweep` frees the seat. */
+const SEAT_ABSENT_GRACE_MS = 20_000;
+
 /** Upload folder for in-room voice messages; a sent voice URL must point into the sender's. */
 export const VOICE_FOLDER = 'voice';
 
@@ -80,12 +83,57 @@ export class LiveService {
 
   async detail(roomId: ObjectId) {
     const room = await this.get(roomId);
-    const briefs = await this.ctx.services.users.briefs([
-      room.hostId,
-      ...room.moderatorIds,
-      ...room.seats.map((s) => s.userId).filter((u): u is string => Boolean(u)),
+    const seated = room.seats.map((s) => s.userId).filter((u): u is string => Boolean(u));
+    const [briefs, balances] = await Promise.all([
+      this.ctx.services.users.briefs([room.hostId, ...room.moderatorIds, ...seated]),
+      this.seatStats(seated),
     ]);
-    return toRoomDetail(room, briefs.get(room.hostId), briefs, this.ctx.clock.now());
+    return toRoomDetail(
+      room,
+      briefs.get(room.hostId),
+      briefs,
+      this.ctx.clock.now(),
+      new Map([...balances].map(([uid, s]) => [uid, s.diamonds])),
+    );
+  }
+
+  /** Diamond balance and level of each uid, for stage tiles. */
+  private async seatStats(uids: string[]) {
+    const out = new Map<string, { diamonds: number; level: number }>();
+    if (!uids.length) return out;
+    const rows = await this.ctx.col.users
+      .find({ _id: { $in: uids } }, { projection: { 'wallet.diamonds': 1, 'level.level': 1 } })
+      .toArray();
+    for (const u of rows)
+      out.set(u._id, { diamonds: u.wallet?.diamonds ?? 0, level: u.level?.level ?? 0 });
+    return out;
+  }
+
+  /**
+   * Tell each live room where any of `uids` is on a seat (host included) their new diamond
+   * balance and level, so stage tiles update at once. Called after a wallet transaction commits;
+   * the 30 s detail poll repairs a lost packet.
+   */
+  async publishSeatBalances(uids: string[]): Promise<void> {
+    if (!uids.length) return;
+    const rooms = await this.ctx.col.liveRooms
+      .find(
+        { status: 'live', 'seats.userId': { $in: uids } },
+        { projection: { livekitRoom: 1, seats: 1 } },
+      )
+      .toArray();
+    if (!rooms.length) return;
+    const stats = await this.seatStats(uids);
+    for (const room of rooms) {
+      const seated = new Set(room.seats.map((s) => s.userId));
+      const users = uids
+        .filter((uid) => seated.has(uid) && stats.has(uid))
+        .map((uid) => ({ uid, ...stats.get(uid)! }));
+      if (!users.length) continue;
+      await this.ctx.livekit
+        .sendData(room.livekitRoom, LIVEKIT_TOPICS.seats, { kind: 'balances', users })
+        .catch((err: unknown) => this.ctx.log.warn({ err }, 'seat balances send failed'));
+    }
   }
 
   roleOf(room: LiveRoomDoc, uid: string): LiveRole {
@@ -205,7 +253,7 @@ export class LiveService {
       livekitRoom: `bb_${hostId}_${now.getTime()}`,
       viewerCount: 0,
       peakViewers: 0,
-      giftBeans: 0,
+      giftDiamonds: 0,
       giftCount: 0,
       moderatorIds: [],
       seats,
@@ -397,7 +445,7 @@ export class LiveService {
         ((ended.endedAt ?? this.ctx.clock.now()).getTime() - ended.startedAt.getTime()) / 1000,
       ),
       peakViewers: ended.peakViewers,
-      giftBeans: ended.giftBeans,
+      giftDiamonds: ended.giftDiamonds,
       giftCount: ended.giftCount,
     };
   }
@@ -492,13 +540,13 @@ export class LiveService {
         .toArray(),
       this.ctx.col.liveRooms.countDocuments(q),
       this.ctx.col.liveRooms
-        .aggregate<{ seconds: number; beans: number }>([
+        .aggregate<{ seconds: number; diamonds: number }>([
           { $match: q },
           {
             $group: {
               _id: null,
               seconds: { $sum: { $divide: [{ $subtract: ['$endedAt', '$startedAt'] }, 1000] } },
-              beans: { $sum: '$giftBeans' },
+              diamonds: { $sum: '$giftDiamonds' },
             },
           },
         ])
@@ -515,13 +563,13 @@ export class LiveService {
           ? Math.round((r.endedAt.getTime() - r.startedAt.getTime()) / 1000)
           : 0,
         peakViewers: r.peakViewers,
-        giftBeans: r.giftBeans,
+        giftDiamonds: r.giftDiamonds,
         endReason: r.endReason,
       })),
       total,
       page,
       pageSize,
-      totals: { seconds: Math.round(totals[0]?.seconds ?? 0), beans: totals[0]?.beans ?? 0 },
+      totals: { seconds: Math.round(totals[0]?.seconds ?? 0), diamonds: totals[0]?.diamonds ?? 0 },
     };
   }
 
@@ -755,6 +803,7 @@ export class LiveService {
             'seats.$.userId': uid,
             'seats.$.muted': false,
             'seats.$.videoMuted': false,
+            'seats.$.absentSince': null,
           },
         },
         { returnDocument: 'after' },
@@ -771,7 +820,14 @@ export class LiveService {
   private async vacateSeatOf(room: LiveRoomDoc, uid: string): Promise<boolean> {
     const updated = await this.ctx.col.liveRooms.findOneAndUpdate(
       { _id: room._id, seats: { $elemMatch: { userId: uid, index: { $gt: 0 } } } },
-      { $set: { 'seats.$.userId': null, 'seats.$.muted': false, 'seats.$.videoMuted': false } },
+      {
+        $set: {
+          'seats.$.userId': null,
+          'seats.$.muted': false,
+          'seats.$.videoMuted': false,
+          'seats.$.absentSince': null,
+        },
+      },
       { returnDocument: 'after' },
     );
     if (!updated) return false;
@@ -995,10 +1051,74 @@ export class LiveService {
     if (!room) return;
     await this.ctx.col.roomPresence.deleteOne({ roomId: room._id, identity });
     if (room.status === 'live') {
-      if (identity !== room.hostId)
+      const seated = room.seats.some((x) => x.index > 0 && x.userId === identity);
+      // A late `participant_left` for an old session must not unseat a guest who already
+      // rejoined. If LiveKit can't tell us, free the seat (the guest can take one again).
+      if (seated && !(await this.stillConnected(room.livekitRoom, identity)))
         await this.vacateSeatOf(room as LiveRoomDoc, identity).catch(() => false);
       await this.syncViewerCount(room._id);
     }
+  }
+
+  private async stillConnected(livekitRoom: string, identity: string): Promise<boolean> {
+    try {
+      return (await this.ctx.livekit.listParticipants(livekitRoom)).includes(identity);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Free seats whose guest has left LiveKit without a `participant_left` we acted on (a lost
+   * or late webhook, a killed app). Two strikes: the first sweep that misses a guest marks the
+   * seat, a later one frees it, so a guest who is reconnecting keeps their seat. A room
+   * LiveKit can't list is skipped, never emptied.
+   */
+  async reconcileSeats(): Promise<number> {
+    const now = this.ctx.clock.now();
+    const rooms = await this.ctx.col.liveRooms
+      .find(
+        { status: 'live', seats: { $elemMatch: { index: { $gt: 0 }, userId: { $ne: null } } } },
+        { projection: { _id: 1, hostId: 1, livekitRoom: 1, seats: 1, moderatorIds: 1 } },
+      )
+      .limit(500)
+      .toArray();
+    let freed = 0;
+    for (const room of rooms) {
+      let connected: Set<string>;
+      try {
+        connected = new Set(await this.ctx.livekit.listParticipants(room.livekitRoom));
+      } catch (err) {
+        this.ctx.log.warn({ err, room: room.livekitRoom }, 'seat reconcile: list failed');
+        continue;
+      }
+      for (const seat of room.seats) {
+        if (seat.index === 0 || !seat.userId) continue;
+        const uid = seat.userId;
+        if (connected.has(uid)) {
+          if (seat.absentSince)
+            await this.ctx.col.liveRooms.updateOne(
+              { _id: room._id, seats: { $elemMatch: { index: seat.index, userId: uid } } },
+              { $set: { 'seats.$.absentSince': null } },
+            );
+          continue;
+        }
+        if (!seat.absentSince) {
+          await this.ctx.col.liveRooms.updateOne(
+            { _id: room._id, seats: { $elemMatch: { index: seat.index, userId: uid } } },
+            { $set: { 'seats.$.absentSince': now } },
+          );
+          continue;
+        }
+        if (now.getTime() - seat.absentSince.getTime() < SEAT_ABSENT_GRACE_MS) continue;
+        try {
+          if (await this.vacateSeatOf(room as LiveRoomDoc, uid)) freed++;
+        } catch (err) {
+          this.ctx.log.warn({ err, uid }, 'seat reconcile: vacate failed');
+        }
+      }
+    }
+    return freed;
   }
 
   /**
@@ -1040,6 +1160,9 @@ export class LiveService {
       .toArray();
     let ended = 0;
     for (const r of stale) if (await this.end(r._id, 'stale', null)) ended++;
+    await this.reconcileSeats().catch((err: unknown) =>
+      this.ctx.log.error({ err }, 'seat reconcile failed'),
+    );
     // Expire seat requests/invites past their TTL.
     await this.ctx.col.seatRequests.updateMany(
       { status: 'pending', expiresAt: { $lte: this.ctx.clock.now() } },

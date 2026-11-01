@@ -7,6 +7,7 @@ import type { Database } from '../src/db/mongo.js';
 import { monthKey } from '../src/lib/time.js';
 import { newAgencyCode } from '../src/modules/agencies/agencies.service.js';
 import { withDb } from './_db.js';
+import { migrateToSingleCurrency } from './single-currency.js';
 
 interface Migration {
   id: string;
@@ -76,7 +77,8 @@ const MIGRATIONS: Migration[] = [
           .toArray();
         for (let attempt = 0; ; attempt++) {
           try {
-            await db.col.agencies.updateOne(
+            // Raw collection: this migration predates the beans → diamonds rename.
+            await db.db.collection('agencies').updateOne(
               { _id: agency._id },
               {
                 $set: {
@@ -152,6 +154,13 @@ const MIGRATIONS: Migration[] = [
           },
         );
       }
+    },
+  },
+  {
+    id: '2026-11-01-single-currency',
+    async up(db) {
+      // Beans are folded into diamonds and every stored bean field is renamed.
+      console.log(JSON.stringify(await migrateToSingleCurrency(db)));
     },
   },
 ];

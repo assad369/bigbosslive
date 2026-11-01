@@ -92,7 +92,7 @@ Map<String, dynamic> _roomJson({
   'title': title,
   'host': {'id': 'host', 'displayName': 'Host'},
   'viewerCount': 1,
-  'giftBeans': 0,
+  'giftDiamonds': 0,
   'livekitRoom': 'bb_host_1',
   'moderatorIds': mods,
   'seats': [_seat(0, 'host'), _seat(1, guest), _seat(2, null)],
@@ -301,6 +301,62 @@ void main() {
       expect(c.chat.last.text, contains('wins the PK'));
     },
   );
+
+  test('balances events update stage diamonds and levels in place', () {
+    final c = _controller(me: 'me');
+    c.handleServerPacket('bb.seats', {
+      'kind': 'seats',
+      'seats': [
+        {..._seat(0, 'host'), 'diamonds': 500},
+        {..._seat(1, 'me'), 'diamonds': 40},
+        _seat(2, null),
+      ],
+    });
+    expect(c.stage.map((s) => s.diamonds), [500, 40]);
+
+    c.handleServerPacket('bb.seats', {
+      'kind': 'balances',
+      'users': [
+        {'uid': 'me', 'diamonds': 110, 'level': 4},
+        {'uid': 'nobody', 'diamonds': 1, 'level': 1},
+      ],
+    });
+    final mine = c.mySeat!;
+    expect(mine.diamonds, 110);
+    expect(mine.user!.level, 4);
+    expect(c.stage.first.diamonds, 500); // the host is untouched
+    expect(mine.user!.displayName, 'User me');
+  });
+
+  test('a seated guest who left LiveKit drops off the stage at once', () {
+    // Nobody is connected in a unit test: the host and this user are always shown, any
+    // other guest only while LiveKit reports them.
+    final c = _controller(me: 'me');
+    c.handleServerPacket('bb.seats', {
+      'kind': 'seats',
+      'seats': [_seat(0, 'host'), _seat(1, 'gone'), _seat(2, 'me')],
+    });
+    expect(c.stage.map((s) => s.user!.id), ['host', 'me']);
+    final shown = c.displaySeats;
+    expect(shown[1].user, isNull);
+    expect(shown[1].index, 1);
+    expect(shown[2].user!.id, 'me');
+    // Role checks still see the server's seat list.
+    expect(c.roleOf('gone'), RoomRole.guest);
+  });
+
+  test('a gift sets the room total the server committed', () {
+    final c = _controller();
+    c.handleServerPacket('bb.gift', {
+      'transactionId': 't1',
+      'sender': _brief('fan'),
+      'gift': {'id': 'g', 'name': 'Rose', 'price': 10},
+      'quantity': 1,
+      'receivers': [_brief('host')],
+      'roomGiftDiamonds': 1234,
+    });
+    expect(c.detail!.room.giftDiamonds, 1234);
+  });
 
   test('a declined PK challenge clears the waiting state', () {
     final c = _controller(me: 'host');

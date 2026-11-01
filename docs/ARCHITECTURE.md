@@ -39,9 +39,9 @@ central error handler (`{ error: { code, message, details, requestId } }`).
 
 ## Money model
 
-- **Diamonds**: bought (IAP, agent, admin) and spent (gifts, VIP, cosmetics, games).
-- **Beans**: earned from gifts received (after platform and agency commission). They can be
-  withdrawn.
+- **Diamonds**: the only user currency. Bought (IAP, agent, admin), spent (gifts, VIP,
+  cosmetics, games), earned from gifts received (after platform and agency commission), and
+  withdrawn. Beans were folded into diamonds 1:1 in the `2026-11-01-single-currency` migration.
 - **Agent stock**: an agent's resale inventory, moved to users' diamonds by agent recharge.
 
 Each movement is a conditional `$inc` plus a `ledger` row in one transaction, so the ledger

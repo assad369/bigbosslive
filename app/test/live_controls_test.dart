@@ -34,7 +34,7 @@ LiveRoomController _controller(String me, {List<String> mods = const []}) {
       'displayName': 'A host with a rather long display name',
     },
     'viewerCount': 1200,
-    'giftBeans': 0,
+    'giftDiamonds': 0,
     'livekitRoom': 'bb_host_1',
     'moderatorIds': mods,
     'seats': [_seat(0, 'host'), _seat(1, 'guest'), _seat(2, null)],

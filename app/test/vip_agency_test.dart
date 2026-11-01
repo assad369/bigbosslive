@@ -120,12 +120,12 @@ void main() {
         'role': 'admin',
         'rank': 2,
         'periodKey': '2026-10',
-        'totals': {'periodBeans': 1200},
+        'totals': {'periodDiamonds': 1200},
         'pendingRequests': 3,
       });
       expect(d.isOwner, isFalse);
       expect(d.agency.code, 'HA-ABCDEFGH');
-      expect(d.total('periodBeans'), 1200);
+      expect(d.total('periodDiamonds'), 1200);
       expect(d.pendingRequests, 3);
 
       final t = TopAgency.fromJson({
@@ -133,9 +133,9 @@ void main() {
         'code': 'HA-X',
         'name': 'Crown',
         'rank': 1,
-        'periodBeans': 99,
+        'periodDiamonds': 99,
       });
-      expect((t.rank, t.periodBeans, t.agency.name), (1, 99, 'Crown'));
+      expect((t.rank, t.periodDiamonds, t.agency.name), (1, 99, 'Crown'));
     });
 
     test('EntryEvent reads the effect, or the legacy cosmetic', () {

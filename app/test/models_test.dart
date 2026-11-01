@@ -18,7 +18,7 @@ void main() {
       'liveRoomId': 'r1',
       'isAgent': true,
       'adminRole': null,
-      'wallet': {'diamonds': 500, 'beans': 70, 'agentStock': 1000},
+      'wallet': {'diamonds': 500, 'agentStock': 1000},
       'levelProgress': {
         'level': 12,
         'points': 1500,
@@ -45,7 +45,7 @@ void main() {
     test('withDiamonds keeps everything else', () {
       final next = MeUser.fromJson(json).withDiamonds(42);
       expect(next.wallet.diamonds, 42);
-      expect(next.wallet.beans, 70);
+      expect(next.wallet.agentStock, 1000);
       expect(next.brief.shortId, '10000001');
     });
   });
@@ -173,7 +173,7 @@ void main() {
         'title': 'T',
         'host': {'id': 'h', 'displayName': 'H'},
         'viewerCount': 3,
-        'giftBeans': 0,
+        'giftDiamonds': 0,
         'locked': true,
         'hasPassword': true,
       });

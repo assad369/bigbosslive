@@ -58,6 +58,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { status: 1, hostVipTier: -1, viewerCount: -1 } },
     { key: { status: 1, lastHeartbeatAt: 1 } },
     { key: { hostId: 1, startedAt: -1 } },
+    // Seat balance broadcasts: the live rooms where a user is on a seat.
+    { key: { 'seats.userId': 1 }, partialFilterExpression: { status: 'live' } },
   ],
   roomPresence: [{ key: { roomId: 1, identity: 1 }, unique: true }],
   roomBans: [
@@ -118,11 +120,11 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { name: 1 } },
     // Partial so agencies created before codes existed don't collide on null until backfilled.
     { key: { code: 1 }, unique: true, partialFilterExpression: { code: { $type: 'string' } } },
-    { key: { status: 1, 'period.key': 1, 'period.beans': -1 } },
+    { key: { status: 1, 'period.key': 1, 'period.diamonds': -1 } },
   ],
   agencyMembers: [
     { key: { userId: 1 }, unique: true },
-    { key: { agencyId: 1, periodBeans: -1 } },
+    { key: { agencyId: 1, periodDiamonds: -1 } },
     { key: { agencyId: 1, role: 1 } },
   ],
   agencyRequests: [

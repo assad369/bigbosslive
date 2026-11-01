@@ -351,7 +351,7 @@ export function economyRoutes(ctx: Ctx): Router {
     );
     res
       .status(201)
-      .json({ id: String(w._id), status: w.status, beans: w.beans, amountUsd: w.amountUsd });
+      .json({ id: String(w._id), status: w.status, diamonds: w.diamonds, amountUsd: w.amountUsd });
   });
 
   r.get('/withdrawals', async (req, res) => {

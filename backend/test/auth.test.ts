@@ -32,7 +32,7 @@ describe('session bootstrap & auth', () => {
       id: 'alice',
       displayName: 'Alice',
       country: 'BD',
-      wallet: { diamonds: 0, beans: 0 },
+      wallet: { diamonds: 0 },
     });
     // The first account on a fresh counter is numbered from FIRST_SHORT_ID.
     expect(first.body.user.shortId).toBe(String(FIRST_SHORT_ID));

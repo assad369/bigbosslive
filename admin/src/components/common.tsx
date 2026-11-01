@@ -303,16 +303,9 @@ export function ToggleSwitch({
   );
 }
 
-export function Money({ value, unit }: { value: number; unit: 'diamonds' | 'beans' | 'usd' }) {
-  const color =
-    unit === 'diamonds'
-      ? brand.palette.info
-      : unit === 'beans'
-        ? brand.palette.bronze
-        : brand.palette.success;
+export function Money({ value, unit }: { value: number; unit: 'diamonds' | 'usd' }) {
+  const color = unit === 'diamonds' ? brand.palette.info : brand.palette.success;
   const text =
-    unit === 'usd'
-      ? `$${value.toFixed(2)}`
-      : `${new Intl.NumberFormat('en-US').format(value)} ${unit === 'diamonds' ? '💎' : '🫘'}`;
+    unit === 'usd' ? `$${value.toFixed(2)}` : `${new Intl.NumberFormat('en-US').format(value)} 💎`;
   return <span style={{ color, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{text}</span>;
 }

@@ -128,7 +128,6 @@ components:
       type: object
       properties:
         diamonds: { type: integer }
-        beans: { type: integer }
         agentStock: { type: integer }
     MeUser:
       allOf:
@@ -166,7 +165,7 @@ components:
         host: { $ref: '#/components/schemas/UserBrief' }
         viewerCount: { type: integer }
         peakViewers: { type: integer }
-        giftBeans: { type: integer }
+        giftDiamonds: { type: integer }
         pkBattleId: { type: [string, 'null'] }
         locked: { type: boolean, description: No new viewers may join }
         hasPassword: { type: boolean, description: A locked room admits viewers with the password }
@@ -193,6 +192,11 @@ components:
                       muted: { type: boolean }
                       videoMuted: { type: boolean }
                       locked: { type: boolean }
+                      diamonds:
+                        {
+                          type: integer,
+                          description: Diamond balance of the seated user (0 when empty),
+                        }
         credentials:
           type: object
           properties:
@@ -215,7 +219,7 @@ components:
       type: object
       properties:
         id: { type: string }
-        currency: { type: string, enum: [diamonds, beans, agent_stock] }
+        currency: { type: string, enum: [diamonds, agent_stock] }
         delta: { type: integer }
         balanceAfter: { type: integer }
         reason: { type: string }
@@ -1064,11 +1068,7 @@ paths:
           [
             { $ref: '#/components/parameters/Cursor' },
             { $ref: '#/components/parameters/Limit' },
-            {
-              name: currency,
-              in: query,
-              schema: { type: string, enum: [diamonds, beans, agent_stock] },
-            },
+            { name: currency, in: query, schema: { type: string, enum: [diamonds, agent_stock] } },
           ],
         responses: { '200': { description: OK } },
       }
@@ -1219,7 +1219,7 @@ paths:
       }
     post:
       tags: [Economy]
-      summary: Request a bean withdrawal (beans are held immediately)
+      summary: Request a diamond withdrawal (diamonds are held immediately)
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         {
@@ -1230,10 +1230,10 @@ paths:
                   schema:
                     {
                       type: object,
-                      required: [beans, method, account],
+                      required: [diamonds, method, account],
                       properties:
                         {
-                          beans: { type: integer },
+                          diamonds: { type: integer },
                           method: { type: string, enum: [bank, mobile_wallet, paypal, other] },
                           account: { type: object, additionalProperties: { type: string } },
                         },
@@ -1255,7 +1255,7 @@ paths:
     get:
       {
         tags: [Economy],
-        summary: "Home slider: active agencies ranked by this month's host beans, then size, then age",
+        summary: "Home slider: active agencies ranked by this month's host diamonds, then size, then age",
         parameters: [{ name: limit, in: query, schema: { type: integer, maximum: 50 } }],
         responses: { '200': { description: OK } },
       }
@@ -1321,7 +1321,7 @@ paths:
     get:
       {
         tags: [Economy],
-        summary: 'Hosts with role, lock, daily target, month/lifetime/today beans and live time',
+        summary: 'Hosts with role, lock, daily target, month/lifetime/today diamonds and live time',
         responses: { '200': { description: OK } },
       }
   /v1/agencies/mine/members/{uid}:
@@ -1433,7 +1433,7 @@ paths:
     get:
       {
         tags: [Economy],
-        summary: 'Agency daily beans, gifts, commission, live time and active hosts',
+        summary: 'Agency daily diamonds, gifts, commission, live time and active hosts',
         parameters: [{ name: days, in: query, schema: { type: integer } }],
         responses: { '200': { description: OK } },
       }

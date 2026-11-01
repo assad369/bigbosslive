@@ -14,7 +14,7 @@ import 'live_room_controller.dart';
 /// The live room's header, two rows:
 ///  1. the host (name, live timer under it, Follow for viewers), the top viewers, the
 ///     speaker toggle and the gold close button;
-///  2. a stats card: beans this live, viewers (tap for the list), the lock, the host's ID.
+///  2. a stats card: diamonds this live, viewers (tap for the list), the lock, the host's ID.
 class LiveTopBar extends ConsumerWidget {
   const LiveTopBar({
     super.key,
@@ -306,23 +306,46 @@ class _FollowPillState extends ConsumerState<_FollowPill> {
     if (following) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(left: 8),
-      child: Tooltip(
-        message: 'Follow',
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: _busy ? null : _follow,
-          child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: const ShapeDecoration(
-              shape: StadiumBorder(),
-              gradient: BBColors.goldGradient,
-            ),
-            child: const Text(
-              'Follow',
-              style: TextStyle(
-                color: BBColors.ink,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
+      child: Semantics(
+        button: true,
+        enabled: !_busy,
+        label: 'Follow host',
+        excludeSemantics: true,
+        child: Material(
+          color: BBColors.heart,
+          shape: const StadiumBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: _busy ? null : _follow,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 11, 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox.square(
+                    dimension: 14,
+                    child: _busy
+                        ? const CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: BBColors.onAccent,
+                          )
+                        : const Icon(
+                            Icons.add_rounded,
+                            size: 14,
+                            color: BBColors.onAccent,
+                          ),
+                  ),
+                  const SizedBox(width: 3),
+                  const Text(
+                    'Follow',
+                    style: TextStyle(
+                      color: BBColors.onAccent,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.1,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -332,7 +355,7 @@ class _FollowPillState extends ConsumerState<_FollowPill> {
   }
 }
 
-/// The full-width card under the header's first row: 🫘 beans this live, viewers (tap
+/// The full-width card under the header's first row: 💎 diamonds this live, viewers (tap
 /// for the list), the lock state, and the host's ID at the end. Scales down rather than
 /// overflow on a narrow phone.
 class _StatsCard extends StatelessWidget {
@@ -392,9 +415,9 @@ class _StatsCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     stat(
-                      const Text('🫘', style: TextStyle(fontSize: 15)),
-                      Fmt.compact(room.giftBeans),
-                      'Beans this live',
+                      const Text('💎', style: TextStyle(fontSize: 15)),
+                      Fmt.compact(room.giftDiamonds),
+                      'Diamonds this live',
                     ),
                     stat(
                       const Icon(

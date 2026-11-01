@@ -49,21 +49,21 @@ describe('admin creates agencies by owner short id', () => {
     expect(memberOwner.status).toBe(409);
   });
 
-  it('a new agency shows in the top slider straight away, ranked by month beans', async () => {
+  it('a new agency shows in the top slider straight away, ranked by month diamonds', async () => {
     const rival = await h.api
       .post('/v1/admin/agencies')
       .set(admin())
       .send({ name: 'Rival', owner: '205', logoUrl: null, commissionRate: 0.05 });
     const top = await h.api.get('/v1/agencies/top').set(h.as('host-a'));
     expect(top.body.items.map((a: { name: string }) => a.name)).toEqual(['Crown', 'Rival']);
-    expect(top.body.items[1]).toMatchObject({ rank: 2, periodBeans: 0, memberCount: 0 });
+    expect(top.body.items[1]).toMatchObject({ rank: 2, periodDiamonds: 0, memberCount: 0 });
 
     const rivalId = rival.body.agency._id as string;
     await h.ctx.db.withTransaction((s) =>
       h.ctx.services.agencies.recordEarnings(s, {
         agencyId: new ObjectId(rivalId),
         userId: 'nobody',
-        beans: 999,
+        diamonds: 999,
         commission: 0,
         gifts: 1,
         periodKey: h.ctx.services.agencies.currentPeriodKey(),
@@ -72,7 +72,7 @@ describe('admin creates agencies by owner short id', () => {
     );
     h.clock.advance(20); // past the ranking cache
     const after = await h.api.get('/v1/agencies/top').set(h.as('host-a'));
-    expect(after.body.items[0]).toMatchObject({ name: 'Rival', rank: 1, periodBeans: 999 });
+    expect(after.body.items[0]).toMatchObject({ name: 'Rival', rank: 1, periodDiamonds: 999 });
 
     await h.api
       .patch(`/v1/admin/agencies/${rivalId}`)

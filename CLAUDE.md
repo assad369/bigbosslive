@@ -59,11 +59,18 @@ cd app && flutter analyze && flutter test && dart format lib test
   Only recharges (agent/admin/IAP) and gifts *received* move level. Gifts sent, game bets,
   purchases, agency commission and admin corrections (`wallet.adjust`) must **not**. Recalculate
   inside the same transaction that moved the counter. Thresholds live in `level_configs`.
-- **Gift split:** receiver beans = cost − platform fee − agency fee, where the agency rate is
+- **One currency:** diamonds (`wallet.diamonds`) are bought, spent, earned and withdrawn.
+  There are no beans. `agent_stock` is only an agent's resale inventory.
+- **Gift split:** receiver diamonds = cost − platform fee − agency fee, where the agency rate is
   capped by `economy.maxAgencyRate`. The agency owner's commission is credited in the same
   transaction. PK scoring and broadcasts run *after* commit and must not fail the gift.
-- **Withdrawals** move beans out at request time (a hold). Rejection releases them. At most one
-  pending request per user (partial unique index).
+- **Withdrawals** move diamonds out at request time (a hold). Rejection releases them. At most one
+  pending request per user (partial unique index). Any diamond can be withdrawn, bought ones
+  included, so `economy.diamondsPerUsd` must keep a withdrawn diamond worth less than a
+  recharged one.
+- **After commit:** side effects that must not run for a rolled-back write go through
+  `onCommit(session, fn)` (`lib/after-commit.ts`). `WalletService` uses it to push seated
+  users' new balances to their live room (`publishSeatBalances`).
 
 ## Host agencies
 
@@ -78,7 +85,7 @@ cd app && flutter analyze && flutter test && dart format lib test
 - Counters move inside the gift transaction (`recordEarnings`): the member's period and lifetime,
   `agency_daily_stats`, and the agency's own `period`/`lifetime`. A stale `period.key` reads as
   zero and is rolled forward, never back. Live time is split across zoned days.
-- The home ranking (`/agencies/top`) sorts by this month's agency beans. It is cached for 15 s
+- The home ranking (`/agencies/top`) sorts by this month's agency diamonds. It is cached for 15 s
   and dropped on create, update and monthly reset.
 - Every agency action writes `agency_audit`.
 

@@ -183,8 +183,8 @@ void main() {
     expect(routeForLink({'url': 'bigboss://post/p1'}), '/post/p1');
     expect(routeForLink({'link': 'bigboss://user/u1'}), '/user/u1');
     expect(
-      routeForLink({'url': 'bigboss://wallet?tab=beans'}),
-      '/wallet?tab=beans',
+      routeForLink({'url': 'bigboss://wallet?tab=diamonds'}),
+      '/wallet?tab=diamonds',
     );
     // Screens that need in-memory arguments, and auth screens, are not linkable.
     expect(routeForLink({'url': 'bigboss://games/play'}), '/games');

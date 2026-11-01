@@ -132,18 +132,6 @@ class MeScreen extends ConsumerWidget {
                       onTap: () => context.push('/wallet'),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _WalletTile(
-                      label: 'Beans',
-                      child: DiamondAmount(
-                        me.wallet.beans,
-                        beans: true,
-                        style: const TextStyle(fontSize: 18),
-                      ),
-                      onTap: () => context.push('/wallet'),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -193,7 +181,7 @@ class MeScreen extends ConsumerWidget {
                   ),
                 _MenuItem(
                   icon: Icons.account_balance_outlined,
-                  label: 'Withdraw beans',
+                  label: 'Withdraw diamonds',
                   onTap: () => context.push('/wallet/withdraw'),
                 ),
               ],
@@ -904,7 +892,7 @@ class SettingsScreen extends ConsumerWidget {
                 builder: (c) => AlertDialog(
                   title: const Text('Delete your account?'),
                   content: const Text(
-                    'Your profile, followers and messages will be removed. Unused diamonds and beans cannot be recovered. This cannot be undone.',
+                    'Your profile, followers and messages will be removed. Unused diamonds cannot be recovered. This cannot be undone.',
                   ),
                   actions: [
                     TextButton(
@@ -1192,13 +1180,12 @@ class _LiveHistoryScreenState extends ConsumerState<LiveHistoryScreen> {
                         child: Column(
                           children: [
                             DiamondAmount(
-                              totals.integer('beans'),
-                              beans: true,
+                              totals.integer('diamonds'),
                               compact: true,
                               style: const TextStyle(fontSize: 18),
                             ),
                             const Text(
-                              'Beans earned',
+                              'Diamonds earned',
                               style: TextStyle(color: BBColors.inkMuted),
                             ),
                           ],
@@ -1228,11 +1215,7 @@ class _LiveHistoryScreenState extends ConsumerState<LiveHistoryScreen> {
           subtitle: Text(
             '${Fmt.ago(s.date('startedAt'))} · ${Fmt.duration(s.integer('durationSec'))} · peak ${s.integer('peakViewers')}',
           ),
-          trailing: DiamondAmount(
-            s.integer('giftBeans'),
-            beans: true,
-            compact: true,
-          ),
+          trailing: DiamondAmount(s.integer('giftDiamonds'), compact: true),
         ),
       ),
     );

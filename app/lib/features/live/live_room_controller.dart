@@ -224,6 +224,7 @@ class LiveRoomController extends ChangeNotifier {
   bool _micOffByMe = false;
   bool _cameraOffByMe = false;
   bool _staged = false;
+  bool _seatReleased = false;
   Json? endSummary;
   int _pendingHearts = 0;
 
@@ -252,9 +253,26 @@ class LiveRoomController extends ChangeNotifier {
   int get viewerCount => detail?.room.viewerCount ?? 0;
   bool get locked => detail?.room.locked ?? false;
 
-  /// Everyone on stage (host first), for the participant grid.
+  /// Everyone on stage (host first), for the participant grid. A guest who has left LiveKit
+  /// drops out at once, before the server frees their seat (its webhook can lag, and a
+  /// killed app leaves no goodbye at all).
   List<Seat> get stage =>
-      detail?.seats.where((s) => s.user != null).toList() ?? const [];
+      detail?.seats.where((s) => s.user != null && _present(s)).toList() ??
+      const [];
+
+  /// All seats as they should be drawn: a guest who has left shows as an empty seat.
+  List<Seat> get displaySeats => [
+    for (final s in detail?.seats ?? const <Seat>[])
+      s.user == null || _present(s) ? s : s.vacant,
+  ];
+
+  /// The host and this user are always shown; anyone else only while connected.
+  bool _present(Seat s) {
+    final uid = s.user?.id;
+    if (uid == null) return false;
+    return s.index == 0 || uid == myUid || isConnected(uid);
+  }
+
   bool get hasFreeSeat =>
       detail?.seats.any((s) => s.index > 0 && s.user == null && !s.locked) ??
       false;
@@ -427,10 +445,11 @@ class LiveRoomController extends ChangeNotifier {
       return;
     }
     if (!_staged) {
-      // Fresh on stage: start with mic and camera on.
+      // Fresh on stage: mic on. The host's camera starts on; a guest's starts off and the
+      // guest turns it on when ready.
       _staged = true;
       _micOffByMe = false;
-      _cameraOffByMe = false;
+      _cameraOffByMe = !isHost;
     }
     final wantMic = !(seat?.muted ?? false) && !_micOffByMe;
     final wantCam =
@@ -622,6 +641,12 @@ class LiveRoomController extends ChangeNotifier {
           ),
         );
         if (!_gifts.isClosed) _gifts.add(event);
+        // The committed room total, so the "diamonds this live" counter never drifts.
+        final total = p['roomGiftDiamonds'];
+        final d = detail;
+        if (total is int && d != null) {
+          detail = d.copyWith(room: d.room.copyWith(giftDiamonds: total));
+        }
         _addChat(
           ChatLine(
             id: 'g${event.id}',
@@ -679,6 +704,29 @@ class LiveRoomController extends ChangeNotifier {
         detail = d.copyWith(seats: p.list('seats', Seat.fromJson));
         if (onSeat) seatRequestPending = false;
         unawaited(_syncPublishing());
+      case 'balances':
+        // Diamond balance and level of people on stage, after any wallet change.
+        if (d == null) return;
+        final next = {
+          for (final u in p.list('users', (u) => u))
+            u.str('uid'): (
+              diamonds: u.integer('diamonds'),
+              level: u.integer('level'),
+            ),
+        };
+        if (next.isEmpty) return;
+        detail = d.copyWith(
+          seats: [
+            for (final s in d.seats)
+              switch (next[s.user?.id]) {
+                null => s,
+                final n => s.copyWith(
+                  diamonds: n.diamonds,
+                  user: s.user!.copyWith(level: n.level),
+                ),
+              },
+          ],
+        );
       case 'request':
         if (!isModerator) return;
         final user = UserBrief.fromJson(p.obj('user'));
@@ -1128,6 +1176,7 @@ class LiveRoomController extends ChangeNotifier {
   /// Ends a hosted live. Throws when the server didn't end it (it is still running), so the
   /// host can retry instead of believing it ended.
   Future<Json?> end() async {
+    _releaseSeat();
     if (isHost) {
       try {
         endSummary = await _repo.end(roomId);
@@ -1150,8 +1199,18 @@ class LiveRoomController extends ChangeNotifier {
     await _disconnectQuietly();
   }
 
+  /// A guest closing the live frees their seat now instead of waiting for LiveKit's webhook,
+  /// so everyone else's stage updates at once. Best effort: the server sweep is the backstop.
+  void _releaseSeat() {
+    if (_seatReleased || isHost || !onSeat) return;
+    if (status != LiveStatus.live && status != LiveStatus.reconnecting) return;
+    _seatReleased = true;
+    unawaited(_repo.leaveSeat(roomId).then((_) {}, onError: (Object _) {}));
+  }
+
   @override
   void dispose() {
+    _releaseSeat();
     // A host whose live never got going (failed to connect) closes it on the server too,
     // instead of leaving it listed until the stale-room sweep.
     if (isHost && status == LiveStatus.failed) {

@@ -22,7 +22,7 @@ import type {
 
 /**
  * MongoDB document shapes. MongoDB is the single source of truth — there is no Firestore
- * mirror. Money is stored as integer counts of diamonds/beans; never floats.
+ * mirror. Money is stored as integer counts of diamonds (and agent stock); never floats.
  */
 
 export interface UserDoc {
@@ -44,7 +44,7 @@ export interface UserDoc {
   ban: { reason: string; until: Date | null; by: string; at: Date } | null;
   adminRole: AdminRole | null;
   isAgent: boolean;
-  wallet: { diamonds: number; beans: number; agentStock: number };
+  wallet: { diamonds: number; agentStock: number };
   stats: {
     followers: number;
     following: number;
@@ -111,6 +111,11 @@ export interface SeatDoc {
   /** Camera turned off by the host or a moderator. */
   videoMuted: boolean;
   locked: boolean;
+  /**
+   * First time `live.sweep` found the seated guest missing from LiveKit. A second miss frees
+   * the seat; being seen again clears it. Null/absent while present.
+   */
+  absentSince?: Date | null;
 }
 
 export interface LiveRoomDoc {
@@ -126,8 +131,8 @@ export interface LiveRoomDoc {
   livekitRoom: string;
   viewerCount: number;
   peakViewers: number;
-  /** Beans the host earned in this session (after commission). */
-  giftBeans: number;
+  /** Diamonds the host earned in this session (after commission). */
+  giftDiamonds: number;
   giftCount: number;
   moderatorIds: string[];
   seats: SeatDoc[];
@@ -213,7 +218,8 @@ export interface GiftTransactionDoc {
   receivers: {
     userId: string;
     cost: number;
-    beans: number;
+    /** Credited to the receiver: cost − platformFee − agencyFee. */
+    diamonds: number;
     platformFee: number;
     agencyFee: number;
     agencyId: ObjectId | null;
@@ -330,8 +336,8 @@ export interface AgencyDoc {
    * Agency-wide counters for the current month (`key` = "YYYY-MM" in the agency timezone),
    * moved inside the gift transaction alongside the member's. A stale `key` means zero.
    */
-  period: { key: string; beans: number; liveSeconds: number; commission: number; gifts: number };
-  lifetime: { beans: number; liveSeconds: number; commission: number; gifts: number };
+  period: { key: string; diamonds: number; liveSeconds: number; commission: number; gifts: number };
+  lifetime: { diamonds: number; liveSeconds: number; commission: number; gifts: number };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -349,10 +355,10 @@ export interface AgencyMemberDoc {
   joinedAt: Date;
   /** Current accounting period, "YYYY-MM" in the agency timezone. */
   periodKey: string;
-  periodBeans: number;
+  periodDiamonds: number;
   periodLiveSeconds: number;
   /** Totals since this membership started. */
-  lifetimeBeans: number;
+  lifetimeDiamonds: number;
   lifetimeLiveSeconds: number;
 }
 
@@ -382,7 +388,7 @@ export interface AgencyPeriodDoc {
   agencyId: ObjectId;
   userId: string;
   periodKey: string;
-  beans: number;
+  diamonds: number;
   liveSeconds: number;
   closedAt: Date;
 }
@@ -394,7 +400,7 @@ export interface AgencyDailyStatDoc {
   userId: string;
   /** "YYYY-MM-DD" in the agency timezone. */
   dayKey: string;
-  beans: number;
+  diamonds: number;
   gifts: number;
   commission: number;
   liveSeconds: number;
@@ -414,7 +420,7 @@ export interface AgencyAuditDoc {
 export interface WithdrawalDoc {
   _id: ObjectId;
   userId: string;
-  beans: number;
+  diamonds: number;
   amountUsd: number;
   method: 'bank' | 'mobile_wallet' | 'paypal' | 'other';
   account: Record<string, string>;

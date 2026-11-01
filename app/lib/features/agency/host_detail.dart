@@ -77,7 +77,7 @@ class HostDetailScreen extends ConsumerWidget {
                     g.createdAt == null ? '' : Fmt.dateTime(g.createdAt!),
                   ),
                   trailing: Text(
-                    '+🫘 ${Fmt.full(g.beans)}',
+                    '+💎 ${Fmt.full(g.diamonds)}',
                     style: const TextStyle(
                       color: BBColors.success,
                       fontWeight: FontWeight.w800,
@@ -120,7 +120,7 @@ class HostDetailScreen extends ConsumerWidget {
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       Text(
-                        '🫘 ${Fmt.compact(s.giftBeans)}',
+                        '💎 ${Fmt.compact(s.giftDiamonds)}',
                         style: const TextStyle(
                           color: BBColors.inkSubtle,
                           fontSize: 11,
@@ -203,8 +203,8 @@ class _TargetCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             progress == null
-                ? '$minutes min live · 🫘 ${Fmt.compact(m.todayBeans)} · no daily target'
-                : '$minutes / ${m.dailyTargetMinutes} min live · 🫘 ${Fmt.compact(m.todayBeans)}',
+                ? '$minutes min live · 💎 ${Fmt.compact(m.todayDiamonds)} · no daily target'
+                : '$minutes / ${m.dailyTargetMinutes} min live · 💎 ${Fmt.compact(m.todayDiamonds)}',
             style: const TextStyle(color: BBColors.inkMuted),
           ),
           if (progress != null) ...[
@@ -252,8 +252,8 @@ class _Summary extends StatelessWidget {
           childAspectRatio: 2.1,
           children: [
             AgencyStat(
-              label: 'Beans',
-              value: '🫘 ${Fmt.compact(a.totals.beans)}',
+              label: 'Diamonds',
+              value: '💎 ${Fmt.compact(a.totals.diamonds)}',
             ),
             AgencyStat(label: 'Gifts', value: Fmt.compact(a.totals.gifts)),
             AgencyStat(
@@ -263,11 +263,11 @@ class _Summary extends StatelessWidget {
             AgencyStat(label: 'Sessions', value: '${a.sessions ?? 0}'),
             AgencyStat(
               label: 'This month',
-              value: '🫘 ${Fmt.compact(m.periodBeans)}',
+              value: '💎 ${Fmt.compact(m.periodDiamonds)}',
             ),
             AgencyStat(
               label: 'Since joining',
-              value: '🫘 ${Fmt.compact(m.lifetimeBeans)}',
+              value: '💎 ${Fmt.compact(m.lifetimeDiamonds)}',
             ),
           ],
         ),

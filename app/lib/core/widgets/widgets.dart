@@ -372,12 +372,10 @@ class DiamondAmount extends StatelessWidget {
   const DiamondAmount(
     this.amount, {
     super.key,
-    this.beans = false,
     this.style,
     this.compact = false,
   });
   final int amount;
-  final bool beans;
   final TextStyle? style;
   final bool compact;
 
@@ -385,10 +383,7 @@ class DiamondAmount extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Text(
-        beans ? '🫘' : '💎',
-        style: TextStyle(fontSize: (style?.fontSize ?? 14) * 0.95),
-      ),
+      Text('💎', style: TextStyle(fontSize: (style?.fontSize ?? 14) * 0.95)),
       const SizedBox(width: 4),
       Text(
         compact ? Fmt.compact(amount) : Fmt.full(amount),

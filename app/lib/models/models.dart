@@ -41,6 +41,18 @@ class UserBrief {
     frameUrl: j.strOrNull('frameUrl'),
     frameFormat: j.str('frameFormat', 'none'),
   );
+
+  UserBrief copyWith({int? level}) => UserBrief(
+    id: id,
+    shortId: shortId,
+    displayName: displayName,
+    avatarUrl: avatarUrl,
+    level: level ?? this.level,
+    vipTier: vipTier,
+    country: country,
+    frameUrl: frameUrl,
+    frameFormat: frameFormat,
+  );
 }
 
 /// One of an agent's transfers to a user.
@@ -115,14 +127,13 @@ class LevelProgress {
   );
 }
 
+/// Diamonds are the only user currency; agent stock is an agent's resale inventory.
 class Wallet {
-  const Wallet({this.diamonds = 0, this.beans = 0, this.agentStock = 0});
+  const Wallet({this.diamonds = 0, this.agentStock = 0});
   final int diamonds;
-  final int beans;
   final int agentStock;
   factory Wallet.fromJson(Json j) => Wallet(
     diamonds: j.integer('diamonds'),
-    beans: j.integer('beans'),
     agentStock: j.integer('agentStock'),
   );
 }
@@ -202,13 +213,8 @@ class MeUser {
     vipExpiresAt: vipExpiresAt,
   );
 
-  MeUser withDiamonds(int diamonds) => withWallet(
-    Wallet(
-      diamonds: diamonds,
-      beans: wallet.beans,
-      agentStock: wallet.agentStock,
-    ),
-  );
+  MeUser withDiamonds(int diamonds) =>
+      withWallet(Wallet(diamonds: diamonds, agentStock: wallet.agentStock));
 
   factory MeUser.fromJson(Json j) => MeUser(
     profile: PublicUser.fromJson(j),
@@ -231,7 +237,7 @@ class LiveRoom {
     this.coverUrl,
     required this.host,
     required this.viewerCount,
-    required this.giftBeans,
+    required this.giftDiamonds,
     this.pkBattleId,
     this.locked = false,
     this.hasPassword = false,
@@ -245,7 +251,7 @@ class LiveRoom {
   final String? coverUrl;
   final UserBrief host;
   final int viewerCount;
-  final int giftBeans;
+  final int giftDiamonds;
   final String? pkBattleId;
 
   /// No new viewers can join; [hasPassword] means the password still lets them in.
@@ -259,7 +265,7 @@ class LiveRoom {
     String? title,
     String? coverUrl,
     int? viewerCount,
-    int? giftBeans,
+    int? giftDiamonds,
     String? Function()? pkBattleId,
     bool? locked,
     bool? hasPassword,
@@ -271,7 +277,7 @@ class LiveRoom {
     coverUrl: coverUrl ?? this.coverUrl,
     host: host,
     viewerCount: viewerCount ?? this.viewerCount,
-    giftBeans: giftBeans ?? this.giftBeans,
+    giftDiamonds: giftDiamonds ?? this.giftDiamonds,
     pkBattleId: pkBattleId == null ? this.pkBattleId : pkBattleId(),
     locked: locked ?? this.locked,
     hasPassword: hasPassword ?? this.hasPassword,
@@ -286,7 +292,7 @@ class LiveRoom {
     coverUrl: j.strOrNull('coverUrl'),
     host: UserBrief.fromJson(j.obj('host')),
     viewerCount: j.integer('viewerCount'),
-    giftBeans: j.integer('giftBeans'),
+    giftDiamonds: j.integer('giftDiamonds'),
     pkBattleId: j.strOrNull('pkBattleId'),
     locked: j.flag('locked'),
     hasPassword: j.flag('hasPassword'),
@@ -301,6 +307,7 @@ class Seat {
     required this.muted,
     this.videoMuted = false,
     required this.locked,
+    this.diamonds = 0,
   });
   final int index;
   final UserBrief? user;
@@ -310,6 +317,9 @@ class Seat {
   final bool videoMuted;
   final bool locked;
 
+  /// The seated person's diamond balance, kept current by `balances` seat events.
+  final int diamonds;
+
   factory Seat.fromJson(Json j) {
     final u = j.objOrNull('user');
     return Seat(
@@ -318,8 +328,22 @@ class Seat {
       muted: j.flag('muted'),
       videoMuted: j.flag('videoMuted'),
       locked: j.flag('locked'),
+      diamonds: j.integer('diamonds'),
     );
   }
+
+  /// The same seat with nobody on it (a guest who left LiveKit but is still on the seat
+  /// list until the server frees it).
+  Seat get vacant => Seat(index: index, muted: false, locked: locked);
+
+  Seat copyWith({UserBrief? user, int? diamonds}) => Seat(
+    index: index,
+    user: user ?? this.user,
+    muted: muted,
+    videoMuted: videoMuted,
+    locked: locked,
+    diamonds: diamonds ?? this.diamonds,
+  );
 }
 
 class RoomDetail {
@@ -1047,15 +1071,15 @@ class TopAgency {
   const TopAgency({
     required this.agency,
     required this.rank,
-    required this.periodBeans,
+    required this.periodDiamonds,
   });
   final AgencySummary agency;
   final int rank;
-  final int periodBeans;
+  final int periodDiamonds;
   factory TopAgency.fromJson(Json j) => TopAgency(
     agency: AgencySummary.fromJson(j),
     rank: j.integer('rank'),
-    periodBeans: j.integer('periodBeans'),
+    periodDiamonds: j.integer('periodDiamonds'),
   );
 }
 
@@ -1066,11 +1090,11 @@ class AgencyMember {
     this.locked = false,
     this.dailyTargetMinutes,
     this.joinedAt,
-    this.periodBeans = 0,
+    this.periodDiamonds = 0,
     this.periodLiveSeconds = 0,
-    this.lifetimeBeans = 0,
+    this.lifetimeDiamonds = 0,
     this.lifetimeLiveSeconds = 0,
-    this.todayBeans = 0,
+    this.todayDiamonds = 0,
     this.todayLiveSeconds = 0,
     this.isLive = false,
   });
@@ -1081,11 +1105,11 @@ class AgencyMember {
   final bool locked;
   final int? dailyTargetMinutes;
   final DateTime? joinedAt;
-  final int periodBeans;
+  final int periodDiamonds;
   final int periodLiveSeconds;
-  final int lifetimeBeans;
+  final int lifetimeDiamonds;
   final int lifetimeLiveSeconds;
-  final int todayBeans;
+  final int todayDiamonds;
   final int todayLiveSeconds;
   final bool isLive;
 
@@ -1104,11 +1128,11 @@ class AgencyMember {
     locked: j.flag('locked'),
     dailyTargetMinutes: (j['dailyTargetMinutes'] as num?)?.toInt(),
     joinedAt: j.date('joinedAt'),
-    periodBeans: j.integer('periodBeans'),
+    periodDiamonds: j.integer('periodDiamonds'),
     periodLiveSeconds: j.integer('periodLiveSeconds'),
-    lifetimeBeans: j.integer('lifetimeBeans'),
+    lifetimeDiamonds: j.integer('lifetimeDiamonds'),
     lifetimeLiveSeconds: j.integer('lifetimeLiveSeconds'),
-    todayBeans: j.integer('todayBeans'),
+    todayDiamonds: j.integer('todayDiamonds'),
     todayLiveSeconds: j.integer('todayLiveSeconds'),
     isLive: j.flag('isLive'),
   );
@@ -1164,21 +1188,21 @@ class AgencyDashboard {
 class AgencyDay {
   const AgencyDay({
     required this.dayKey,
-    this.beans = 0,
+    this.diamonds = 0,
     this.gifts = 0,
     this.commission = 0,
     this.liveSeconds = 0,
     this.activeHosts,
   });
   final String dayKey;
-  final int beans;
+  final int diamonds;
   final int gifts;
   final int commission;
   final int liveSeconds;
   final int? activeHosts;
   factory AgencyDay.fromJson(Json j) => AgencyDay(
     dayKey: j.str('dayKey'),
-    beans: j.integer('beans'),
+    diamonds: j.integer('diamonds'),
     gifts: j.integer('gifts'),
     commission: j.integer('commission'),
     liveSeconds: j.integer('liveSeconds'),
@@ -1221,7 +1245,7 @@ class AgencyGiftRow {
     required this.giftName,
     required this.quantity,
     required this.cost,
-    required this.beans,
+    required this.diamonds,
     this.createdAt,
   });
   final String id;
@@ -1229,7 +1253,7 @@ class AgencyGiftRow {
   final String giftName;
   final int quantity;
   final int cost;
-  final int beans;
+  final int diamonds;
   final DateTime? createdAt;
   factory AgencyGiftRow.fromJson(Json j) => AgencyGiftRow(
     id: j.str('id'),
@@ -1237,7 +1261,7 @@ class AgencyGiftRow {
     giftName: j.str('giftName'),
     quantity: j.integer('quantity', 1),
     cost: j.integer('cost'),
-    beans: j.integer('beans'),
+    diamonds: j.integer('diamonds'),
     createdAt: j.date('createdAt'),
   );
 }
@@ -1250,7 +1274,7 @@ class AgencySessionRow {
     this.startedAt,
     this.endedAt,
     required this.durationSec,
-    required this.giftBeans,
+    required this.giftDiamonds,
     required this.peakViewers,
   });
   final String id;
@@ -1259,7 +1283,7 @@ class AgencySessionRow {
   final DateTime? startedAt;
   final DateTime? endedAt;
   final int durationSec;
-  final int giftBeans;
+  final int giftDiamonds;
   final int peakViewers;
   factory AgencySessionRow.fromJson(Json j) => AgencySessionRow(
     id: j.str('id'),
@@ -1268,7 +1292,7 @@ class AgencySessionRow {
     startedAt: j.date('startedAt'),
     endedAt: j.date('endedAt'),
     durationSec: j.integer('durationSec'),
-    giftBeans: j.integer('giftBeans'),
+    giftDiamonds: j.integer('giftDiamonds'),
     peakViewers: j.integer('peakViewers'),
   );
 }
@@ -1281,7 +1305,8 @@ class AgencyLeaderboard {
   });
   final String periodKey;
   final List<String> periods;
-  final List<({int rank, UserBrief? user, int beans, int liveSeconds})> items;
+  final List<({int rank, UserBrief? user, int diamonds, int liveSeconds})>
+  items;
   factory AgencyLeaderboard.fromJson(Json j) => AgencyLeaderboard(
     periodKey: j.str('periodKey'),
     periods: j.strings('periods'),
@@ -1290,7 +1315,7 @@ class AgencyLeaderboard {
       (r) => (
         rank: r.integer('rank'),
         user: _briefOrNull(r, 'user'),
-        beans: r.integer('beans'),
+        diamonds: r.integer('diamonds'),
         liveSeconds: r.integer('liveSeconds'),
       ),
     ),

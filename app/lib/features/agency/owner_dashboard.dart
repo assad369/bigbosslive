@@ -89,8 +89,8 @@ class AgencyDashboardView extends ConsumerWidget {
               ),
               AgencyStat(
                 icon: Icons.calendar_month,
-                label: 'Beans this month',
-                value: '🫘 ${Fmt.compact(dash.total('periodBeans'))}',
+                label: 'Diamonds this month',
+                value: '💎 ${Fmt.compact(dash.total('periodDiamonds'))}',
               ),
               AgencyStat(
                 icon: Icons.timer,
@@ -99,8 +99,8 @@ class AgencyDashboardView extends ConsumerWidget {
               ),
               AgencyStat(
                 icon: Icons.today,
-                label: 'Beans today',
-                value: '🫘 ${Fmt.compact(dash.total('todayBeans'))}',
+                label: 'Diamonds today',
+                value: '💎 ${Fmt.compact(dash.total('todayDiamonds'))}',
               ),
               AgencyStat(
                 icon: Icons.av_timer,
@@ -110,12 +110,12 @@ class AgencyDashboardView extends ConsumerWidget {
               AgencyStat(
                 icon: Icons.payments,
                 label: 'Commission this month',
-                value: '🫘 ${Fmt.compact(dash.total('periodCommission'))}',
+                value: '💎 ${Fmt.compact(dash.total('periodCommission'))}',
               ),
               AgencyStat(
                 icon: Icons.savings,
                 label: 'Commission all time',
-                value: '🫘 ${Fmt.compact(dash.total('lifetimeCommission'))}',
+                value: '💎 ${Fmt.compact(dash.total('lifetimeCommission'))}',
               ),
             ],
           ),
@@ -436,8 +436,8 @@ class _HostRow extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'ID ${u.shortId} · Month 🫘 ${Fmt.compact(m.periodBeans)} · '
-            'Total 🫘 ${Fmt.compact(m.lifetimeBeans)}',
+            'ID ${u.shortId} · Month 💎 ${Fmt.compact(m.periodDiamonds)} · '
+            'Total 💎 ${Fmt.compact(m.lifetimeDiamonds)}',
             style: const TextStyle(color: BBColors.inkSubtle, fontSize: 12),
           ),
           if (progress != null) ...[
@@ -931,12 +931,12 @@ class _AgencyAnalyticsScreenState extends ConsumerState<AgencyAnalyticsScreen> {
                   AgencyStatGrid(
                     children: [
                       AgencyStat(
-                        label: 'Beans',
-                        value: '🫘 ${Fmt.compact(a.totals.beans)}',
+                        label: 'Diamonds',
+                        value: '💎 ${Fmt.compact(a.totals.diamonds)}',
                       ),
                       AgencyStat(
                         label: 'Commission',
-                        value: '🫘 ${Fmt.compact(a.totals.commission)}',
+                        value: '💎 ${Fmt.compact(a.totals.commission)}',
                       ),
                       AgencyStat(
                         label: 'Gifts',
@@ -950,14 +950,14 @@ class _AgencyAnalyticsScreenState extends ConsumerState<AgencyAnalyticsScreen> {
                   ),
                   const SizedBox(height: 18),
                   const Text(
-                    'Beans per day',
+                    'Diamonds per day',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 8),
-                  DailyBars(days: a.daily, value: (d) => d.beans),
+                  DailyBars(days: a.daily, value: (d) => d.diamonds),
                   const SizedBox(height: 18),
                   for (final d in a.daily.reversed)
-                    if (d.beans > 0 || d.liveSeconds > 0)
+                    if (d.diamonds > 0 || d.liveSeconds > 0)
                       ListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -972,7 +972,7 @@ class _AgencyAnalyticsScreenState extends ConsumerState<AgencyAnalyticsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              '🫘 ${Fmt.full(d.beans)}',
+                              '💎 ${Fmt.full(d.diamonds)}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w800,
                               ),
@@ -1053,7 +1053,7 @@ class _AgencyTopHostsScreenState extends ConsumerState<AgencyTopHostsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        '🫘 ${Fmt.compact(r.beans)}',
+                        '💎 ${Fmt.compact(r.diamonds)}',
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(width: 10),

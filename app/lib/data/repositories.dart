@@ -395,7 +395,7 @@ class EconomyRepository {
       _api.post('/store/equip', body: {'itemId': itemId, 'type': type});
 
   Future<Json> requestWithdrawal({
-    required int beans,
+    required int diamonds,
     required String method,
     required Map<String, String> account,
     String? idempotencyKey,
@@ -403,7 +403,7 @@ class EconomyRepository {
     '/withdrawals',
     idempotent: true,
     idempotencyKey: idempotencyKey,
-    body: {'beans': beans, 'method': method, 'account': account},
+    body: {'diamonds': diamonds, 'method': method, 'account': account},
   );
   Future<List<Json>> withdrawals() async =>
       (await _api.get('/withdrawals')).list('items', (j) => j);

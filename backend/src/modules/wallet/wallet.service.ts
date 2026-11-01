@@ -15,21 +15,17 @@ import {
   isDuplicateKeyError,
   notFound,
 } from '../../lib/errors.js';
+import { onCommit } from '../../lib/after-commit.js';
 import { afterCursor, encodeCursor } from '../../lib/http.js';
 import { startOfZonedDay, startOfZonedMonth } from '../../lib/time.js';
 
-const FIELD: Record<Currency, 'wallet.diamonds' | 'wallet.beans' | 'wallet.agentStock'> = {
+const FIELD: Record<Currency, 'wallet.diamonds' | 'wallet.agentStock'> = {
   diamonds: 'wallet.diamonds',
-  beans: 'wallet.beans',
   agent_stock: 'wallet.agentStock',
 };
 
 function balanceOf(user: Pick<UserDoc, 'wallet'>, currency: Currency): number {
-  return currency === 'diamonds'
-    ? user.wallet.diamonds
-    : currency === 'beans'
-      ? user.wallet.beans
-      : user.wallet.agentStock;
+  return currency === 'diamonds' ? user.wallet.diamonds : user.wallet.agentStock;
 }
 
 export interface Movement {
@@ -51,6 +47,34 @@ export interface Movement {
 export class WalletService {
   constructor(private readonly ctx: Ctx) {}
 
+  /** Users whose diamonds moved in each open transaction, published once it commits. */
+  private readonly touched = new WeakMap<ClientSession, Set<string>>();
+
+  /**
+   * After commit, people on a live stage show their new balance on their tile. Diamonds only:
+   * agent stock is not shown. Never fails the movement.
+   */
+  private track(session: ClientSession, m: Movement): void {
+    if (m.currency !== 'diamonds') return;
+    let uids = this.touched.get(session);
+    if (!uids) {
+      uids = new Set();
+      this.touched.set(session, uids);
+    }
+    uids.add(m.uid);
+    const all = uids;
+    onCommit(
+      session,
+      async () => {
+        this.touched.delete(session);
+        await this.ctx.services.live
+          .publishSeatBalances([...all])
+          .catch((err: unknown) => this.ctx.log.warn({ err }, 'seat balance broadcast failed'));
+      },
+      'wallet:seat-balances',
+    );
+  }
+
   async debit(session: ClientSession, m: Movement): Promise<number> {
     if (!Number.isSafeInteger(m.amount) || m.amount <= 0)
       throw badRequest('Amount must be a positive integer');
@@ -71,6 +95,7 @@ export class WalletService {
     }
     const balanceAfter = balanceOf(updated, m.currency);
     await this.writeLedger(session, m, -m.amount, balanceAfter);
+    this.track(session, m);
     return balanceAfter;
   }
 
@@ -85,7 +110,10 @@ export class WalletService {
     );
     if (!updated) throw notFound('User');
     const balanceAfter = balanceOf(updated, m.currency);
-    if (m.amount > 0) await this.writeLedger(session, m, m.amount, balanceAfter);
+    if (m.amount > 0) {
+      await this.writeLedger(session, m, m.amount, balanceAfter);
+      this.track(session, m);
+    }
     return balanceAfter;
   }
 

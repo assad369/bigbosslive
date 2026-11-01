@@ -53,7 +53,7 @@ void main() {
               AgencyStat(
                 icon: Icons.payments,
                 label: 'Commission all time',
-                value: '🫘 12.3M',
+                value: '💎 12.3M',
               ),
             ],
           ),

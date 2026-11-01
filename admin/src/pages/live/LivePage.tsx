@@ -129,9 +129,9 @@ export function LivePage() {
           },
           {
             title: 'Earned',
-            key: 'beans',
+            key: 'diamonds',
             align: 'right',
-            render: (_, r) => <Money value={r.giftBeans} unit="beans" />,
+            render: (_, r) => <Money value={r.giftDiamonds} unit="diamonds" />,
           },
           { title: 'Duration', key: 'dur', render: (_, r) => duration(r.durationSec) },
           {

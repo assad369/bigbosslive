@@ -108,7 +108,7 @@ export interface MeUser extends PublicUser {
   status: UserStatus;
   isAgent: boolean;
   adminRole: AdminRole | null;
-  wallet: { diamonds: number; beans: number; agentStock: number };
+  wallet: { diamonds: number; agentStock: number };
   levelProgress: LevelProgress;
   vipExpiresAt: IsoDate | null;
 }
@@ -134,7 +134,7 @@ export interface LiveRoom {
   >;
   viewerCount: number;
   peakViewers: number;
-  giftBeans: number;
+  giftDiamonds: number;
   pkBattleId: string | null;
   /** Locked rooms admit no new viewers, except with the password when one is set. */
   locked: boolean;
@@ -282,7 +282,7 @@ export interface Report {
 export interface Withdrawal {
   id: string;
   userId: string;
-  beans: number;
+  diamonds: number;
   amountUsd: number;
   method: string;
   status: WithdrawalStatus;
@@ -337,8 +337,8 @@ export interface AgencySummary {
 /** A row of the home-screen "Top agencies" slider. */
 export interface TopAgency extends AgencySummary {
   rank: number;
-  /** Beans the agency's hosts earned this month (agency timezone). */
-  periodBeans: number;
+  /** Diamonds the agency's hosts earned this month (agency timezone). */
+  periodDiamonds: number;
 }
 
 export interface AgencyMember {
@@ -347,11 +347,11 @@ export interface AgencyMember {
   locked: boolean;
   dailyTargetMinutes: number | null;
   joinedAt: IsoDate;
-  periodBeans: number;
+  periodDiamonds: number;
   periodLiveSeconds: number;
-  lifetimeBeans: number;
+  lifetimeDiamonds: number;
   lifetimeLiveSeconds: number;
-  todayBeans: number;
+  todayDiamonds: number;
   /** Includes the session in progress when the host is live right now. */
   todayLiveSeconds: number;
   isLive: boolean;
@@ -371,13 +371,13 @@ export interface AgencyDashboard {
   periodKey: string;
   totals: {
     members: number;
-    periodBeans: number;
+    periodDiamonds: number;
     periodLiveSeconds: number;
     periodCommission: number;
     periodGifts: number;
-    lifetimeBeans: number;
+    lifetimeDiamonds: number;
     lifetimeCommission: number;
-    todayBeans: number;
+    todayDiamonds: number;
     todayLiveSeconds: number;
     liveNow: number;
   };
@@ -387,7 +387,7 @@ export interface AgencyDashboard {
 
 export interface AgencyDay {
   dayKey: string;
-  beans: number;
+  diamonds: number;
   gifts: number;
   commission: number;
   liveSeconds: number;
@@ -397,7 +397,7 @@ export interface AgencyDay {
 
 export interface AgencyAnalytics {
   days: number;
-  totals: { beans: number; gifts: number; commission: number; liveSeconds: number };
+  totals: { diamonds: number; gifts: number; commission: number; liveSeconds: number };
   /** Oldest first, one entry per day (zero-filled). */
   daily: AgencyDay[];
 }
@@ -414,7 +414,8 @@ export interface AgencyGiftRow {
   quantity: number;
   /** Diamond value of the gift for this host. */
   cost: number;
-  beans: number;
+  /** What the host was credited: cost minus the platform and agency fees. */
+  diamonds: number;
   commission: number;
   createdAt: IsoDate;
 }
@@ -426,7 +427,7 @@ export interface AgencySessionRow {
   startedAt: IsoDate;
   endedAt: IsoDate | null;
   durationSec: number;
-  giftBeans: number;
+  giftDiamonds: number;
   peakViewers: number;
 }
 
@@ -434,7 +435,7 @@ export interface AgencyLeaderboard {
   periodKey: string;
   /** Months that can be selected, newest first (the current one included). */
   periods: string[];
-  items: { rank: number; user: UserBrief | null; beans: number; liveSeconds: number }[];
+  items: { rank: number; user: UserBrief | null; diamonds: number; liveSeconds: number }[];
 }
 
 export interface AgencyInvitation {

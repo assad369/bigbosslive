@@ -42,7 +42,7 @@ import { UserDecorations } from './UserDecorations';
 interface Detail {
   user: AdminUser & { bio: string };
   devices: { deviceId: string; platform: string | null; firstSeenAt: string; lastSeenAt: string }[];
-  agencyMember: { agencyId: string; periodBeans: number; periodLiveSeconds: number } | null;
+  agencyMember: { agencyId: string; periodDiamonds: number; periodLiveSeconds: number } | null;
   levelProgress: {
     level: number;
     points: number;
@@ -200,9 +200,6 @@ export function UserDetailPage() {
               <Descriptions.Item label="Diamonds">
                 <Money value={user.wallet.diamonds} unit="diamonds" />
               </Descriptions.Item>
-              <Descriptions.Item label="Beans">
-                <Money value={user.wallet.beans} unit="beans" />
-              </Descriptions.Item>
               <Descriptions.Item label="Agent stock">
                 <Money value={user.wallet.agentStock} unit="diamonds" />
               </Descriptions.Item>
@@ -243,7 +240,7 @@ export function UserDetailPage() {
                         </Descriptions.Item>
                         <Descriptions.Item label="Agency">
                           {agencyMember
-                            ? `${agencyMember.agencyId} · ${num(agencyMember.periodBeans)} beans this month`
+                            ? `${agencyMember.agencyId} · ${num(agencyMember.periodDiamonds)} diamonds this month`
                             : '—'}
                         </Descriptions.Item>
                         <Descriptions.Item label="Joined">
@@ -315,7 +312,6 @@ export function UserDetailPage() {
                             >
                               <Radio.Button value="all">All</Radio.Button>
                               <Radio.Button value="diamonds">Diamonds</Radio.Button>
-                              <Radio.Button value="beans">Beans</Radio.Button>
                               <Radio.Button value="agent_stock">Agent stock</Radio.Button>
                             </Radio.Group>
                             <Table<LedgerRow>
@@ -503,7 +499,6 @@ export function UserDetailPage() {
               <Select
                 options={[
                   { value: 'diamonds', label: 'Diamonds' },
-                  { value: 'beans', label: 'Beans' },
                   { value: 'agent_stock', label: 'Agent stock' },
                 ]}
               />

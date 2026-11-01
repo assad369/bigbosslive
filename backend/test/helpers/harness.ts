@@ -86,6 +86,8 @@ export class FakeLiveKit implements LiveKitGateway {
   deletedRooms: string[] = [];
   forwards: { src: string; identity: string; dest: string; active: boolean }[] = [];
   webhookEvent: unknown = null;
+  /** Who `listParticipants` reports per room; a room missing here throws (LiveKit outage). */
+  connected = new Map<string, Set<string>>();
 
   async createToken(req: TokenRequest) {
     this.tokens.push(req);
@@ -96,6 +98,11 @@ export class FakeLiveKit implements LiveKitGateway {
   }
   async removeParticipant(room: string, identity: string) {
     this.removed.push({ room, identity });
+  }
+  async listParticipants(room: string) {
+    const ids = this.connected.get(room);
+    if (!ids) throw new Error('livekit unavailable');
+    return [...ids];
   }
   async updateParticipant(
     room: string,
@@ -258,7 +265,7 @@ export async function createHarness(): Promise<Harness> {
       ban: null,
       adminRole: o.adminRole ?? null,
       isAgent: o.isAgent ?? false,
-      wallet: { diamonds: 0, beans: 0, agentStock: 0, ...o.wallet },
+      wallet: { diamonds: 0, agentStock: 0, ...o.wallet },
       stats: {
         followers: 0,
         following: 0,

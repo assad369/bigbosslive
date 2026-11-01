@@ -158,34 +158,16 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       style: const TextStyle(fontSize: 32, color: BBColors.ink),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      const Text(
-                        'Beans  ',
-                        style: TextStyle(color: BBColors.bronzeDeep),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: BBColors.ink,
                       ),
-                      Expanded(
-                        child: Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: DiamondAmount(
-                              me.wallet.beans,
-                              beans: true,
-                              style: const TextStyle(color: BBColors.ink),
-                            ),
-                          ),
-                        ),
-                      ),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: BBColors.ink,
-                        ),
-                        onPressed: () => context.push('/wallet/withdraw'),
-                        child: const Text('Withdraw →'),
-                      ),
-                    ],
+                      onPressed: () => context.push('/wallet/withdraw'),
+                      child: const Text('Withdraw →'),
+                    ),
                   ),
                 ],
               ),
@@ -347,18 +329,20 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
     appBar: AppBar(title: const Text('Transactions')),
     body: Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: SegmentedButton<String?>(
-            segments: const [
-              ButtonSegment(value: null, label: Text('All')),
-              ButtonSegment(value: 'diamonds', label: Text('Diamonds')),
-              ButtonSegment(value: 'beans', label: Text('Beans')),
-            ],
-            selected: {_currency},
-            onSelectionChanged: (s) => setState(() => _currency = s.first),
+        // Only agents have a second ledger (their resale stock) to filter by.
+        if (ref.watch(meProvider.select((m) => m.isAgent)))
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SegmentedButton<String?>(
+              segments: const [
+                ButtonSegment(value: null, label: Text('All')),
+                ButtonSegment(value: 'diamonds', label: Text('Diamonds')),
+                ButtonSegment(value: 'agent_stock', label: Text('Agent stock')),
+              ],
+              selected: {_currency},
+              onSelectionChanged: (s) => setState(() => _currency = s.first),
+            ),
           ),
-        ),
         Expanded(
           child: PagedList<LedgerEntry>(
             key: ValueKey(_currency),
@@ -373,7 +357,7 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
             itemBuilder: (_, e) => ListTile(
               leading: CircleAvatar(
                 backgroundColor: BBColors.champagne,
-                child: Text(e.currency == 'beans' ? '🫘' : '💎'),
+                child: Text(e.currency == 'agent_stock' ? '📦' : '💎'),
               ),
               title: Text(
                 e.label.isEmpty
@@ -416,7 +400,7 @@ class WithdrawScreen extends ConsumerStatefulWidget {
 }
 
 class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
-  final _beans = TextEditingController();
+  final _amount = TextEditingController();
   final _provider = TextEditingController(text: 'bKash');
   final _number = TextEditingController();
   final _name = TextEditingController();
@@ -438,7 +422,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
   @override
   void initState() {
     super.initState();
-    for (final c in [_beans, _provider, _number, _name]) {
+    for (final c in [_amount, _provider, _number, _name]) {
       c.addListener(_formChanged);
     }
   }
@@ -447,16 +431,16 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
 
   @override
   void dispose() {
-    for (final c in [_beans, _provider, _number, _name]) {
+    for (final c in [_amount, _provider, _number, _name]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  String? _validate(int beans, int available) {
-    if (beans <= 0) return 'Enter how many beans to withdraw';
-    if (beans > available) {
-      return 'You have ${Fmt.full(available)} beans available';
+  String? _validate(int diamonds, int available) {
+    if (diamonds <= 0) return 'Enter how many diamonds to withdraw';
+    if (diamonds > available) {
+      return 'You have ${Fmt.full(available)} diamonds available';
     }
     if (_provider.text.trim().isEmpty) {
       return _method == 'bank' ? 'Enter your bank name' : 'Enter the provider';
@@ -472,18 +456,18 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
 
   Future<void> _submit() async {
     if (_busy) return;
-    final beans = int.tryParse(_beans.text.trim()) ?? 0;
-    final available = ref.read(meProvider).wallet.beans;
-    final problem = _validate(beans, available);
+    final diamonds = int.tryParse(_amount.text.trim()) ?? 0;
+    final available = ref.read(meProvider).wallet.diamonds;
+    final problem = _validate(diamonds, available);
     if (problem != null) return showMessage(context, problem);
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Request withdrawal?'),
         content: Text(
-          '${Fmt.full(beans)} beans to ${_provider.text.trim()} '
+          '${Fmt.full(diamonds)} diamonds to ${_provider.text.trim()} '
           '${_number.text.trim()} (${_name.text.trim()}). '
-          'The beans are held until the request is reviewed.',
+          'The diamonds are held until the request is reviewed.',
         ),
         actions: [
           TextButton(
@@ -504,7 +488,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
       final res = await ref
           .read(economyRepo)
           .requestWithdrawal(
-            beans: beans,
+            diamonds: diamonds,
             method: _method,
             account: {
               'provider': _provider.text.trim(),
@@ -516,7 +500,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
       await ref.read(sessionProvider.notifier).refresh();
       if (!mounted) return;
       ref.invalidate(_withdrawalsProvider);
-      _beans.clear();
+      _amount.clear();
       _opKey = null;
       showMessage(
         context,
@@ -534,7 +518,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
     final me = ref.watch(meProvider);
     final history = ref.watch(_withdrawalsProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Withdraw beans')),
+      appBar: AppBar(title: const Text('Withdraw diamonds')),
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(_withdrawalsProvider);
@@ -547,18 +531,19 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
               child: ListTile(
                 title: const Text('Available'),
                 trailing: DiamondAmount(
-                  me.wallet.beans,
-                  beans: true,
+                  me.wallet.diamonds,
                   style: const TextStyle(fontSize: 18),
                 ),
               ),
             ),
             const SizedBox(height: 16),
             TextField(
-              controller: _beans,
+              controller: _amount,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'Beans to withdraw'),
+              decoration: const InputDecoration(
+                labelText: 'Diamonds to withdraw',
+              ),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -643,7 +628,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(
-                        '${Fmt.full(w.integer('beans'))} beans · ${Fmt.usd(w.dbl('amountUsd'))}',
+                        '${Fmt.full(w.integer('diamonds'))} diamonds · ${Fmt.usd(w.dbl('amountUsd'))}',
                       ),
                       subtitle: Text(Fmt.ago(w.date('createdAt'))),
                       trailing: Chip(label: Text(w.str('status'))),

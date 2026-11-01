@@ -70,8 +70,7 @@ await withDb(async (db) => {
       adminRole: null,
       isAgent: i % 6 === 0,
       wallet: {
-        diamonds: rand(50_000),
-        beans: rand(300_000),
+        diamonds: rand(350_000),
         agentStock: i % 6 === 0 ? 500_000 + rand(500_000) : 0,
       },
       stats: {
@@ -135,7 +134,7 @@ await withDb(async (db) => {
         livekitRoom: `bb_${host._id}_${startedAt.getTime()}_${i}`,
         viewerCount: live ? 20 + rand(900) : 0,
         peakViewers: 50 + rand(2000),
-        giftBeans: rand(80_000),
+        giftDiamonds: rand(80_000),
         giftCount: rand(400),
         moderatorIds: [],
         seats: [{ index: 0, userId: host._id, muted: false, videoMuted: false, locked: false }],
@@ -184,7 +183,7 @@ await withDb(async (db) => {
         {
           userId: receiver._id,
           cost,
-          beans: Math.floor(cost * 0.7),
+          diamonds: Math.floor(cost * 0.7),
           platformFee: Math.floor(cost * 0.3),
           agencyFee: 0,
           agencyId: null,
@@ -219,7 +218,7 @@ await withDb(async (db) => {
       .insertOne({
         _id: new ObjectId(),
         userId: u._id,
-        beans: 50_000 + rand(200_000),
+        diamonds: 50_000 + rand(200_000),
         amountUsd: 5 + rand(20),
         method: 'mobile_wallet',
         account: { provider: 'bKash', number: `017${10000000 + rand(89999999)}` },
@@ -253,8 +252,8 @@ await withDb(async (db) => {
       commissionRate: 0.05,
       status: 'active',
       memberCount: 4,
-      period: { key: period, beans: 0, liveSeconds: 0, commission: 0, gifts: 0 },
-      lifetime: { beans: 0, liveSeconds: 0, commission: 0, gifts: 0 },
+      period: { key: period, diamonds: 0, liveSeconds: 0, commission: 0, gifts: 0 },
+      lifetime: { diamonds: 0, liveSeconds: 0, commission: 0, gifts: 0 },
       createdAt: daysAgo(40),
       updatedAt: now,
     });
@@ -268,9 +267,9 @@ await withDb(async (db) => {
           locked: false,
           dailyTargetMinutes: null,
           periodKey: period,
-          periodBeans: rand(200_000),
+          periodDiamonds: rand(200_000),
           periodLiveSeconds: rand(200_000),
-          lifetimeBeans: 0,
+          lifetimeDiamonds: 0,
           lifetimeLiveSeconds: 0,
         })
         .catch(() => undefined);
@@ -278,15 +277,15 @@ await withDb(async (db) => {
     }
     // Keep lifetime and agency-wide counters consistent with the members' random months.
     await db.col.agencyMembers.updateMany({ agencyId }, [
-      { $set: { lifetimeBeans: '$periodBeans', lifetimeLiveSeconds: '$periodLiveSeconds' } },
+      { $set: { lifetimeDiamonds: '$periodDiamonds', lifetimeLiveSeconds: '$periodLiveSeconds' } },
     ]);
     const [sum] = await db.col.agencyMembers
-      .aggregate<{ beans: number; live: number }>([
+      .aggregate<{ diamonds: number; live: number }>([
         { $match: { agencyId } },
         {
           $group: {
             _id: null,
-            beans: { $sum: '$periodBeans' },
+            diamonds: { $sum: '$periodDiamonds' },
             live: { $sum: '$periodLiveSeconds' },
           },
         },
@@ -296,9 +295,9 @@ await withDb(async (db) => {
       { _id: agencyId },
       {
         $set: {
-          'period.beans': sum?.beans ?? 0,
+          'period.diamonds': sum?.diamonds ?? 0,
           'period.liveSeconds': sum?.live ?? 0,
-          'lifetime.beans': sum?.beans ?? 0,
+          'lifetime.diamonds': sum?.diamonds ?? 0,
           'lifetime.liveSeconds': sum?.live ?? 0,
         },
       },

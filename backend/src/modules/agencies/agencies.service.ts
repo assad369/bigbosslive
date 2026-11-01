@@ -62,13 +62,13 @@ const MAX_ANALYTICS_DAYS = 90;
 
 const zeroPeriod = (key: string): AgencyDoc['period'] => ({
   key,
-  beans: 0,
+  diamonds: 0,
   liveSeconds: 0,
   commission: 0,
   gifts: 0,
 });
 
-type Counter = 'beans' | 'liveSeconds' | 'commission' | 'gifts';
+type Counter = 'diamonds' | 'liveSeconds' | 'commission' | 'gifts';
 type Actor = { agency: AgencyDoc; role: 'owner' | 'admin'; uid: string };
 
 export function newAgencyCode(): string {
@@ -89,7 +89,7 @@ export function toAgencySummary(a: AgencyDoc): AgencySummary {
 
 /**
  * Host agencies. An agency owner earns a commission on every gift their hosts receive
- * (credited inside the gift transaction). Hosts' beans and live time are tracked per calendar
+ * (credited inside the gift transaction). Hosts' diamonds and live time are tracked per calendar
  * month and per day in the configured timezone, and the agency keeps its own month and
  * lifetime counters, moved in the same transaction as the member's. The monthly reset
  * archives each member's period into `agency_periods` exactly once.
@@ -169,7 +169,7 @@ export class AgenciesService {
         status: 'active',
         memberCount: 0,
         period: zeroPeriod(this.currentPeriodKey()),
-        lifetime: { beans: 0, liveSeconds: 0, commission: 0, gifts: 0 },
+        lifetime: { diamonds: 0, liveSeconds: 0, commission: 0, gifts: 0 },
         createdAt: now,
         updatedAt: now,
       };
@@ -259,7 +259,7 @@ export class AgenciesService {
   }
 
   /**
-   * Active agencies ranked by this month's host beans, then size, then age. New agencies
+   * Active agencies ranked by this month's host diamonds, then size, then age. New agencies
    * appear straight away with zero. Kept in memory briefly: it backs the home screen.
    */
   private async rankedAgencies(): Promise<AgencyDoc[]> {
@@ -272,11 +272,11 @@ export class AgenciesService {
         { $match: { status: 'active' } },
         {
           $addFields: {
-            _rankBeans: { $cond: [{ $eq: ['$period.key', key] }, '$period.beans', 0] },
+            _rankDiamonds: { $cond: [{ $eq: ['$period.key', key] }, '$period.diamonds', 0] },
           },
         },
-        { $sort: { _rankBeans: -1, memberCount: -1, createdAt: 1, _id: 1 } },
-        { $project: { _rankBeans: 0 } },
+        { $sort: { _rankDiamonds: -1, memberCount: -1, createdAt: 1, _id: 1 } },
+        { $project: { _rankDiamonds: 0 } },
       ])
       .toArray();
     this.ranking = { at: now, key, rows };
@@ -288,7 +288,7 @@ export class AgenciesService {
     return rows.slice(0, limit).map((a, i) => ({
       ...toAgencySummary(a),
       rank: i + 1,
-      periodBeans: this.period(a).beans,
+      periodDiamonds: this.period(a).diamonds,
     }));
   }
 
@@ -324,9 +324,9 @@ export class AgenciesService {
         dailyTargetMinutes: null,
         joinedAt: now,
         periodKey: this.currentPeriodKey(),
-        periodBeans: 0,
+        periodDiamonds: 0,
         periodLiveSeconds: 0,
-        lifetimeBeans: 0,
+        lifetimeDiamonds: 0,
         lifetimeLiveSeconds: 0,
       },
       { session },
@@ -734,7 +734,7 @@ export class AgenciesService {
   async members(agencyId: ObjectId): Promise<AgencyMember[]> {
     const rows = await this.ctx.col.agencyMembers
       .find({ agencyId })
-      .sort({ periodBeans: -1 })
+      .sort({ periodDiamonds: -1 })
       .limit(1000)
       .toArray();
     const uids = rows.map((r) => r.userId);
@@ -772,18 +772,21 @@ export class AgenciesService {
             dailyTargetMinutes: r.dailyTargetMinutes ?? null,
             joinedAt: r.joinedAt.toISOString(),
             // A member whose period has not been rolled yet has earned nothing this month.
-            periodBeans: fresh ? r.periodBeans : 0,
+            periodDiamonds: fresh ? r.periodDiamonds : 0,
             periodLiveSeconds: fresh ? r.periodLiveSeconds : 0,
-            lifetimeBeans: r.lifetimeBeans ?? 0,
+            lifetimeDiamonds: r.lifetimeDiamonds ?? 0,
             lifetimeLiveSeconds: r.lifetimeLiveSeconds ?? 0,
-            todayBeans: todayBy.get(r.userId)?.beans ?? 0,
+            todayDiamonds: todayBy.get(r.userId)?.diamonds ?? 0,
             todayLiveSeconds:
               (todayBy.get(r.userId)?.liveSeconds ?? 0) + (liveSecondsBy.get(r.userId) ?? 0),
             isLive: liveSecondsBy.has(r.userId),
           } satisfies AgencyMember,
         };
       })
-      .sort((a, b) => roleOrder(a.doc) - roleOrder(b.doc) || b.out.periodBeans - a.out.periodBeans)
+      .sort(
+        (a, b) =>
+          roleOrder(a.doc) - roleOrder(b.doc) || b.out.periodDiamonds - a.out.periodDiamonds,
+      )
       .map((x) => x.out);
   }
 
@@ -794,10 +797,14 @@ export class AgenciesService {
     const now = this.ctx.clock.now();
     const [todayAgg, liveNow, pendingRequests, pendingInvitations, rank] = await Promise.all([
       this.ctx.col.agencyDailyStats
-        .aggregate<{ beans: number; liveSeconds: number }>([
+        .aggregate<{ diamonds: number; liveSeconds: number }>([
           { $match: { agencyId: agency._id, dayKey: this.todayKey() } },
           {
-            $group: { _id: null, beans: { $sum: '$beans' }, liveSeconds: { $sum: '$liveSeconds' } },
+            $group: {
+              _id: null,
+              diamonds: { $sum: '$diamonds' },
+              liveSeconds: { $sum: '$liveSeconds' },
+            },
           },
         ])
         .toArray(),
@@ -826,13 +833,13 @@ export class AgenciesService {
       periodKey: period.key,
       totals: {
         members: agency.memberCount,
-        periodBeans: period.beans,
+        periodDiamonds: period.diamonds,
         periodLiveSeconds: period.liveSeconds,
         periodCommission: period.commission,
         periodGifts: period.gifts,
-        lifetimeBeans: agency.lifetime?.beans ?? 0,
+        lifetimeDiamonds: agency.lifetime?.diamonds ?? 0,
         lifetimeCommission: agency.lifetime?.commission ?? 0,
-        todayBeans: todayAgg[0]?.beans ?? 0,
+        todayDiamonds: todayAgg[0]?.diamonds ?? 0,
         todayLiveSeconds: todayAgg[0]?.liveSeconds ?? 0,
         liveNow,
       },
@@ -868,13 +875,13 @@ export class AgenciesService {
         {
           $group: {
             _id: '$dayKey',
-            beans: { $sum: '$beans' },
+            diamonds: { $sum: '$diamonds' },
             gifts: { $sum: '$gifts' },
             commission: { $sum: '$commission' },
             liveSeconds: { $sum: '$liveSeconds' },
             activeHosts: {
               $sum: {
-                $cond: [{ $or: [{ $gt: ['$beans', 0] }, { $gt: ['$liveSeconds', 0] }] }, 1, 0],
+                $cond: [{ $or: [{ $gt: ['$diamonds', 0] }, { $gt: ['$liveSeconds', 0] }] }, 1, 0],
               },
             },
           },
@@ -886,7 +893,7 @@ export class AgenciesService {
       const r = byDay.get(k);
       const day: AgencyDay = {
         dayKey: k,
-        beans: r?.beans ?? 0,
+        diamonds: r?.diamonds ?? 0,
         gifts: r?.gifts ?? 0,
         commission: r?.commission ?? 0,
         liveSeconds: r?.liveSeconds ?? 0,
@@ -896,12 +903,12 @@ export class AgenciesService {
     });
     const totals = daily.reduce(
       (t, d) => ({
-        beans: t.beans + d.beans,
+        diamonds: t.diamonds + d.diamonds,
         gifts: t.gifts + d.gifts,
         commission: t.commission + d.commission,
         liveSeconds: t.liveSeconds + d.liveSeconds,
       }),
-      { beans: 0, gifts: 0, commission: 0, liveSeconds: 0 },
+      { diamonds: 0, gifts: 0, commission: 0, liveSeconds: 0 },
     );
     return { days: n, totals, daily };
   }
@@ -955,7 +962,7 @@ export class AgenciesService {
           giftName: t.giftName,
           quantity: t.quantity,
           cost: r.cost,
-          beans: r.beans,
+          diamonds: r.diamonds,
           commission: r.agencyFee,
           createdAt: t.createdAt.toISOString(),
         };
@@ -995,7 +1002,7 @@ export class AgenciesService {
           0,
           Math.round(((r.endedAt ?? now).getTime() - r.startedAt.getTime()) / 1000),
         ),
-        giftBeans: r.giftBeans,
+        giftDiamonds: r.giftDiamonds,
         peakViewers: r.peakViewers,
       })),
       nextCursor:
@@ -1017,19 +1024,23 @@ export class AgenciesService {
         .sort()
         .reverse(),
     ].slice(0, 12);
-    let rows: { userId: string; beans: number; liveSeconds: number }[];
+    let rows: { userId: string; diamonds: number; liveSeconds: number }[];
     if (key === current) {
       rows = (
         await this.ctx.col.agencyMembers
           .find({ agencyId: agency._id, periodKey: current })
-          .sort({ periodBeans: -1 })
+          .sort({ periodDiamonds: -1 })
           .limit(100)
           .toArray()
-      ).map((m) => ({ userId: m.userId, beans: m.periodBeans, liveSeconds: m.periodLiveSeconds }));
+      ).map((m) => ({
+        userId: m.userId,
+        diamonds: m.periodDiamonds,
+        liveSeconds: m.periodLiveSeconds,
+      }));
     } else {
       rows = await this.ctx.col.agencyPeriods
         .find({ agencyId: agency._id, periodKey: key })
-        .sort({ beans: -1 })
+        .sort({ diamonds: -1 })
         .limit(100)
         .toArray();
     }
@@ -1040,7 +1051,7 @@ export class AgenciesService {
       items: rows.map((r, i) => ({
         rank: i + 1,
         user: briefs.get(r.userId) ?? null,
-        beans: r.beans,
+        diamonds: r.diamonds,
         liveSeconds: r.liveSeconds,
       })),
     };
@@ -1082,7 +1093,7 @@ export class AgenciesService {
   async history(agencyId: ObjectId, periodKey?: string) {
     return this.ctx.col.agencyPeriods
       .find({ agencyId, ...(periodKey ? { periodKey } : {}) })
-      .sort({ periodKey: -1, beans: -1 })
+      .sort({ periodKey: -1, diamonds: -1 })
       .limit(1000)
       .toArray();
   }
@@ -1117,7 +1128,7 @@ export class AgenciesService {
     e: {
       agencyId: ObjectId;
       userId: string;
-      beans: number;
+      diamonds: number;
       commission: number;
       gifts: number;
       periodKey: string;
@@ -1125,16 +1136,16 @@ export class AgenciesService {
     },
   ): Promise<void> {
     await this.bumpMember(session, e.agencyId, e.userId, e.periodKey, {
-      periodBeans: e.beans,
-      lifetimeBeans: e.beans,
+      periodDiamonds: e.diamonds,
+      lifetimeDiamonds: e.diamonds,
     });
     await this.bumpDay(session, e.agencyId, e.userId, dayKey(e.at, this.tz), {
-      beans: e.beans,
+      diamonds: e.diamonds,
       gifts: e.gifts,
       commission: e.commission,
     });
     await this.bumpAgency(session, e.agencyId, e.periodKey, {
-      beans: e.beans,
+      diamonds: e.diamonds,
       gifts: e.gifts,
       commission: e.commission,
     });
@@ -1167,7 +1178,7 @@ export class AgenciesService {
       { agencyId, userId, dayKey: day },
       {
         $inc: {
-          beans: inc.beans ?? 0,
+          diamonds: inc.diamonds ?? 0,
           gifts: inc.gifts ?? 0,
           commission: inc.commission ?? 0,
           liveSeconds: inc.liveSeconds ?? 0,
@@ -1220,7 +1231,10 @@ export class AgenciesService {
     userId: string,
     periodKey: string,
     inc: Partial<
-      Record<'periodBeans' | 'periodLiveSeconds' | 'lifetimeBeans' | 'lifetimeLiveSeconds', number>
+      Record<
+        'periodDiamonds' | 'periodLiveSeconds' | 'lifetimeDiamonds' | 'lifetimeLiveSeconds',
+        number
+      >
     >,
   ): Promise<void> {
     const res = await this.ctx.col.agencyMembers.updateOne(
@@ -1254,7 +1268,7 @@ export class AgenciesService {
           agencyId: member.agencyId,
           periodKey: member.periodKey,
           userId: member.userId,
-          beans: member.periodBeans,
+          diamonds: member.periodDiamonds,
           liveSeconds: member.periodLiveSeconds,
           closedAt: this.ctx.clock.now(),
         },
@@ -1263,7 +1277,7 @@ export class AgenciesService {
     );
     await this.ctx.col.agencyMembers.updateOne(
       { _id: member._id, periodKey: member.periodKey },
-      { $set: { periodKey: newPeriodKey, periodBeans: 0, periodLiveSeconds: 0 } },
+      { $set: { periodKey: newPeriodKey, periodDiamonds: 0, periodLiveSeconds: 0 } },
       { session },
     );
   }

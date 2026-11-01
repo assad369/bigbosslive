@@ -109,7 +109,7 @@ export class GiftsService {
    * Send a gift to one or more receivers, atomically and idempotently.
    *
    * One transaction: record the gift (unique idempotency key) → debit the sender → for each
-   * receiver credit beans after platform + agency commission, bump `totalReceived`, recalc
+   * receiver credit diamonds after platform + agency commission, bump `totalReceived`, recalc
    * level, and credit the agency owner's commission. A retry with the same key returns the
    * original result without charging again. Level moves for receivers only.
    */
@@ -180,7 +180,7 @@ export class GiftsService {
         return {
           userId: r._id,
           cost: perReceiverCost,
-          beans: perReceiverCost - platformFee - agencyFee,
+          diamonds: perReceiverCost - platformFee - agencyFee,
           platformFee,
           agencyFee,
           agencyId: agency ? agency._id : null,
@@ -209,8 +209,8 @@ export class GiftsService {
         for (const r of doc.receivers) {
           await this.ctx.services.wallet.credit(session, {
             uid: r.userId,
-            currency: 'beans',
-            amount: r.beans,
+            currency: 'diamonds',
+            amount: r.diamonds,
             reason: 'gift_received',
             refId,
             meta: { from: senderId, gift: gift.name, quantity: input.quantity },
@@ -222,7 +222,7 @@ export class GiftsService {
             if (r.agencyFee > 0) {
               await this.ctx.services.wallet.credit(session, {
                 uid: agency.ownerId,
-                currency: 'beans',
+                currency: 'diamonds',
                 amount: r.agencyFee,
                 reason: 'agency_commission',
                 refId,
@@ -232,7 +232,7 @@ export class GiftsService {
             await this.ctx.services.agencies.recordEarnings(session, {
               agencyId: r.agencyId,
               userId: r.userId,
-              beans: r.beans,
+              diamonds: r.diamonds,
               commission: r.agencyFee,
               gifts: input.quantity,
               periodKey,
@@ -242,7 +242,7 @@ export class GiftsService {
           if (room && room.hostId === r.userId) {
             await this.ctx.col.liveRooms.updateOne(
               { _id: room._id },
-              { $inc: { giftBeans: r.beans, giftCount: input.quantity } },
+              { $inc: { giftDiamonds: r.diamonds, giftCount: input.quantity } },
               { session },
             );
           }
@@ -288,9 +288,10 @@ export class GiftsService {
       }
     }
     if (room) {
-      const briefs = await this.ctx.services.users.briefs([
-        tx.senderId,
-        ...tx.receivers.map((r) => r.userId),
+      const [briefs, after] = await Promise.all([
+        this.ctx.services.users.briefs([tx.senderId, ...tx.receivers.map((r) => r.userId)]),
+        // The committed total, so clients set (not add to) the "diamonds this live" counter.
+        this.ctx.col.liveRooms.findOne({ _id: room._id }, { projection: { giftDiamonds: 1 } }),
       ]);
       await this.ctx.livekit
         .sendData(room.livekitRoom, LIVEKIT_TOPICS.gift, {
@@ -300,6 +301,7 @@ export class GiftsService {
           gift: toGift(gift),
           quantity: tx.quantity,
           totalCost: tx.totalCost,
+          roomGiftDiamonds: after?.giftDiamonds ?? null,
         })
         .catch((err: unknown) => this.ctx.log.warn({ err }, 'gift broadcast failed'));
     }

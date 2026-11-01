@@ -109,7 +109,7 @@ export class UsersService {
         ban: null,
         adminRole: token.adminRole,
         isAgent: false,
-        wallet: { diamonds: 0, beans: 0, agentStock: 0 },
+        wallet: { diamonds: 0, agentStock: 0 },
         stats: {
           followers: 0,
           following: 0,

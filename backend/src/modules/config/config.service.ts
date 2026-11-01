@@ -10,14 +10,18 @@ import { badRequest } from '../../lib/errors.js';
  */
 export const CONFIG_SCHEMAS = {
   economy: z.object({
-    /** Share of each gift's diamond value the platform keeps. Receiver gets the rest as beans. */
+    /** Share of each gift's diamond value the platform keeps. Receiver gets the rest as diamonds. */
     platformFeeRate: z.number().min(0).max(0.9).default(0.3),
     /** Upper bound applied to any agency's commission rate. */
     maxAgencyRate: z.number().min(0).max(0.5).default(0.1),
     /** Level points per diamond of gifts received (recharges always count 1:1). */
     receivedLevelWeight: z.number().min(0).max(10).default(1),
-    beansPerUsd: z.number().int().positive().default(10_000),
-    minWithdrawBeans: z.number().int().positive().default(50_000),
+    /**
+     * Withdrawal rate. Any diamond can be withdrawn, bought ones included, so this must keep a
+     * withdrawn diamond worth less than a recharged one, or recharge-then-withdraw pays out.
+     */
+    diamondsPerUsd: z.number().int().positive().default(10_000),
+    minWithdrawDiamonds: z.number().int().positive().default(50_000),
     maxGiftQuantity: z.number().int().min(1).max(9999).default(999),
   }),
   features: z.object({

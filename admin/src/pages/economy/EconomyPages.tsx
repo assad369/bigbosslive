@@ -148,7 +148,7 @@ interface GiftTxRow {
   receivers: {
     userId: string;
     cost: number;
-    beans: number;
+    diamonds: number;
     platformFee: number;
     agencyFee: number;
   }[];
@@ -208,7 +208,7 @@ export function GiftTransactionsPage() {
                   render: (u: string) => <Link to={`/users/${u}`}>{u}</Link>,
                 },
                 { title: 'Value', dataIndex: 'cost', render: num },
-                { title: 'Beans to host', dataIndex: 'beans', render: num },
+                { title: 'Diamonds to host', dataIndex: 'diamonds', render: num },
                 { title: 'Platform fee', dataIndex: 'platformFee', render: num },
                 { title: 'Agency fee', dataIndex: 'agencyFee', render: num },
               ]}
@@ -248,7 +248,7 @@ interface WithdrawalRow {
   _id: string;
   user: Brief | null;
   userId: string;
-  beans: number;
+  diamonds: number;
   amountUsd: number;
   method: string;
   account: Record<string, string>;
@@ -271,7 +271,7 @@ export function WithdrawalsPage() {
     <>
       <PageHeader
         title="Withdrawals"
-        subtitle="Beans are held when a request is made and returned if it is rejected"
+        subtitle="Diamonds are held when a request is made and returned if it is rejected"
         extra={
           <Button
             icon={<DownloadOutlined />}
@@ -282,7 +282,7 @@ export function WithdrawalsPage() {
                 rows.map((r) => ({
                   id: r._id,
                   user: r.user?.shortId ?? r.userId,
-                  beans: r.beans,
+                  diamonds: r.diamonds,
                   usd: r.amountUsd,
                   method: r.method,
                   ...r.account,
@@ -316,10 +316,10 @@ export function WithdrawalsPage() {
         }
         onData={setRows}
         footer={(d) => {
-          const pending = d?.pending as { beans: number; usd: number } | undefined;
+          const pending = d?.pending as { diamonds: number; usd: number } | undefined;
           return pending ? (
             <Typography.Text>
-              Pending queue: <b>{num(pending.beans)}</b> beans · <b>{money(pending.usd)}</b>
+              Pending queue: <b>{num(pending.diamonds)}</b> diamonds · <b>{money(pending.usd)}</b>
             </Typography.Text>
           ) : null;
         }}
@@ -331,10 +331,10 @@ export function WithdrawalsPage() {
             render: (_, w) => <UserCell user={w.user} fallbackId={w.userId} />,
           },
           {
-            title: 'Beans',
-            dataIndex: 'beans',
+            title: 'Diamonds',
+            dataIndex: 'diamonds',
             align: 'right',
-            render: (b: number) => <Money value={b} unit="beans" />,
+            render: (b: number) => <Money value={b} unit="diamonds" />,
           },
           {
             title: 'Payout',
@@ -408,7 +408,7 @@ export function WithdrawalsPage() {
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message={`${num(rejecting?.beans)} beans will be returned to the user.`}
+              message={`${num(rejecting?.diamonds)} diamonds will be returned to the user.`}
             />
             <Form.Item name="note" label="Reason (sent to the user)" rules={[{ required: true }]}>
               <Input.TextArea rows={3} maxLength={300} />
@@ -432,8 +432,8 @@ interface AgencyRow {
   commissionRate: number;
   status: string;
   memberCount: number;
-  period?: { key: string; beans: number; liveSeconds: number; commission: number };
-  lifetime?: { beans: number; commission: number };
+  period?: { key: string; diamonds: number; liveSeconds: number; commission: number };
+  lifetime?: { diamonds: number; commission: number };
   createdAt: string;
 }
 
@@ -540,9 +540,9 @@ interface AgencyMemberRow {
   locked: boolean;
   dailyTargetMinutes: number | null;
   joinedAt: string;
-  periodBeans: number;
+  periodDiamonds: number;
   periodLiveSeconds: number;
-  lifetimeBeans: number;
+  lifetimeDiamonds: number;
   todayLiveSeconds: number;
   isLive: boolean;
 }
@@ -553,7 +553,7 @@ interface AgencyDetail {
   rank: number | null;
   currentPeriod: string;
   members: AgencyMemberRow[];
-  history: { userId: string; periodKey: string; beans: number; liveSeconds: number }[];
+  history: { userId: string; periodKey: string; diamonds: number; liveSeconds: number }[];
 }
 
 interface AgencyAuditRow {
@@ -646,7 +646,7 @@ export function AgencyDetailPage() {
           <StatCard gold title="Hosts" value={agency.memberCount} />
         </Col>
         <Col xs={12} md={6}>
-          <StatCard title="Beans this month" value={num(fresh ? agency.period!.beans : 0)} />
+          <StatCard title="Diamonds this month" value={num(fresh ? agency.period!.diamonds : 0)} />
         </Col>
         <Col xs={12} md={6}>
           <StatCard
@@ -681,10 +681,10 @@ export function AgencyDetailPage() {
               ),
             },
             {
-              title: 'Beans',
-              dataIndex: 'periodBeans',
+              title: 'Diamonds',
+              dataIndex: 'periodDiamonds',
               align: 'right',
-              render: (b: number) => <Money value={b} unit="beans" />,
+              render: (b: number) => <Money value={b} unit="diamonds" />,
             },
             { title: 'Live time', dataIndex: 'periodLiveSeconds', render: duration },
             {
@@ -738,7 +738,7 @@ export function AgencyDetailPage() {
               dataIndex: 'userId',
               render: (u: string) => <Link to={`/users/${u}`}>{u}</Link>,
             },
-            { title: 'Beans', dataIndex: 'beans', render: num },
+            { title: 'Diamonds', dataIndex: 'diamonds', render: num },
             { title: 'Live time', dataIndex: 'liveSeconds', render: duration },
           ]}
         />

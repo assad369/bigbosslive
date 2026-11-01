@@ -6,6 +6,7 @@ import {
   type Document,
   type TransactionOptions,
 } from 'mongodb';
+import { beginAttempt, discard, flush } from '../lib/after-commit.js';
 import type * as S from './schema.js';
 
 export interface Collections {
@@ -144,12 +145,22 @@ export function wrapDb(client: MongoClient, dbName: string): Database {
       const session = client.startSession();
       try {
         let result: Awaited<ReturnType<typeof fn>> | undefined;
-        await session.withTransaction(
-          async (s) => {
-            result = await fn(s);
-          },
-          { ...TXN_DEFAULTS, ...opts },
-        );
+        try {
+          await session.withTransaction(
+            async (s) => {
+              // A retried attempt starts over: drop what the failed one queued.
+              beginAttempt(s);
+              result = await fn(s);
+            },
+            { ...TXN_DEFAULTS, ...opts },
+          );
+        } catch (err) {
+          discard(session);
+          throw err;
+        }
+        // Committed: run the after-commit side effects (`lib/after-commit.ts`). They report
+        // their own errors; this is the last resort and never fails the committed write.
+        await flush(session, (err) => console.error('after-commit callback failed', err));
         return result as Awaited<ReturnType<typeof fn>>;
       } finally {
         await session.endSession();
