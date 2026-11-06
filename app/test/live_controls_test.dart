@@ -72,6 +72,7 @@ Widget _rail(LiveRoomController c) => _wrap(
     onRequests: () {},
     onShare: (_) {},
     onGames: () {},
+    onFilters: () {},
     onMore: () {},
   ),
 );
@@ -124,6 +125,8 @@ void main() {
     await tester.tap(find.byTooltip('Flip camera'));
     await tester.pump();
     expect(find.text('Turn your camera on to flip it'), findsOneWidget);
+    // Beauty & filters can be set with the camera off; it applies when it comes on.
+    expect(find.byTooltip('Beauty & filters'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Hide chat'));
     expect(c.chatVisible, isFalse);
@@ -146,6 +149,7 @@ void main() {
     expect(find.byTooltip('Share'), findsOneWidget);
     expect(find.byTooltip('Mute'), findsNothing);
     expect(find.byTooltip('Flip camera'), findsNothing);
+    expect(find.byTooltip('Beauty & filters'), findsNothing);
     expect(find.byTooltip('Lock live'), findsNothing);
   });
 

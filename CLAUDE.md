@@ -220,6 +220,14 @@ cd app && flutter analyze && flutter test && dart format lib test
   with an Android patch: an exception in a native `PeerConnection.Observer` callback aborts
   the process. Bump it together with `livekit_client`, re-apply the patch, and read its
   `PATCHES.md` first.
+- Camera filters (Whitening & Beautify, the default, plus colour looks) run natively on the
+  capture track in the local plugin `app/plugins/bb_camera_filter` (Android GL, iOS Core
+  Image), so preview, viewers and PK forwarding all get the same picture. The catalogue is
+  `lib/features/live/camera_filters.dart`, and choices persist via `CameraFilterPrefs`.
+  Capture restarts make a new native track (publish, camera back on, flip, rejoin): re-apply
+  after each, and `CameraFilterChannel.clear` before the camera stops. On Android,
+  `LocalVideoTrack` releases frames a processor returns, so a processor must never release
+  its own output.
 - Define providers at top level. A provider created inside `build()` is a new provider every
   frame.
 - `flutter analyze` must be clean and `dart format` stable. Both are enforced in CI.

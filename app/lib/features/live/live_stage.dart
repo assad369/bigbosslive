@@ -237,8 +237,8 @@ class ParticipantGrid extends StatelessWidget {
 }
 
 /// One person on stage: their video (or avatar when the camera is off), a speaking ring,
-/// their diamond balance, mute/camera-off markers and a name plate with avatar, room role,
-/// level and VIP tier. Balance and level follow the room's `balances` events.
+/// mute/camera-off markers and a [StageNamePlate] (avatar, level, name and diamond
+/// balance). Balance and level follow the room's `balances` events.
 class StageTile extends StatelessWidget {
   const StageTile({
     super.key,
@@ -301,11 +301,6 @@ class StageTile extends StatelessWidget {
           children: [
             media,
             Positioned(
-              left: 4,
-              top: 4,
-              child: DiamondChip(seat.diamonds, compact: compact),
-            ),
-            Positioned(
               right: 4,
               top: 4,
               child: Row(
@@ -321,12 +316,11 @@ class StageTile extends StatelessWidget {
               left: 4,
               right: 4,
               bottom: 4,
-              child: _NamePlate(
+              child: StageNamePlate(
                 user: user,
-                role: role,
+                diamonds: seat.diamonds,
+                isHost: role == RoomRole.host,
                 compact: compact,
-                // The camera-off fallback already shows a large avatar.
-                showAvatar: track != null,
               ),
             ),
           ],
@@ -355,72 +349,74 @@ class _AvatarFallback extends StatelessWidget {
   );
 }
 
-class _NamePlate extends StatelessWidget {
-  const _NamePlate({
+/// The plate along the bottom of a stage tile: the person's avatar on the left, beside
+/// two lines: level and name, then their diamond balance.
+///
+/// Public so it can be tested without a [LiveRoomController].
+class StageNamePlate extends StatelessWidget {
+  const StageNamePlate({
+    super.key,
     required this.user,
-    required this.role,
+    required this.diamonds,
+    required this.isHost,
     required this.compact,
-    required this.showAvatar,
   });
   final UserBrief user;
-  final RoomRole role;
+  final int diamonds;
+
+  /// Gives the avatar a gold ring, so the host stands out without a role badge.
+  final bool isHost;
   final bool compact;
-  final bool showAvatar;
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+    padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 3, vertical: 2),
     decoration: BoxDecoration(
       color: BBColors.scrim,
       borderRadius: BorderRadius.circular(6),
     ),
     child: Row(
       children: [
-        if (showAvatar) ...[
-          // Frames are left off at this size: they would cover the name.
-          ClipOval(
-            child: SizedBox.square(
-              dimension: compact ? 14 : 18,
-              child: user.avatarUrl == null
-                  ? const ColoredBox(
-                      color: BBColors.espressoGlow,
-                      child: Icon(
-                        Icons.person_rounded,
-                        size: 12,
-                        color: BBColors.champagne,
-                      ),
-                    )
-                  : CachedNetworkImage(
-                      imageUrl: user.avatarUrl!,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, _, _) =>
-                          const ColoredBox(color: BBColors.espressoGlow),
-                    ),
-            ),
-          ),
-          const SizedBox(width: 3),
-        ],
-        if (!compact) ...[
-          RoleBadge(role, dense: true),
-          if (role == RoomRole.host || role == RoomRole.admin)
-            const SizedBox(width: 3),
-        ],
-        LevelBadge(user.level, dense: true),
-        const SizedBox(width: 3),
-        if (!compact && user.vipTier > 0) ...[
-          VipTag(user.vipTier),
-          const SizedBox(width: 3),
-        ],
+        // Frames are left off at this size: they would cover the name.
+        BBAvatar(
+          url: user.avatarUrl,
+          name: user.displayName,
+          vipTier: user.vipTier,
+          ring: isHost,
+          size: compact ? 20 : 28,
+        ),
+        SizedBox(width: compact ? 3 : 4),
         Expanded(
-          child: Text(
-            user.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: BBColors.ivory,
-              fontSize: compact ? 9 : 11,
-              fontWeight: FontWeight.w600,
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // One paragraph, so a narrow tile ellipsizes the line instead of
+              // overflowing it.
+              Text.rich(
+                TextSpan(
+                  children: [
+                    WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 3),
+                        child: LevelBadge(user.level, dense: true),
+                      ),
+                    ),
+                    TextSpan(text: user.displayName),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: BBColors.ivory,
+                  fontSize: compact ? 9 : 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 1),
+              DiamondChip(diamonds, compact: compact, plain: true),
+            ],
           ),
         ),
       ],
@@ -428,30 +424,31 @@ class _NamePlate extends StatelessWidget {
   );
 }
 
-/// "💎 12.3K" over a stage tile or under an audio seat.
+/// "💎 12.3K" under a stage tile's name or an audio seat. [plain] drops the chip's own
+/// background, for use on a surface that already has one.
 class DiamondChip extends StatelessWidget {
-  const DiamondChip(this.diamonds, {super.key, this.compact = false});
+  const DiamondChip(
+    this.diamonds, {
+    super.key,
+    this.compact = false,
+    this.plain = false,
+  });
   final int diamonds;
   final bool compact;
+  final bool plain;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: '${Fmt.full(diamonds)} diamonds',
-    excludeSemantics: true,
-    child: Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: BBColors.scrim,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: BBColors.goldOutline, width: 0.5),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('💎', style: TextStyle(fontSize: compact ? 8 : 10)),
-          const SizedBox(width: 2),
-          Text(
+  Widget build(BuildContext context) {
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('💎', style: TextStyle(fontSize: compact ? 8 : 10)),
+        const SizedBox(width: 2),
+        Flexible(
+          child: Text(
             Fmt.compact(diamonds),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: BBColors.goldLight,
               fontSize: compact ? 9 : 11,
@@ -459,10 +456,28 @@ class DiamondChip extends StatelessWidget {
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      ],
+    );
+    return Semantics(
+      label: '${Fmt.full(diamonds)} diamonds',
+      excludeSemantics: true,
+      child: plain
+          ? content
+          : Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 4 : 6,
+                vertical: 1,
+              ),
+              decoration: BoxDecoration(
+                color: BBColors.scrim,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: BBColors.goldOutline, width: 0.5),
+              ),
+              child: content,
+            ),
+    );
+  }
 }
 
 class _StatusDot extends StatelessWidget {

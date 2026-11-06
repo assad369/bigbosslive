@@ -53,6 +53,11 @@ export const palette = {
   vvipDeep: '#C98A0B',
   king: '#D7263D',
   kingDeep: '#8E0F22',
+  /** Camera filter thumbnails without an avatar: sky, skin, skin shade, foliage. */
+  filterSky: '#6EB6FF',
+  filterSkin: '#F2C6A0',
+  filterSkinShade: '#D9956B',
+  filterFoliage: '#4F8A3C',
 } as const;
 
 export const gradients = {
@@ -64,6 +69,8 @@ export const gradients = {
   umber: `linear-gradient(135deg, ${palette.umber} 0%, ${palette.umberDeep} 100%)`,
   /** Bronze for secondary emphasis. */
   bronze: `linear-gradient(135deg, #B07D4F 0%, ${palette.bronze} 60%, ${palette.bronzeDeep} 100%)`,
+  /** Sample scene behind camera filter thumbnails (the app's filter picker). */
+  filterSample: `linear-gradient(180deg, ${palette.filterSky} 0%, ${palette.filterSkin} 45%, ${palette.filterSkinShade} 70%, ${palette.filterFoliage} 100%)`,
 } as const;
 
 /** Per-tier gradients, indexed by `vipTier`. */

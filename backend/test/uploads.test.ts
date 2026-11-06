@@ -124,6 +124,19 @@ describe('user uploads', () => {
       .send({ kind: 'avatar', contentType: 'image/png', size: 6 * 1024 * 1024 });
     expect(big.status).toBe(400);
   });
+
+  it('takes animated GIFs for profile pictures only', async () => {
+    const send = (body: object) => h.api.post('/v1/uploads/presign').set(h.as('plain')).send(body);
+    const gif = await send({ kind: 'avatar', contentType: 'image/gif', size: 2_000_000 });
+    expect(gif.status).toBe(200);
+    expect(gif.body.key).toMatch(/^avatars\/plain\/.+\.gif$/);
+    expect(fakeStorage.last).toMatchObject({ contentType: 'image/gif', ext: 'gif' });
+
+    expect((await send({ kind: 'cover', contentType: 'image/gif', size: 1000 })).status).toBe(400);
+    const big = await send({ kind: 'avatar', contentType: 'image/gif', size: 6 * 1024 * 1024 });
+    expect(big.status).toBe(400);
+    expect(big.body.error.message).toMatch(/too large/);
+  });
 });
 
 describe('S3 presigning', () => {

@@ -13,6 +13,7 @@ import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../games/games_screens.dart';
 import 'active_live.dart';
+import 'filter_picker.dart';
 import 'gift_panel.dart';
 import 'live_chat.dart';
 import 'live_controls.dart';
@@ -419,6 +420,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                                 ),
                                 onShare: _share,
                                 onGames: () => LiveGamesSheet.show(context),
+                                onFilters: () => showFilterSheet(
+                                  context,
+                                  filterId: c.filterId,
+                                  beauty: c.beauty,
+                                  onFilter: (f) => c.setFilter(f.id),
+                                  onBeauty: (b, {required persist}) =>
+                                      c.setBeauty(b, persist: persist),
+                                ),
                                 onMore: () => LiveMoreSheet.show(
                                   context,
                                   c,

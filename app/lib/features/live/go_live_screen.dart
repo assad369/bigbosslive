@@ -13,6 +13,9 @@ import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/widgets.dart';
 import 'active_live.dart';
+import 'camera_filter_channel.dart';
+import 'camera_filters.dart';
+import 'filter_picker.dart';
 
 /// Pre-live: camera preview, title, cover, video/party choice. Asks for camera and
 /// microphone permission with an explanation first (store review requirement).
@@ -35,6 +38,10 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
   bool _starting = false;
   bool _permissionDenied = false;
 
+  /// Beauty & filter choice, shared with the live room through [CameraFilterPrefs].
+  String _filterId = CameraFilters.defaultFilter.id;
+  BeautyParams _beauty = BeautyParams.preset;
+
   /// Bumped whenever the wanted preview changes, so a camera track that finishes opening
   /// after the user switched to Party (or back) is released instead of leaking.
   int _previewGen = 0;
@@ -55,6 +62,16 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
       return;
     }
     active.close();
+    unawaited(
+      CameraFilterPrefs.load().then((saved) {
+        if (!mounted) return;
+        setState(() {
+          _filterId = saved.filterId;
+          _beauty = saved.beauty;
+        });
+        unawaited(_applyFilter());
+      }),
+    );
     // Back from Settings with access granted: pick up the preview without a restart.
     _lifecycle = AppLifecycleListener(
       onResume: () {
@@ -103,6 +120,7 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
         return unawaited(_release(track));
       }
       setState(() => _preview = track);
+      unawaited(_applyFilter());
     } catch (_) {
       /* preview is best-effort */
     }
@@ -120,9 +138,33 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
     unawaited(_initPreview());
   }
 
+  Future<void> _applyFilter() => CameraFilterChannel.apply(
+    _preview,
+    CameraFilters.byId(_filterId),
+    beauty: _beauty,
+  );
+
+  void _openFilters() => showFilterSheet(
+    context,
+    filterId: _filterId,
+    beauty: _beauty,
+    onFilter: (f) {
+      setState(() => _filterId = f.id);
+      unawaited(CameraFilterPrefs.saveFilter(f.id));
+      unawaited(_applyFilter());
+    },
+    onBeauty: (b, {required persist}) {
+      _beauty = b;
+      if (persist) unawaited(CameraFilterPrefs.saveBeauty(b));
+      unawaited(_applyFilter());
+    },
+  );
+
   static Future<void> _release(LocalVideoTrack? track) async {
     if (track == null) return;
     try {
+      // Detach while the capture thread can still free the filter's GPU resources.
+      await CameraFilterChannel.clear(track);
       await track.stop();
       await track.dispose();
     } catch (_) {}
@@ -207,6 +249,19 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
                       ),
                     ),
                     const Spacer(),
+                    if (_preview != null &&
+                        _type == 'video' &&
+                        CameraFilterChannel.isSupported)
+                      IconButton(
+                        tooltip: 'Beauty & filters',
+                        onPressed: _openFilters,
+                        icon: Icon(
+                          Icons.auto_awesome_rounded,
+                          color: CameraFilters.byId(_filterId).isNone
+                              ? BBColors.ivory
+                              : BBColors.goldLight,
+                        ),
+                      ),
                     SegmentedButton<String>(
                       style: SegmentedButton.styleFrom(
                         backgroundColor: BBColors.scrim,

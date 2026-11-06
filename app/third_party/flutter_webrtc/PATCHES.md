@@ -40,3 +40,10 @@ races the first track's renderer, and the signaling thread throws.
    re-apply the `[bigbosslive patch]` hunks, and update the version above.
 3. Drop the override only once upstream `onAddTrack` / `onRemoveTrack` can't throw into
    native code.
+4. Check `app/plugins/bb_camera_filter` (camera filters). It relies on:
+   - the processor hooks: Android `LocalVideoTrack.ExternalVideoFrameProcessing`, whose
+     `onFrameCaptured` releases any frame a processor returns (the plugin must not), and
+     iOS `ExternalVideoProcessingDelegate` / `VideoProcessingAdapter`;
+   - `FlutterWebRTCPlugin.sharedSingleton` and its local track lookup;
+   - the webrtc-sdk version: keep `compileOnly 'io.github.webrtc-sdk:android:…'` in its
+     `android/build.gradle` and `WebRTC-SDK` in its podspec equal to the one used here.

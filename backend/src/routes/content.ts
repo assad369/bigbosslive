@@ -9,8 +9,10 @@ import { AGENCY_LOGO_FOLDER } from '../modules/agencies/agencies.service.js';
 
 const MB = 1024 * 1024;
 const IMAGES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+/** Profile pictures may also be animated GIFs; the app uploads those untouched. */
+const AVATAR_IMAGES = [...IMAGES, 'image/gif'] as const;
 const UPLOAD_KINDS = {
-  avatar: { folder: 'avatars', types: IMAGES, maxBytes: 5 * MB },
+  avatar: { folder: 'avatars', types: AVATAR_IMAGES, maxBytes: 5 * MB },
   cover: { folder: 'covers', types: IMAGES, maxBytes: 5 * MB },
   post: { folder: 'posts', types: [...IMAGES, 'video/mp4'], maxBytes: 50 * MB },
   chat: { folder: 'chat', types: IMAGES, maxBytes: 10 * MB },
@@ -25,6 +27,7 @@ const EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
+  'image/gif': 'gif',
   'video/mp4': 'mp4',
   'audio/mp4': 'm4a',
   'audio/aac': 'aac',

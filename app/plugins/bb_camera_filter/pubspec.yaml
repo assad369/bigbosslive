@@ -1,0 +1,25 @@
+name: bb_camera_filter
+description: >-
+  Native camera filters (skin beautification, colour matrix, vignette) for flutter_webrtc local
+  video tracks. The Dart side lives in the app (lib/features/live/camera_filter_channel.dart).
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+  flutter: ">=3.35.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The app pins the vendored copy through dependency_overrides.
+  flutter_webrtc: ">=1.6.3 <2.0.0"
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.bigbosslive.camera_filter
+        pluginClass: CameraFilterPlugin
+      ios:
+        pluginClass: CameraFilterPlugin

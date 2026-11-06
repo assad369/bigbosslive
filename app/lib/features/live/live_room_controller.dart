@@ -10,6 +10,8 @@ import '../../core/network/api_exception.dart';
 import '../../core/utils/json.dart';
 import '../../data/repositories.dart';
 import '../../models/models.dart';
+import 'camera_filter_channel.dart';
+import 'camera_filters.dart';
 
 enum ChatKind { chat, voice, gift, join, system }
 
@@ -214,6 +216,11 @@ class LiveRoomController extends ChangeNotifier {
   bool cameraOn = false;
   bool frontCamera = true;
 
+  /// My camera filter ([CameraFilters] id) and beauty sliders. The go-live screen and the
+  /// room share them through [CameraFilterPrefs].
+  String filterId = CameraFilters.defaultFilter.id;
+  BeautyParams beauty = BeautyParams.preset;
+
   /// The speaker toggle: everyone else's audio (and effect sounds) on this device only.
   bool roomAudioOn = true;
 
@@ -336,6 +343,11 @@ class LiveRoomController extends ChangeNotifier {
       if (_disposed) return;
       detail = session.detail;
       credentials = session.credentials;
+      // Before connecting, so the first camera publish already streams the saved look.
+      final filter = await CameraFilterPrefs.load();
+      if (_disposed) return;
+      filterId = filter.filterId;
+      beauty = filter.beauty;
       _listen();
       await room.connect(session.credentials.url, session.credentials.token);
       if (_disposed) return unawaited(_disconnectQuietly());
@@ -437,6 +449,7 @@ class LiveRoomController extends ChangeNotifier {
         cameraOn = false;
         try {
           await local.setMicrophoneEnabled(false);
+          await CameraFilterChannel.clear(_cameraTrack);
           await local.setCameraEnabled(false);
         } catch (e) {
           debugPrint('unpublish failed: $e');
@@ -472,8 +485,12 @@ class LiveRoomController extends ChangeNotifier {
     }
     if (wantCam != cameraOn) {
       try {
+        // Detach while the capture thread can still free the filter's GPU resources.
+        if (!wantCam) await CameraFilterChannel.clear(_cameraTrack);
         await local.setCameraEnabled(wantCam);
         cameraOn = wantCam;
+        // Turning the camera back on restarts capture with a new native track.
+        if (wantCam) await _applyFilter();
       } catch (e) {
         debugPrint('camera ${wantCam ? 'on' : 'off'} failed: $e');
         if (wantCam) {
@@ -502,7 +519,13 @@ class LiveRoomController extends ChangeNotifier {
       ..on<TrackUnsubscribedEvent>((_) => _notify())
       ..on<TrackMutedEvent>((_) => _notify())
       ..on<TrackUnmutedEvent>((_) => _notify())
-      ..on<LocalTrackPublishedEvent>((_) => _notify())
+      ..on<LocalTrackPublishedEvent>((e) {
+        // A fresh camera track (first publish, or the rejoin after a lost connection).
+        if (e.publication.source == TrackSource.camera) {
+          unawaited(_applyFilter());
+        }
+        _notify();
+      })
       ..on<ActiveSpeakersChangedEvent>((_) {
         if (!_disposed) speakers.value++;
       })
@@ -1042,10 +1065,44 @@ class LiveRoomController extends ChangeNotifier {
         next ? CameraPosition.front : CameraPosition.back,
       );
       frontCamera = next;
+      // Switching restarts capture with a new native track: re-attach the filter.
+      await _applyFilter();
     } catch (e) {
       _notice('Couldn\'t switch cameras');
     }
     _notify();
+  }
+
+  LocalVideoTrack? get _cameraTrack {
+    final track = room.localParticipant
+        ?.getTrackPublicationBySource(TrackSource.camera)
+        ?.track;
+    return track is LocalVideoTrack ? track : null;
+  }
+
+  Future<void> _applyFilter() => CameraFilterChannel.apply(
+    _cameraTrack,
+    CameraFilters.byId(filterId),
+    beauty: beauty,
+  );
+
+  /// Changes my camera filter (remembered on this device).
+  Future<void> setFilter(String id) async {
+    if (_disposed) return;
+    filterId = CameraFilters.byId(id).id;
+    _notify();
+    unawaited(CameraFilterPrefs.saveFilter(filterId));
+    await _applyFilter();
+  }
+
+  /// Changes the beauty sliders. While a slider is dragged ([persist] false) the stream
+  /// follows but nothing is written; the room doesn't rebuild either way, since the sheet
+  /// shows its own values.
+  Future<void> setBeauty(BeautyParams value, {bool persist = true}) async {
+    if (_disposed) return;
+    beauty = value;
+    if (persist) unawaited(CameraFilterPrefs.saveBeauty(value));
+    await _applyFilter();
   }
 
   void toggleRoomAudio() {
@@ -1196,6 +1253,7 @@ class LiveRoomController extends ChangeNotifier {
     _poll?.cancel();
     _requestExpiry?.cancel();
     _wakelock(on: false);
+    await CameraFilterChannel.clear(_cameraTrack);
     await _disconnectQuietly();
   }
 
@@ -1224,6 +1282,8 @@ class LiveRoomController extends ChangeNotifier {
     _reactionFlush?.cancel();
     _requestExpiry?.cancel();
     unawaited(_listener?.dispose());
+    // Sent ahead of the disconnect, which stops the camera: platform messages keep order.
+    unawaited(CameraFilterChannel.clear(_cameraTrack));
     unawaited(room.disconnect().then((_) => room.dispose()));
     _wakelock(on: false);
     _gifts.close();

@@ -9,6 +9,7 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../profile/profile_screens.dart';
+import 'camera_filter_channel.dart';
 import 'live_room_controller.dart';
 
 /// The live room's header, two rows:
@@ -661,8 +662,9 @@ class _PkButton extends StatelessWidget {
 }
 
 /// The right-hand column of controls, top to bottom: Games, PK, Share, Chat, Lock, Stage
-/// requests, Mic, Camera, Flip, More, and the chevron that folds the rest away. Each shows
-/// by role: the host gets most of them, a guest on stage their mic/camera tools, a viewer
+/// requests, Mic, Camera, Flip, Beauty & filters, More, and the chevron that folds the rest
+/// away. Each shows by role: the host gets most of them, a guest on stage their mic/camera
+/// tools, a viewer
 /// Games, Share, Chat and More. It scrolls, anchored at the bottom, on a short screen.
 class LiveSideRail extends ConsumerStatefulWidget {
   const LiveSideRail({
@@ -673,6 +675,7 @@ class LiveSideRail extends ConsumerStatefulWidget {
     required this.onRequests,
     required this.onShare,
     required this.onGames,
+    required this.onFilters,
     required this.onMore,
   });
   final LiveRoomController c;
@@ -683,6 +686,9 @@ class LiveSideRail extends ConsumerStatefulWidget {
   /// Gets the button's context, so the iPad share sheet can anchor to it.
   final void Function(BuildContext anchor) onShare;
   final VoidCallback onGames;
+
+  /// Opens the beauty & filter sheet for my camera.
+  final VoidCallback onFilters;
   final VoidCallback onMore;
 
   @override
@@ -767,6 +773,13 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
               ? c.flipCamera
               : () => showMessage(context, 'Turn your camera on to flip it'),
         ),
+        // Works with the camera off too: the look applies when it comes back on.
+        if (CameraFilterChannel.isSupported)
+          LiveRoundButton(
+            icon: Icons.auto_awesome_rounded,
+            tooltip: 'Beauty & filters',
+            onTap: widget.onFilters,
+          ),
       ],
       LiveRoundButton(
         icon: Icons.more_horiz_rounded,

@@ -1,15 +1,14 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/deep_links/deep_link.dart';
 import '../../core/deep_links/share_link.dart';
+import '../../core/media/avatar_picker.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
@@ -945,7 +944,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   late final _name = TextEditingController(text: me.brief.displayName);
   late final _bio = TextEditingController(text: me.profile.bio);
   late String? _gender = me.profile.gender;
-  File? _avatar;
+  PickedAvatar? _avatar;
   bool _saving = false;
 
   @override
@@ -960,7 +959,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     try {
       String? avatarUrl;
       if (_avatar != null) {
-        avatarUrl = await ref.read(accountRepo).uploadAvatar(_avatar!);
+        avatarUrl = await ref
+            .read(accountRepo)
+            .uploadAvatar(_avatar!.file, contentType: _avatar!.contentType);
       }
       final updated = await ref.read(accountRepo).updateProfile({
         'displayName': _name.text.trim(),
@@ -987,14 +988,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           child: GestureDetector(
             onTap: () async {
               try {
-                final x = await ImagePicker().pickImage(
-                  source: ImageSource.gallery,
-                  maxWidth: 720,
-                  imageQuality: 85,
-                );
-                if (x != null && mounted) {
-                  setState(() => _avatar = File(x.path));
+                // Keeps GIFs animated; the picker's own resizing would flatten them.
+                final picked = await pickAvatar();
+                if (picked != null && mounted) {
+                  setState(() => _avatar = picked);
                 }
+              } on AvatarTooLarge catch (e) {
+                if (context.mounted) showMessage(context, e.toString());
+              } on AvatarUnreadable catch (e) {
+                if (context.mounted) showMessage(context, e.toString());
               } catch (_) {
                 if (context.mounted) {
                   showMessage(context, 'Couldn\'t open your photos');
@@ -1006,7 +1008,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 _avatar != null
                     ? CircleAvatar(
                         radius: 48,
-                        backgroundImage: FileImage(_avatar!),
+                        backgroundImage: FileImage(_avatar!.file),
                       )
                     : BBAvatar.user(me.brief, size: 96),
                 const Positioned(

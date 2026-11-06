@@ -23,8 +23,12 @@ class AccountRepository {
   Future<MeUser> updateProfile(Map<String, Object?> patch) async =>
       MeUser.fromJson((await _api.patch('/me', body: patch)).obj('user'));
 
-  Future<String> uploadAvatar(File file) =>
-      _api.upload(kind: 'avatar', file: file, contentType: _mime(file.path));
+  /// [contentType] is the type sniffed from the file's bytes, when known.
+  Future<String> uploadAvatar(File file, {String? contentType}) => _api.upload(
+    kind: 'avatar',
+    file: file,
+    contentType: contentType ?? _mime(file.path),
+  );
 
   Future<void> deleteAccount() => _api.delete('/me');
 
@@ -95,6 +99,7 @@ String _mime(String path) {
   final p = path.toLowerCase();
   if (p.endsWith('.png')) return 'image/png';
   if (p.endsWith('.webp')) return 'image/webp';
+  if (p.endsWith('.gif')) return 'image/gif';
   if (p.endsWith('.mp4')) return 'video/mp4';
   if (p.endsWith('.m4a')) return 'audio/mp4';
   if (p.endsWith('.aac')) return 'audio/aac';

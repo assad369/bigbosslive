@@ -78,6 +78,13 @@ abstract final class BBColors {
   static const king = Color(0xFFD7263D);
   static const kingDeep = Color(0xFF8E0F22);
 
+  /// Camera filter thumbnails without an avatar: sky, skin, skin shade, foliage, so the
+  /// colour looks can be told apart.
+  static const filterSky = Color(0xFF6EB6FF);
+  static const filterSkin = Color(0xFFF2C6A0);
+  static const filterSkinShade = Color(0xFFD9956B);
+  static const filterFoliage = Color(0xFF4F8A3C);
+
   static const vipGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
@@ -136,6 +143,13 @@ abstract final class BBColors {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [Color(0xFFB07D4F), bronze, bronzeDeep],
+  );
+
+  static const filterSampleGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [filterSky, filterSkin, filterSkinShade, filterFoliage],
+    stops: [0, 0.45, 0.7, 1],
   );
 
   /// Bottom-up scrim that keeps overlay text readable on live video.
