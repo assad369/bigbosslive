@@ -86,7 +86,12 @@ export function toPublicUser(u: PublicUserSource, now = new Date()): PublicUser 
   };
 }
 
-export function toMeUser(u: UserDoc, levelProgress: LevelProgress, now = new Date()): MeUser {
+export function toMeUser(
+  u: UserDoc,
+  levelProgress: LevelProgress,
+  now = new Date(),
+  maintenanceAccess = false,
+): MeUser {
   return {
     ...toPublicUser(u, now),
     email: u.email,
@@ -97,6 +102,7 @@ export function toMeUser(u: UserDoc, levelProgress: LevelProgress, now = new Dat
     wallet: { ...u.wallet },
     levelProgress,
     vipExpiresAt: activeVipTier(u.vip, now) ? (u.vip.expiresAt?.toISOString() ?? null) : null,
+    maintenanceAccess,
   };
 }
 

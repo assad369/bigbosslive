@@ -142,6 +142,52 @@ void main() {
       );
     });
 
+    test('maintenance lets only listed users through', () {
+      final on = AsyncData(
+        AppConfig.fromJson({
+          'app': {'maintenance': true},
+        }),
+      );
+      final listed = MeUser.fromJson({
+        'id': 'u2',
+        'shortId': '202',
+        'displayName': 'Tester',
+        'wallet': {'diamonds': 1},
+        'levelProgress': {'level': 1},
+        'maintenanceAccess': true,
+      });
+      expect(
+        _redirect('/live/r1', config: on, session: AsyncData(listed)),
+        isNull,
+      );
+      expect(
+        _redirect('/maintenance', config: on, session: AsyncData(listed)),
+        '/home',
+      );
+      expect(
+        _redirect('/live/r1', config: on, session: AsyncData(_me)),
+        '/maintenance',
+      );
+
+      // Signing in stays open, so listed users can get in.
+      const out = AsyncData<MeUser?>(null);
+      expect(_redirect('/login', config: on, session: out), isNull);
+      expect(_redirect('/otp', config: on, session: out), isNull);
+      expect(_redirect('/home', config: on, session: out), '/maintenance');
+      expect(
+        _redirect('/maintenance', config: on, session: out),
+        '/maintenance',
+      );
+    });
+
+    test('a maintenance rejection from the server shows the screen', () {
+      const err = ApiException(503, 'maintenance', 'Back soon');
+      expect(
+        _redirect('/login', session: const AsyncError(err, StackTrace.empty)),
+        '/maintenance',
+      );
+    });
+
     test('maintenance and minimum build are enforced per platform', () {
       final maintenance = AppConfig.fromJson({
         'app': {'maintenance': true},

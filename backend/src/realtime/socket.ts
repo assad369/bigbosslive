@@ -39,6 +39,9 @@ export function attachSocketServer(ctx: Ctx, http: HttpServer): Server {
         { projection: { status: 1 } },
       );
       if (!user || user.status !== 'active') return next(new Error('forbidden'));
+      if (await ctx.services.maintenance.blocks(verified.uid)) {
+        return next(new Error('maintenance'));
+      }
       (socket.data as SocketData).uid = verified.uid;
       next();
     } catch {

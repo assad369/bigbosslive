@@ -22,16 +22,24 @@ import { reportInput } from '../modules/moderation/moderation.service.js';
 export function accountRoutes(ctx: Ctx): Router {
   const r = Router();
   const auth = requireAuth(ctx);
-  const { users, follows, levels, notifications, moderation, gifts } = ctx.services;
+  const { users, follows, levels, notifications, moderation, gifts, maintenance } = ctx.services;
 
   const me = async (uid: string) => {
     const user = await users.get(uid);
-    return toMeUser(user, await levels.progress(user), ctx.clock.now());
+    return toMeUser(
+      user,
+      await levels.progress(user),
+      ctx.clock.now(),
+      await maintenance.hasAccess(uid),
+    );
   };
 
   /** Call after every Firebase sign-in and app launch. Creates the profile on first call. */
   r.post('/auth/session', requireToken(ctx), async (req, res) => {
     if (!req.token) throw unauthorized();
+    // The admin dashboard bootstraps here too. Staff still see the maintenance screen in the
+    // app unless they are on the list (`maintenanceAccess`).
+    if (!req.token.adminRole) await maintenance.assertOpen(req.token.uid);
     const input = parseBody(req, profileInput.partial().default({}));
     const { user, created } = await users.ensureProfile(req.token, input);
     res.status(created ? 201 : 200).json({ user: await me(user._id), created });

@@ -28,8 +28,19 @@ final deviceIdProvider = Provider<String>(
   (ref) => throw UnimplementedError('deviceIdProvider must be overridden'),
 );
 
-final apiProvider = Provider<ApiClient>(
-  (ref) => ApiClient(deviceId: ref.watch(deviceIdProvider)),
+// Typed on the variable: `onMaintenance` reads providers that depend on this one.
+final Provider<ApiClient> apiProvider = Provider(
+  (ref) => ApiClient(
+    deviceId: ref.watch(deviceIdProvider),
+    // The router then shows the maintenance screen. Neither step calls an authed endpoint,
+    // so a burst of rejected requests can't loop.
+    onMaintenance: () {
+      if (ref.read(appConfigProvider).value?.maintenance != true) {
+        ref.invalidate(appConfigProvider);
+      }
+      ref.read(sessionProvider.notifier).revokeMaintenanceAccess();
+    },
+  ),
 );
 
 final accountRepo = Provider(
@@ -76,6 +87,14 @@ class SessionController extends AsyncNotifier<MeUser?> {
   }
 
   void replace(MeUser me) => state = AsyncData(me);
+
+  /// The server turned this account away for maintenance, so it is not on the list (anymore).
+  void revokeMaintenanceAccess() {
+    final me = state.value;
+    if (me != null && me.maintenanceAccess) {
+      state = AsyncData(me.withoutMaintenanceAccess());
+    }
+  }
 
   /// Device-bound state (the push token) is torn down while the ID token is still valid;
   /// after Firebase signs out, those calls would be rejected as unauthenticated.

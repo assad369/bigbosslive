@@ -111,6 +111,8 @@ export interface MeUser extends PublicUser {
   wallet: { diamonds: number; agentStock: number };
   levelProgress: LevelProgress;
   vipExpiresAt: IsoDate | null;
+  /** On the admin's maintenance list: may use the app while maintenance mode is on. */
+  maintenanceAccess: boolean;
 }
 
 export interface LiveRoom {

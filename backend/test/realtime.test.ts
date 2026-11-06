@@ -89,4 +89,15 @@ describe('socket.io', () => {
     );
     expect(state.round.status).toBe('betting');
   });
+
+  it('turns away users not on the maintenance list while maintenance is on', async () => {
+    await h.ctx.services.maintenance.add(['ana'], 'admin');
+    await h.ctx.services.config.set('app', { maintenance: true }, 'admin');
+    try {
+      await expect(open('bo')).rejects.toThrow(/maintenance/);
+      await expect(open('ana')).resolves.toBeTruthy();
+    } finally {
+      await h.ctx.services.config.set('app', { maintenance: false }, 'admin');
+    }
+  });
 });

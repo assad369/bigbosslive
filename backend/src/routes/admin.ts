@@ -93,7 +93,7 @@ const IMMUTABLE = 'public, max-age=31536000, immutable';
 /** Admin API for the dashboard. Every route is permission-gated; every write is audited. */
 export function adminRoutes(ctx: Ctx): Router {
   const r = Router();
-  r.use(requireAuth(ctx), requireAnyAdmin());
+  r.use(requireAuth(ctx, { duringMaintenance: true }), requireAnyAdmin());
   const s = ctx.services;
   const audit = (
     req: Request,
@@ -961,6 +961,31 @@ export function adminRoutes(ctx: Ctx): Router {
     if (key === 'economy') s.levels.invalidate();
     await audit(req, 'config.update', 'config', key, value);
     res.json({ value });
+  });
+
+  // ── Maintenance access: users who may use the app while `app.maintenance` is on ──
+  r.get('/maintenance/access', can('config.manage'), async (_req, res) => {
+    res.json({ items: await s.maintenance.list() });
+  });
+
+  r.post('/maintenance/access', can('config.manage'), async (req, res) => {
+    const { users } = parseBody(
+      req,
+      z.object({ users: z.array(z.string().trim().min(1).max(128)).min(1).max(100) }),
+    );
+    const result = await s.maintenance.add(users, currentUser(req).uid);
+    await audit(req, 'maintenance.access_add', 'config', 'maintenance_access', {
+      added: result.added.map((u) => u.id),
+      notFound: result.notFound,
+    });
+    res.json(result);
+  });
+
+  r.delete('/maintenance/access/:uid', can('config.manage'), async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    await s.maintenance.remove(uid, currentUser(req).uid);
+    await audit(req, 'maintenance.access_remove', 'user', uid);
+    res.status(204).end();
   });
 
   // ── Storage (R2) credentials: config.manage plus a passcode ──────────────────

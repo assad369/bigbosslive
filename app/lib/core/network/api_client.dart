@@ -19,6 +19,7 @@ class ApiClient {
     FirebaseAuth? auth,
     Dio? dio,
     this.retryDelay = const Duration(milliseconds: 600),
+    this.onMaintenance,
   }) : _auth = auth ?? FirebaseAuth.instance,
        dio =
            dio ??
@@ -54,6 +55,7 @@ class ApiClient {
           handler.next(options);
         },
         onError: (err, handler) async {
+          if (_isMaintenance(err.response)) onMaintenance?.call();
           final opts = err.requestOptions;
           final retried = opts.extra['bb_retried'] == true;
           // Expired token: refresh once and replay.
@@ -116,6 +118,18 @@ class ApiClient {
   final FirebaseAuth _auth;
   final String deviceId;
   final Duration retryDelay;
+
+  /// Called when the server turns a request away for maintenance (503 `maintenance`): the
+  /// switch was flipped, or this account was taken off the list, while the app was open.
+  final void Function()? onMaintenance;
+
+  static bool _isMaintenance(Response<dynamic>? res) {
+    final data = res?.data;
+    return res?.statusCode == 503 &&
+        data is Map<String, dynamic> &&
+        data['error'] is Map<String, dynamic> &&
+        (data['error'] as Map<String, dynamic>)['code'] == 'maintenance';
+  }
 
   /// A fresh key for one money-moving *intent*. Callers keep it until that intent succeeds
   /// and pass it again on a manual retry, so the server applies the operation once.

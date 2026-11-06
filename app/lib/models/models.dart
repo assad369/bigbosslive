@@ -189,6 +189,7 @@ class MeUser {
     this.email,
     this.phone,
     this.vipExpiresAt,
+    this.maintenanceAccess = false,
   });
   final PublicUser profile;
   final Wallet wallet;
@@ -199,12 +200,28 @@ class MeUser {
   final String? phone;
   final DateTime? vipExpiresAt;
 
+  /// On the admin's maintenance list: keeps using the app while maintenance mode is on.
+  final bool maintenanceAccess;
+
   String get id => profile.id;
   UserBrief get brief => profile.brief;
 
   MeUser withWallet(Wallet w) => MeUser(
     profile: profile,
     wallet: w,
+    levelProgress: levelProgress,
+    isAgent: isAgent,
+    adminRole: adminRole,
+    email: email,
+    phone: phone,
+    vipExpiresAt: vipExpiresAt,
+    maintenanceAccess: maintenanceAccess,
+  );
+
+  /// The server said this account is no longer on the maintenance list.
+  MeUser withoutMaintenanceAccess() => MeUser(
+    profile: profile,
+    wallet: wallet,
     levelProgress: levelProgress,
     isAgent: isAgent,
     adminRole: adminRole,
@@ -225,6 +242,7 @@ class MeUser {
     email: j.strOrNull('email'),
     phone: j.strOrNull('phone'),
     vipExpiresAt: j.date('vipExpiresAt'),
+    maintenanceAccess: j.flag('maintenanceAccess'),
   );
 }
 

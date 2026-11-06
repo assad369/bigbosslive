@@ -570,6 +570,7 @@ class MaintenanceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cfg = ref.watch(appConfigProvider).value;
+    final signedIn = ref.watch(firebaseUserProvider).value != null;
     return Scaffold(
       body: EmptyState(
         icon: Icons.construction_rounded,
@@ -577,9 +578,29 @@ class MaintenanceScreen extends ConsumerWidget {
         message: (cfg?.maintenanceMessage.isNotEmpty ?? false)
             ? cfg!.maintenanceMessage
             : 'BigBoss Live is under maintenance. Please check back shortly.',
-        action: OutlinedButton(
-          onPressed: () => ref.invalidate(appConfigProvider),
-          child: const Text('Check again'),
+        action: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            OutlinedButton(
+              // Both: the switch may be off now, or this account added to the list.
+              onPressed: () {
+                ref.invalidate(appConfigProvider);
+                ref.invalidate(sessionProvider);
+              },
+              child: const Text('Check again'),
+            ),
+            // Accounts on the maintenance list can still sign in.
+            if (signedIn)
+              TextButton(
+                onPressed: () => ref.read(sessionProvider.notifier).signOut(),
+                child: const Text('Sign out'),
+              )
+            else
+              TextButton(
+                onPressed: () => context.go('/login'),
+                child: const Text('Sign in'),
+              ),
+          ],
         ),
       ),
     );

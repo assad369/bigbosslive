@@ -57,10 +57,16 @@ export function requireToken(ctx: Ctx): RequestHandler {
 }
 
 /**
- * Verifies the token, loads the user, and enforces account and device bans. Every user-facing
- * route except session bootstrap sits behind this.
+ * Verifies the token, loads the user, and enforces account and device bans and maintenance
+ * mode. Every user-facing route except session bootstrap sits behind this.
  */
-export function requireAuth(ctx: Ctx): RequestHandler {
+export function requireAuth(
+  ctx: Ctx,
+  opts: {
+    /** The admin dashboard keeps working while the app is closed for maintenance. */
+    duringMaintenance?: boolean;
+  } = {},
+): RequestHandler {
   return async (req: Request, _res: Response, next: NextFunction) => {
     const token = await verify(ctx, req);
     const user = await ctx.col.users.findOne({ _id: token.uid });
@@ -89,6 +95,9 @@ export function requireAuth(ctx: Ctx): RequestHandler {
     if (deviceId && (await ctx.services.moderation.isDeviceBanned(deviceId))) {
       throw new AppError(403, 'device_banned', 'This device is banned');
     }
+
+    // Only users on the maintenance access list get through (503 `maintenance`).
+    if (!opts.duringMaintenance) await ctx.services.maintenance.assertOpen(user._id);
 
     req.auth = { uid: user._id, token, adminRole: token.adminRole, user, deviceId };
 

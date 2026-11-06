@@ -23,7 +23,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ADMIN_ROLES, type StorageSettingsInput, type StorageSettingsView } from '@bigboss/shared';
 import { ApiError, get, send } from '../../lib/api';
 import { ago, dateTime } from '../../lib/format';
-import { ActionButton, PageHeader } from '../../components/common';
+import { ActionButton, PageHeader, UserCell, type Brief } from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
 import { FormModal } from '../../components/FormModal';
 
@@ -352,6 +352,92 @@ function StorageSettings() {
   );
 }
 
+// ── Maintenance access ─────────────────────────────────────────────────────────
+
+/** Users who keep using the app while maintenance mode is on. Everyone else is turned away. */
+function MaintenanceAccess() {
+  const { message } = App.useApp();
+  const qc = useQueryClient();
+  const [ids, setIds] = useState<string[]>([]);
+  const list = useQuery({
+    queryKey: ['maintenance-access'],
+    queryFn: () => get<{ items: Brief[] }>('/admin/maintenance/access'),
+  });
+  const add = useMutation({
+    mutationFn: (users: string[]) =>
+      send<{ added: Brief[]; notFound: string[] }>('post', '/admin/maintenance/access', {
+        users,
+      }),
+    onSuccess: ({ added, notFound }) => {
+      if (added.length) message.success(`Added ${added.length} user(s)`);
+      else if (!notFound.length) message.info('Already on the list');
+      if (notFound.length) message.warning(`No active user for: ${notFound.join(', ')}`);
+      setIds(notFound);
+      void qc.invalidateQueries({ queryKey: ['maintenance-access'] });
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
+  const submit = () => {
+    const users = [...new Set(ids.map((i) => i.trim()).filter(Boolean))];
+    if (users.length) add.mutate(users);
+  };
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space.Compact style={{ width: '100%', maxWidth: 640 }}>
+        <Select
+          mode="tags"
+          style={{ width: '100%' }}
+          placeholder="Short IDs or uids, e.g. 200, 345"
+          tokenSeparators={[',', ' ', '\n']}
+          value={ids}
+          onChange={setIds}
+          open={false}
+          maxCount={100}
+        />
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          loading={add.isPending}
+          disabled={!ids.length}
+          onClick={submit}
+        >
+          Add
+        </Button>
+      </Space.Compact>
+      {list.error && <Alert type="error" message={(list.error as Error).message} />}
+      <Table<Brief>
+        rowKey="id"
+        size="small"
+        loading={list.isLoading}
+        dataSource={list.data?.items ?? []}
+        pagination={{ pageSize: 20, hideOnSinglePage: true }}
+        locale={{
+          emptyText: 'Nobody yet: during maintenance every user sees the maintenance screen',
+        }}
+        columns={[
+          { title: 'User', render: (_, u) => <UserCell user={u} /> },
+          { title: 'Short ID', dataIndex: 'shortId', width: 140 },
+          {
+            title: '',
+            width: 110,
+            render: (_, u) => (
+              <ActionButton
+                label="Remove"
+                danger
+                confirm={`Remove ${u.displayName ?? u.id} from maintenance access?`}
+                run={() => send('delete', `/admin/maintenance/access/${encodeURIComponent(u.id)}`)}
+                invalidate={[['maintenance-access']]}
+                success="Removed"
+              />
+            ),
+          },
+        ]}
+      />
+    </Space>
+  );
+}
+
 export function SettingsPage() {
   const q = useQuery({ queryKey: ['config'], queryFn: () => get<Config>('/admin/config') });
   return (
@@ -386,6 +472,21 @@ export function SettingsPage() {
                       secret is never shown again after saving.
                     </Typography.Paragraph>
                     <StorageSettings />
+                  </>
+                ),
+              },
+              {
+                key: 'maintenance-access',
+                label: 'Maintenance access',
+                children: (
+                  <>
+                    <Typography.Paragraph type="secondary">
+                      While Maintenance is on (App tab), only these users can sign in and use the
+                      app. Everyone else sees the maintenance screen and the server turns their
+                      requests away. Staff are not let through automatically: add your own short ID
+                      to test. The dashboard always works.
+                    </Typography.Paragraph>
+                    <MaintenanceAccess />
                   </>
                 ),
               },

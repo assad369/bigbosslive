@@ -11,6 +11,7 @@ import { GamesService } from './modules/games/games.service.js';
 import { GiftsService } from './modules/gifts/gifts.service.js';
 import { LevelsService } from './modules/levels/levels.service.js';
 import { LiveService } from './modules/live/live.service.js';
+import { MaintenanceService } from './modules/config/maintenance.service.js';
 import { ModerationService } from './modules/moderation/moderation.service.js';
 import { NotificationsService } from './modules/notifications/notifications.service.js';
 import { PkService } from './modules/pk/pk.service.js';
@@ -35,6 +36,7 @@ export interface Services {
   iap: IapService;
   levels: LevelsService;
   live: LiveService;
+  maintenance: MaintenanceService;
   moderation: ModerationService;
   notifications: NotificationsService;
   pk: PkService;
@@ -65,6 +67,7 @@ export function createServices(ctx: Ctx): Services {
     iap: new IapService(ctx),
     levels: new LevelsService(ctx),
     live: new LiveService(ctx),
+    maintenance: new MaintenanceService(ctx),
     moderation: new ModerationService(ctx),
     notifications: new NotificationsService(ctx),
     pk: new PkService(ctx),

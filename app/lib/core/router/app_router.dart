@@ -63,13 +63,25 @@ String? redirectFor({
   }
 
   final cfg = config.value;
+  final err = session.error;
+  // The server says maintenance even when the config here is a few seconds stale.
+  if (err is ApiException && err.code == 'maintenance' && !session.hasValue) {
+    return '/maintenance';
+  }
   if (cfg != null) {
-    if (cfg.maintenance) return '/maintenance';
+    // Only users on the admin's maintenance list get through. Signing in stays open so they
+    // can, and the server rejects everyone else's session.
+    if (cfg.maintenance && session.value?.maintenanceAccess != true) {
+      final signingIn =
+          session.value == null &&
+          !session.hasError &&
+          (location == '/login' || location == '/otp');
+      return signingIn ? null : '/maintenance';
+    }
     final minBuild = isIOS ? cfg.minBuildIos : cfg.minBuildAndroid;
     if (build > 0 && build < minBuild) return '/update';
   }
 
-  final err = session.error;
   if (err is ApiException &&
       (err.code == 'account_banned' || err.code == 'device_banned')) {
     return '/banned';

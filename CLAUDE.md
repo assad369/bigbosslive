@@ -38,6 +38,13 @@ cd app && flutter analyze && flutter test && dart format lib test
   `X-Admin-Passcode` header, matched against `STORAGE_SETTINGS_PASSCODE`, with failed guesses
   rate limited). They live in `app_config._id: 'storage'`, outside `CONFIG_SCHEMAS`, and override
   env `S3_*`. The secret is never returned or written to the audit log.
+- **Maintenance mode:** while `app.maintenance` is on, only uids on the admin's list
+  (`app_config._id: 'maintenance_access'`, outside `CONFIG_SCHEMAS`, `MaintenanceService`)
+  get through. `requireAuth` answers everyone else with 503 `maintenance`, and so do the
+  socket handshake and `/auth/session`. The admin router opts out (`duringMaintenance`), and
+  `/auth/session` lets admin-claim tokens through for the dashboard. Staff get no app pass.
+  The app gates on `me.maintenanceAccess`, and `ApiClient.onMaintenance` reacts to a 503
+  arriving mid-session.
 - **Time:** use `ctx.clock.now()`, never `new Date()`, in anything a test may need to control.
 - **Pagination:** cursor lists sort `{ field: -1, _id: -1 }` and filter with `afterCursor()`.
   The `_id` tiebreak is required, because rows sharing a timestamp would otherwise be skipped.

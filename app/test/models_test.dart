@@ -149,6 +149,22 @@ void main() {
     expect(page.nextCursor, 'abc');
   });
 
+  test('MeUser reads maintenance access, off by default', () {
+    Map<String, dynamic> me([Map<String, dynamic> extra = const {}]) => {
+      'id': 'u1',
+      'shortId': '201',
+      'displayName': 'Boss',
+      'wallet': {'diamonds': 1},
+      'levelProgress': {'level': 1},
+      ...extra,
+    };
+    expect(MeUser.fromJson(me()).maintenanceAccess, isFalse);
+    final listed = MeUser.fromJson(me({'maintenanceAccess': true}));
+    expect(listed.maintenanceAccess, isTrue);
+    expect(listed.withDiamonds(5).maintenanceAccess, isTrue);
+    expect(listed.withoutMaintenanceAccess().maintenanceAccess, isFalse);
+  });
+
   test('AppConfig defaults features to on', () {
     final cfg = AppConfig.fromJson({
       'app': {

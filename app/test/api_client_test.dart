@@ -48,7 +48,10 @@ ResponseBody _json(Map<String, dynamic> body, [int status = 200]) =>
 DioException Function(RequestOptions) _fail(DioExceptionType type) =>
     (o) => DioException(requestOptions: o, type: type);
 
-(ApiClient, _Adapter) _client(List<Object Function(RequestOptions)> script) {
+(ApiClient, _Adapter) _client(
+  List<Object Function(RequestOptions)> script, {
+  void Function()? onMaintenance,
+}) {
   final adapter = _Adapter(script);
   final dio = Dio(BaseOptions(baseUrl: 'https://api.test/v1'))
     ..httpClientAdapter = adapter;
@@ -57,11 +60,31 @@ DioException Function(RequestOptions) _fail(DioExceptionType type) =>
     auth: _SignedOut(),
     dio: dio,
     retryDelay: Duration.zero,
+    onMaintenance: onMaintenance,
   );
   return (api, adapter);
 }
 
 void main() {
+  test('a maintenance rejection is reported; other 503s are not', () async {
+    var calls = 0;
+    final (api, _) = _client([
+      (_) => _json({
+        'error': {'code': 'maintenance', 'message': 'Back soon'},
+      }, 503),
+      (_) => _json({
+        'error': {'code': 'service_unavailable', 'message': 'Down'},
+      }, 503),
+    ], onMaintenance: () => calls++);
+    await expectLater(
+      api.get('/me'),
+      throwsA(isA<ApiException>().having((e) => e.code, 'code', 'maintenance')),
+    );
+    expect(calls, 1);
+    await expectLater(api.get('/me'), throwsA(isA<ApiException>()));
+    expect(calls, 1);
+  });
+
   test(
     'a caller key is sent and reused when a timed-out request is replayed',
     () async {
