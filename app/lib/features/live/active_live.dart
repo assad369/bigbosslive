@@ -21,6 +21,7 @@ final liveControllerFactoryProvider = Provider<LiveControllerFactory>(
       ({required roomId, hostSession, password}) => LiveRoomController(
         roomId: roomId,
         myUid: ref.read(meProvider).id,
+        isStaff: ref.read(meProvider).adminRole != null,
         repo: ref.read(liveRepo),
         hostSession: hostSession,
         password: password,

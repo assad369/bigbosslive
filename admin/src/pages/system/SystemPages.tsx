@@ -51,6 +51,13 @@ const LABELS: Record<string, string> = {
   blockContactInfo: 'Block phone numbers / links in user text',
   blockedWords: 'Extra blocked words',
   maintenanceMessage: 'Maintenance message',
+  youtubeEnabled: 'YouTube music in lives (needs YOUTUBE_API_KEY)',
+  safeSearch: 'Safe search (none, moderate or strict)',
+  regionCode: 'Country videos must play in (e.g. BD; empty = any)',
+  maxDurationSec: 'Longest song (s)',
+  searchCacheSec: 'Reuse a search for (s); each search spends quota',
+  blockedVideoIds: 'Blocked video ids',
+  blockedChannelIds: 'Blocked channel ids (UC…)',
 };
 
 const SECTIONS: { key: string; title: string; help: string }[] = [
@@ -62,6 +69,11 @@ const SECTIONS: { key: string; title: string; help: string }[] = [
   },
   { key: 'live', title: 'Live', help: 'Room behaviour.' },
   { key: 'pk', title: 'PK', help: 'PK battle options.' },
+  {
+    key: 'youtube',
+    title: 'YouTube music',
+    help: 'Rules for songs hosts play in a live. Turn it on with Features → YouTube music.',
+  },
   {
     key: 'moderation',
     title: 'Moderation',

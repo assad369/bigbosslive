@@ -7,6 +7,7 @@ import type { IapGateway } from './infra/iap.js';
 import type { LiveKitGateway } from './infra/livekit.js';
 import type { SightGuardGateway } from './infra/sightguard.js';
 import type { StorageGateway } from './infra/storage.js';
+import type { YouTubeGateway } from './infra/youtube.js';
 import type { JobQueue } from './jobs/queue.js';
 import type { Logger } from './lib/logger.js';
 import { systemClock, type Clock } from './lib/time.js';
@@ -25,6 +26,8 @@ export interface ContextDeps {
   iap: IapGateway;
   /** Content moderation; `disabledSightGuard` when not configured. */
   sightguard: SightGuardGateway;
+  /** YouTube Data API for YouTube music in lives. */
+  youtube: YouTubeGateway;
   jobs: JobQueue;
   clock?: Clock;
 }

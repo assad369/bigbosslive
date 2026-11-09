@@ -24,6 +24,7 @@ import { UsersService } from './modules/users/users.service.js';
 import { IapService } from './modules/wallet/iap.service.js';
 import { WalletService } from './modules/wallet/wallet.service.js';
 import { WithdrawalsService } from './modules/withdrawals/withdrawals.service.js';
+import { YouTubeService } from './modules/youtube/youtube.service.js';
 
 export interface Services {
   agencies: AgenciesService;
@@ -51,6 +52,7 @@ export interface Services {
   users: UsersService;
   wallet: WalletService;
   withdrawals: WithdrawalsService;
+  youtube: YouTubeService;
 }
 
 /**
@@ -84,5 +86,6 @@ export function createServices(ctx: Ctx): Services {
     users: new UsersService(ctx),
     wallet: new WalletService(ctx),
     withdrawals: new WithdrawalsService(ctx),
+    youtube: new YouTubeService(ctx),
   };
 }

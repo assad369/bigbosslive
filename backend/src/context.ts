@@ -6,6 +6,7 @@ import type { IapGateway } from './infra/iap.js';
 import type { LiveKitGateway } from './infra/livekit.js';
 import type { SightGuardGateway } from './infra/sightguard.js';
 import type { StorageGateway } from './infra/storage.js';
+import type { YouTubeGateway } from './infra/youtube.js';
 import type { Logger } from './lib/logger.js';
 import type { Clock } from './lib/time.js';
 import type { RealtimeBus } from './realtime/bus.js';
@@ -29,6 +30,7 @@ export interface Ctx {
   storage: StorageGateway;
   iap: IapGateway;
   sightguard: SightGuardGateway;
+  youtube: YouTubeGateway;
   realtime: RealtimeBus;
   jobs: JobQueue;
   services: Services;

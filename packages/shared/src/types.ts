@@ -145,6 +145,46 @@ export interface LiveRoom {
   endedAt: IsoDate | null;
 }
 
+/** Who queued a YouTube song. */
+export interface YtAddedBy {
+  uid: string;
+  displayName: string;
+}
+
+/** One song in a live's YouTube queue. `qid` names the entry: a video can be queued again. */
+export interface YtItem {
+  qid: string;
+  videoId: string;
+  title: string;
+  channel: string;
+  durationSec: number;
+  addedBy: YtAddedBy;
+}
+
+/** The song playing now. `positionMs` was true at `updatedAt` (server clock, ms). */
+export interface YtNowPlaying extends YtItem {
+  playing: boolean;
+  positionMs: number;
+  updatedAt: number;
+}
+
+/** What a live plays from YouTube. Clients keep the snapshot with the highest `rev`. */
+export interface YouTubeState {
+  current: YtNowPlaying | null;
+  queue: YtItem[];
+  rev: number;
+}
+
+/** A YouTube search result. `reason` says why an unplayable one can't play. */
+export interface YtSearchResult {
+  videoId: string;
+  title: string;
+  channel: string;
+  durationSec: number;
+  playable: boolean;
+  reason: string | null;
+}
+
 export interface Gift {
   id: string;
   name: string;

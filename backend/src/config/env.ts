@@ -76,6 +76,9 @@ const EnvSchema = z.object({
    */
   SIGHTGUARD_AUTO_BAN: bool.default(false),
 
+  /** YouTube Data API v3 key for YouTube music in lives (`features.youtubeEnabled`). */
+  YOUTUBE_API_KEY: z.string().optional(),
+
   JOBS_ENABLED: bool.default(true),
   AGENCY_RESET_TIMEZONE: z.string().default('Asia/Dhaka'),
 });

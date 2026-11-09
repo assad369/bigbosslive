@@ -15,6 +15,11 @@ import {
 } from '../lib/http.js';
 import { unauthorized } from '../lib/errors.js';
 import { liveChatInput, roomPassword, startLiveInput } from '../modules/live/live.service.js';
+import {
+  youtubeCommandInput,
+  youtubeEndedInput,
+  youtubeSearchQuery,
+} from '../modules/youtube/youtube.service.js';
 
 const roomParam = z.object({ id: objectIdString });
 
@@ -40,6 +45,25 @@ export function liveRoutes(ctx: Ctx): Router {
     windowMs: 10 * 60_000,
     limit: 10,
     prefix: 'live-password',
+    byUser: true,
+  });
+  // Searching spends YouTube quota: kept to the people who can play music, and rate-limited.
+  const ytSearchLimit = createRateLimiter(ctx.redis, {
+    windowMs: 60_000,
+    limit: 20,
+    prefix: 'live-yt-search',
+    byUser: true,
+  });
+  const ytCommandLimit = createRateLimiter(ctx.redis, {
+    windowMs: 60_000,
+    limit: 60,
+    prefix: 'live-yt',
+    byUser: true,
+  });
+  const ytEndedLimit = createRateLimiter(ctx.redis, {
+    windowMs: 60_000,
+    limit: 30,
+    prefix: 'live-yt-ended',
     byUser: true,
   });
   const rid = (req: express.Request) => toObjectId(parseParams(req, roomParam).id, 'room id');
@@ -228,6 +252,31 @@ export function liveRoutes(ctx: Ctx): Router {
     );
     await live.manageSeat(rid(req), actor(req), index, action);
     res.status(204).end();
+  });
+
+  // YouTube music (host, room admins and staff; `ended` from anyone in the live)
+  r.get('/:id/youtube/search', ytSearchLimit, async (req, res) => {
+    const { q, pageToken } = parseQuery(req, youtubeSearchQuery);
+    res.json(await ctx.services.youtube.search(actor(req), rid(req), q, pageToken));
+  });
+
+  r.post('/:id/youtube', ytCommandLimit, async (req, res) => {
+    const cmd = parseBody(req, youtubeCommandInput);
+    const roomId = rid(req);
+    const { staffAction, ...result } = await ctx.services.youtube.command(actor(req), roomId, cmd);
+    if (staffAction)
+      await ctx.services.audit.record(
+        req,
+        `youtube.${cmd.action}`,
+        { type: 'live_room', id: String(roomId) },
+        cmd,
+      );
+    res.json(result);
+  });
+
+  r.post('/:id/youtube/ended', ytEndedLimit, async (req, res) => {
+    const { qid } = parseBody(req, youtubeEndedInput);
+    res.json(await ctx.services.youtube.ended(rid(req), qid));
   });
 
   r.get('/:id/pk', async (req, res) => {

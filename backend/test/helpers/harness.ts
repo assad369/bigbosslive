@@ -28,6 +28,13 @@ import {
   type PresignUploadOptions,
   type StorageGateway,
 } from '../../src/infra/storage.js';
+import {
+  youtubeQuota,
+  youtubeUnavailable,
+  type YouTubeGateway,
+  type YtSearchPage,
+  type YtVideo,
+} from '../../src/infra/youtube.js';
 import { InlineJobQueue } from '../../src/jobs/queue.js';
 import { jobHandlers } from '../../src/jobs/scheduler.js';
 import { createLogger } from '../../src/lib/logger.js';
@@ -257,6 +264,52 @@ export class FakeIap implements IapGateway {
   }
 }
 
+/** In-memory YouTube. `failing` simulates an outage, `quota` a spent quota. */
+export class FakeYouTube implements YouTubeGateway {
+  configured = true;
+  readonly videosById = new Map<string, YtVideo>();
+  /** Query → ids, in result order. */
+  readonly results = new Map<string, string[]>();
+  readonly calls: { method: 'search' | 'videos'; arg: string }[] = [];
+  failing = false;
+  quota = false;
+
+  add(v: Partial<YtVideo> & { videoId: string }): YtVideo {
+    const video: YtVideo = {
+      title: `Song ${v.videoId}`,
+      channel: 'Channel',
+      channelId: 'UC_channel',
+      durationSec: 200,
+      embeddable: true,
+      privacyStatus: 'public',
+      liveBroadcastContent: 'none',
+      ageRestricted: false,
+      regionAllowed: null,
+      regionBlocked: null,
+      ...v,
+    };
+    this.videosById.set(video.videoId, video);
+    return video;
+  }
+
+  private check() {
+    if (!this.configured || this.failing) throw youtubeUnavailable();
+    if (this.quota) throw youtubeQuota();
+  }
+
+  async search(q: string): Promise<YtSearchPage> {
+    this.check();
+    this.calls.push({ method: 'search', arg: q });
+    return { ids: this.results.get(q) ?? [], nextPageToken: null };
+  }
+
+  async videos(ids: readonly string[]): Promise<YtVideo[]> {
+    this.check();
+    this.calls.push({ method: 'videos', arg: ids.join(',') });
+    return ids.map((id) => this.videosById.get(id)).filter((v): v is YtVideo => v !== undefined);
+  }
+}
+
 export interface Harness {
   ctx: Ctx;
   api: ReturnType<typeof supertest>;
@@ -266,6 +319,7 @@ export interface Harness {
   push: FakePush;
   iap: FakeIap;
   sightguard: FakeSightGuard;
+  youtube: FakeYouTube;
   jobs: InlineJobQueue;
   client: MongoClient;
   /** Insert a user directly (bypassing the API) with optional overrides. */
@@ -300,6 +354,7 @@ export async function createHarness(): Promise<Harness> {
   const push = new FakePush();
   const iap = new FakeIap();
   const sightguard = new FakeSightGuard();
+  const youtube = new FakeYouTube();
   const jobs = new InlineJobQueue(log);
 
   const ctx = buildContext({
@@ -313,6 +368,7 @@ export async function createHarness(): Promise<Harness> {
     storage: fakeStorage,
     iap,
     sightguard,
+    youtube,
     jobs,
     clock,
   });
@@ -377,6 +433,7 @@ export async function createHarness(): Promise<Harness> {
     push,
     iap,
     sightguard,
+    youtube,
     jobs,
     client,
     user,

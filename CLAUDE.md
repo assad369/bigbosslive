@@ -157,6 +157,30 @@ cd app && flutter analyze && flutter test && dart format lib test
   cosmetics) is silent: `SvgaMovieCache` drops audio unless retained `withAudio`. The room's
   speaker toggle (`roomAudioOn`) disables remote audio tracks and mutes effects on this device.
 
+## YouTube music (`modules/youtube`)
+
+- Every device plays the song through YouTube's official IFrame player, synced to the server
+  state. Nothing is extracted or mixed into a microphone.
+- `YouTubeService` is the only writer of `live_rooms.youtube` (`{ current, queue, rev }`). Each
+  write is one update conditional on `youtube.rev`, then a full snapshot on `bb.youtube`.
+  Clients keep the highest rev (`mergeYouTube`), and so does the room detail on join and poll.
+- Host, room admins and staff control it (staff actions are audited). The client names only a
+  video id, which is checked with the Data API (`ytRefusal`: blocked lists, embeddable, public,
+  not live, not age-restricted, region, length) before it is accepted. Skips, removes and moves
+  name their `qid`, so retries are no-ops.
+- A song ends only when the server clock agrees: `POST /live/:id/youtube/ended` (anyone in the
+  room, 3 s slack) or the `youtube.sweep` tick on `current.endsAt`. `endsAt` never leaves the server.
+- Searches spend quota (100 of 10,000 daily units): they are cached in `youtube_cache` and rate
+  limited. A pasted link or bare id costs one lookup. The API is behind `infra/youtube.ts`
+  (`FakeYouTube` in tests).
+- Off unless `YOUTUBE_API_KEY` is set and `features.youtubeEnabled` is on. Rules are the private
+  `youtube` config key. The flag gates starting a song, never stopping one.
+- App: `LiveYouTubeCard` (`features/live/youtube_player.dart`) wraps `assets/youtube/player.html`
+  in `webview_flutter`, loaded with base URL `https://$LINK_HOST/` so YouTube accepts the embed
+  (error 153 otherwise). The player is at least 200×200, never takes touches, and never plays
+  hidden, in the background or in the mini-player (it lives on the room screen only). It follows
+  the room speaker toggle. Controls live in `YouTubeSheet`.
+
 ## PK battles
 
 - State machine: pending → active → ended, or pending → rejected/cancelled/expired. The only

@@ -195,10 +195,14 @@ class LiveRoomController extends ChangeNotifier {
     required this._repo,
     LiveSession? hostSession,
     this._password,
+    this.isStaff = false,
   }) : _initial = hostSession;
 
   final String roomId;
   final String myUid;
+
+  /// Platform staff (an admin role): the server lets them run a room's music too.
+  final bool isStaff;
   final LiveRepository _repo;
   final LiveSession? _initial;
   final String? _password;
@@ -276,6 +280,13 @@ class LiveRoomController extends ChangeNotifier {
   /// The chat over the stage, shown or hidden by its rail button.
   bool chatVisible = true;
 
+  /// YouTube music, kept at the highest rev seen ([mergeYouTube]).
+  YouTubeState? youtube;
+
+  /// Server − device clock (ms), from the room detail and every YouTube answer.
+  int serverOffsetMs = 0;
+  int get serverNowMs => DateTime.now().millisecondsSinceEpoch + serverOffsetMs;
+
   /// The user's own mic/camera choice while on stage, so syncing seat state never undoes it.
   bool _micOffByMe = false;
   bool _cameraOffByMe = false;
@@ -307,6 +318,9 @@ class LiveRoomController extends ChangeNotifier {
   /// The host or a room admin: can manage seats, requests and remove people.
   bool get isModerator =>
       isHost || (detail?.moderatorIds.contains(myUid) ?? false);
+
+  /// The host, room admins and staff play YouTube songs.
+  bool get canControlYouTube => isModerator || isStaff;
   Seat? get mySeat => detail?.seats
       .where((s) => s.index > 0 && s.user?.id == myUid)
       .firstOrNull;
@@ -397,6 +411,7 @@ class LiveRoomController extends ChangeNotifier {
       // start timers or the wakelock that dispose() has already cleaned up.
       if (_disposed) return;
       detail = session.detail;
+      _takeYouTube(session.detail);
       credentials = session.credentials;
       // Before connecting, so the first camera publish already streams the saved look.
       final filter = await CameraFilterPrefs.load();
@@ -642,6 +657,7 @@ class LiveRoomController extends ChangeNotifier {
           final session = await _repo.join(roomId, password: _password);
           if (_disposed) return;
           detail = session.detail;
+          _takeYouTube(session.detail);
           credentials = session.credentials;
           micOn = false;
           cameraOn = false;
@@ -766,6 +782,11 @@ class LiveRoomController extends ChangeNotifier {
         _onSeats(p);
       case 'bb.system':
         _onSystem(p);
+      case 'bb.youtube':
+        _applyYouTube(
+          YouTubeState.tryParse(p['youtube']),
+          (p['serverNow'] as num?)?.toInt(),
+        );
       case 'bb.room.ended':
         endReason = p.strOrNull('reason');
         _ended();
@@ -1086,6 +1107,7 @@ class LiveRoomController extends ChangeNotifier {
       detail = version != _seatsVersion && current != null
           ? next.copyWith(seats: current.seats)
           : next;
+      _takeYouTube(next);
       await _syncPublishing();
       _notify();
     } catch (_) {}
@@ -1124,6 +1146,51 @@ class LiveRoomController extends ChangeNotifier {
 
   void _notify() {
     if (!_disposed) notifyListeners();
+  }
+
+  // ── YouTube music ──────────────────────────────────────────────────────────
+
+  /// The room as read from the server: its YouTube state, and its clock.
+  void _takeYouTube(RoomDetail d) {
+    serverOffsetMs = d.clockOffset.inMilliseconds;
+    youtube = mergeYouTube(youtube, d.youtube);
+  }
+
+  void _applyYouTube(YouTubeState? next, int? serverNow) {
+    final merged = mergeYouTube(youtube, next);
+    if (identical(merged, youtube)) return;
+    youtube = merged;
+    if (serverNow != null) {
+      serverOffsetMs = serverNow - DateTime.now().millisecondsSinceEpoch;
+    }
+    _notify();
+  }
+
+  /// YouTube songs matching [q], or the video a pasted link names. Throws [ApiException].
+  Future<YtSearchPage> youtubeSearch(String q, {String? pageToken}) =>
+      _repo.youtubeSearch(roomId, q, pageToken: pageToken);
+
+  /// A YouTube command (`play`, `enqueue`, `pause`, `next`, …). The answer is applied at
+  /// once, ordered with the packets by its rev. Returns the error to show, or null.
+  Future<String?> youtubeCommand(Map<String, Object?> command) async {
+    try {
+      final res = await _repo.youtube(roomId, command);
+      if (!_disposed) _applyYouTube(res.youtube, res.serverNow);
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'Something went wrong, try again';
+    }
+  }
+
+  /// This device's player reached the end of [qid]. The server checks it against its own
+  /// clock before moving on, so a failure is ignored.
+  Future<void> youtubeEnded(String qid) async {
+    try {
+      final res = await _repo.youtubeEnded(roomId, qid);
+      if (!_disposed) _applyYouTube(res.youtube, res.serverNow);
+    } catch (_) {}
   }
 
   // ── Actions ────────────────────────────────────────────────────────────────

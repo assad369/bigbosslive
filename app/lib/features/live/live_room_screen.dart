@@ -23,6 +23,8 @@ import 'live_room_controller.dart';
 import 'live_sheets.dart';
 import 'live_stage.dart';
 import 'pk_widgets.dart';
+import 'youtube_player.dart';
+import 'youtube_sheet.dart';
 
 /// Router `extra` carrying a locked room's password from the home screen.
 class RoomPassword {
@@ -441,6 +443,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                                   c,
                                   onParticipants: _openParticipants,
                                 ),
+                                onYouTube: () => YouTubeSheet.show(context, c),
                               ),
                           ],
                         ),
@@ -466,6 +469,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                   ),
                 ),
               ),
+              // YouTube's player must stay visible, so it isn't hidden with the chat.
+              Positioned.fill(child: LiveYouTubeCard(c: c)),
               Positioned.fill(
                 child: EntryEffectOverlay(
                   entries: c.entries,

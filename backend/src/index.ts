@@ -11,6 +11,7 @@ import { createIapGateway } from './infra/iap.js';
 import { createLiveKitGateway } from './infra/livekit.js';
 import { createSightGuardGateway } from './infra/sightguard.js';
 import { createS3Storage } from './infra/storage.js';
+import { createYouTubeGateway } from './infra/youtube.js';
 import { BullJobQueue, InlineJobQueue } from './jobs/queue.js';
 import { jobHandlers, TickScheduler } from './jobs/scheduler.js';
 import { createLogger } from './lib/logger.js';
@@ -53,10 +54,12 @@ async function main(): Promise<void> {
     storage: createS3Storage(() => ctx.services.storageSettings.resolve()),
     iap: createIapGateway(env),
     sightguard: createSightGuardGateway(env),
+    youtube: createYouTubeGateway(env),
     jobs,
   });
   if (ctx.sightguard.enabled)
     log.info({ live: ctx.sightguard.liveEnabled }, 'SightGuard moderation enabled');
+  if (!ctx.youtube.configured) log.warn('YouTube music disabled: YOUTUBE_API_KEY is unset');
   if (!firebaseConfigured)
     log.warn('FIREBASE_PROJECT_ID not set — authentication will reject every request');
 

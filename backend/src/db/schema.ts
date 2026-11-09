@@ -18,7 +18,10 @@ import type {
   RoomType,
   UserStatus,
   WithdrawalStatus,
+  YtItem,
+  YtNowPlaying,
 } from '@bigboss/shared';
+import type { YtVideo } from '../infra/youtube.js';
 
 /**
  * MongoDB document shapes. MongoDB is the single source of truth — there is no Firestore
@@ -149,6 +152,21 @@ export interface LiveRoomDoc {
   endedAt: Date | null;
   endReason: 'host' | 'admin' | 'stale' | 'webhook' | 'banned' | 'moderation' | null;
   endedBy: string | null;
+  /** YouTube songs and their queue. Written only by `YouTubeService`. */
+  youtube?: YouTubeStateDoc | null;
+}
+
+/** The song playing now, as stored: `endsAt` is server-only and read by `youtube.sweep`. */
+export interface YtNowPlayingDoc extends YtNowPlaying {
+  /** When the song ends on the server clock (ms) while playing, else null. */
+  endsAt: number | null;
+}
+
+/** A live's YouTube music. Every write bumps `rev`; clients drop older snapshots. */
+export interface YouTubeStateDoc {
+  current: YtNowPlayingDoc | null;
+  queue: YtItem[];
+  rev: number;
 }
 
 /** One row per LiveKit participant currently in a room, maintained from webhooks. */
@@ -723,6 +741,15 @@ export interface SightGuardEventDoc {
   _id: string;
   type: string;
   receivedAt: Date;
+}
+
+/** A cached YouTube search page (`s:<hash>`) or video lookup (`v:<id>`). Holds no uid. */
+export interface YoutubeCacheDoc {
+  _id: string;
+  videos: YtVideo[];
+  nextPageToken: string | null;
+  createdAt: Date;
+  expiresAt: Date;
 }
 
 export interface MigrationDoc {

@@ -29,6 +29,8 @@ export function jobHandlers(ctx: Ctx): JobHandlers {
 export const TICKS: { name: string; everyMs: number; run: (ctx: Ctx) => Promise<unknown> }[] = [
   { name: 'games.tick', everyMs: 1_000, run: (ctx) => ctx.services.games.tick() },
   { name: 'pk.sweep', everyMs: 2_000, run: (ctx) => ctx.services.pk.sweep() },
+  // Songs that ended while every player was hidden; deadlines are `youtube.current.endsAt`.
+  { name: 'youtube.sweep', everyMs: 2_000, run: (ctx) => ctx.services.youtube.sweep() },
   { name: 'live.sweep', everyMs: 30_000, run: (ctx) => ctx.services.live.sweepStale() },
   { name: 'store.sweep', everyMs: 60 * 60_000, run: (ctx) => ctx.services.store.sweepExpired() },
   // Hourly is enough: members are also rolled lazily on their first earning in a new month.

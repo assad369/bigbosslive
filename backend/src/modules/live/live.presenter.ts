@@ -1,6 +1,7 @@
 import type { LiveRoom } from '@bigboss/shared';
 import type { LiveRoomDoc } from '../../db/schema.js';
 import type { UserBrief } from '../users/users.presenter.js';
+import { youtubeView } from '../youtube/youtube.state.js';
 
 export function toLiveRoom(r: LiveRoomDoc, host: UserBrief | undefined): LiveRoom {
   return {
@@ -56,6 +57,8 @@ export function toRoomDetail(
       user: s.userId ? (users.get(s.userId) ?? null) : null,
       diamonds: s.userId ? (balances.get(s.userId) ?? 0) : 0,
     })),
+    /** YouTube music; clients keep the snapshot with the highest `rev`. */
+    youtube: youtubeView(r.youtube),
     /** Lets clients correct their clock for the elapsed-time display. */
     serverTime: now.toISOString(),
   };

@@ -194,6 +194,33 @@ class LiveRepository {
     );
   }
 
+  /// YouTube songs that match [q], or the video a pasted link names.
+  Future<YtSearchPage> youtubeSearch(
+    String roomId,
+    String q, {
+    String? pageToken,
+  }) async => YtSearchPage.fromJson(
+    await _api.get(
+      '/live/$roomId/youtube/search',
+      query: {'q': q, 'pageToken': ?pageToken},
+    ),
+  );
+
+  /// A YouTube command (`play`, `enqueue`, `pause`, `next`, …). Retries are safe:
+  /// skips, removes and moves name the song they act on.
+  Future<YouTubeUpdate> youtube(
+    String roomId,
+    Map<String, Object?> command,
+  ) async => YouTubeUpdate.fromJson(
+    await _api.post('/live/$roomId/youtube', body: command),
+  );
+
+  /// This device's player reached the end of [qid]; the server checks its own clock.
+  Future<YouTubeUpdate> youtubeEnded(String roomId, String qid) async =>
+      YouTubeUpdate.fromJson(
+        await _api.post('/live/$roomId/youtube/ended', body: {'qid': qid}),
+      );
+
   Future<void> deleteChat(String roomId, String messageId) =>
       _api.delete('/live/$roomId/chat/$messageId');
   Future<void> react(String roomId, int count) =>

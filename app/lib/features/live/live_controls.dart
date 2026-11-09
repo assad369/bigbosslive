@@ -677,6 +677,7 @@ class LiveSideRail extends ConsumerStatefulWidget {
     required this.onGames,
     required this.onFilters,
     required this.onMore,
+    this.onYouTube,
   });
   final LiveRoomController c;
   final VoidCallback onPk;
@@ -690,6 +691,9 @@ class LiveSideRail extends ConsumerStatefulWidget {
   /// Opens the beauty & filter sheet for my camera.
   final VoidCallback onFilters;
   final VoidCallback onMore;
+
+  /// Opens the YouTube music sheet; null hides the button.
+  final VoidCallback? onYouTube;
 
   @override
   ConsumerState<LiveSideRail> createState() => _LiveSideRailState();
@@ -710,6 +714,12 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
         c.pkOutgoing == null;
     final staged = c.isHost || c.onSeat;
     final camTools = staged && c.isVideoRoom;
+    // Still shown while a song plays with the feature switched off, so it can be stopped.
+    final canYouTube =
+        widget.onYouTube != null &&
+        c.canControlYouTube &&
+        ((config?.feature('youtubeEnabled') ?? false) ||
+            c.youtube?.current != null);
     final controls = <Widget>[
       if (config?.feature('gamesEnabled') ?? true)
         LiveRoundButton(
@@ -781,6 +791,13 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
             onTap: widget.onFilters,
           ),
       ],
+      if (canYouTube)
+        LiveRoundButton(
+          icon: Icons.smart_display_rounded,
+          tooltip: 'YouTube music',
+          badge: c.youtube?.count ?? 0,
+          onTap: widget.onYouTube,
+        ),
       LiveRoundButton(
         icon: Icons.more_horiz_rounded,
         tooltip: 'More',

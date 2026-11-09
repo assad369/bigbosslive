@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<!--
+  YouTube's official IFrame player for live-room music (LiveYouTubeCard).
+  Loaded with base URL https://__ORIGIN_HOST__/ so the embed gets a real
+  origin and referrer; without them YouTube refuses with error 153.
+  Talks to Dart only through the `YtBridge` channel and the `bb` object below.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+    #player { position: absolute; inset: 0; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="player"></div>
+  <script>
+    (function () {
+      var ORIGIN = 'https://__ORIGIN_HOST__';
+      var player = null;
+      var ready = false;
+
+      function send(e) {
+        try { window.YtBridge.postMessage(JSON.stringify(e)); } catch (_) {}
+      }
+
+      var tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      tag.onerror = function () { send({ event: 'error', code: -1 }); };
+      document.head.appendChild(tag);
+
+      window.onYouTubeIframeAPIReady = function () {
+        player = new YT.Player('player', {
+          width: '100%',
+          height: '100%',
+          playerVars: {
+            playsinline: 1,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            rel: 0,
+            iv_load_policy: 3,
+            origin: ORIGIN,
+            widget_referrer: ORIGIN
+          },
+          events: {
+            onReady: function () { ready = true; send({ event: 'ready' }); },
+            onStateChange: function (e) { send({ event: 'state', state: e.data }); },
+            onError: function (e) { send({ event: 'error', code: e.data }); }
+          }
+        });
+      };
+
+      window.bb = {
+        load: function (id, startSec, play) {
+          if (!ready) return false;
+          var opts = { videoId: id, startSeconds: startSec };
+          if (play) player.loadVideoById(opts); else player.cueVideoById(opts);
+          return true;
+        },
+        seek: function (sec) { if (ready) player.seekTo(sec, true); },
+        play: function () { if (ready) player.playVideo(); },
+        pause: function () { if (ready) player.pauseVideo(); },
+        stop: function () { if (ready) player.stopVideo(); },
+        mute: function (m) { if (!ready) return; if (m) player.mute(); else player.unMute(); },
+        time: function () { return ready && player.getCurrentTime ? player.getCurrentTime() : -1; }
+      };
+    })();
+  </script>
+</body>
+</html>

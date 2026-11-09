@@ -31,6 +31,8 @@ export const CONFIG_SCHEMAS = {
     audioRoomsEnabled: z.boolean().default(true),
     withdrawalsEnabled: z.boolean().default(true),
     adsEnabled: z.boolean().default(false),
+    /** Hosts and room admins play YouTube songs in a live (needs YOUTUBE_API_KEY). */
+    youtubeEnabled: z.boolean().default(false),
   }),
   app: z.object({
     minSupportedBuild: z
@@ -68,6 +70,37 @@ export const CONFIG_SCHEMAS = {
     leadInSec: z.number().int().min(0).max(10).default(3),
     /** Between rounds, the battle ends if no host starts the next round within this time. */
     pauseTimeoutSec: z.number().int().min(10).max(900).default(120),
+  }),
+  /** YouTube music in lives (`features.youtubeEnabled`). Private: never sent to the app. */
+  youtube: z.object({
+    /** YouTube's own filter for search results. */
+    safeSearch: z.enum(['none', 'moderate', 'strict']).default('moderate'),
+    /** ISO country code videos are checked against ('' = no region check). */
+    regionCode: z
+      .union([z.literal(''), z.string().regex(/^[A-Z]{2}$/, 'A two-letter country code, like BD')])
+      .default(''),
+    /** Longest song accepted, in seconds. */
+    maxDurationSec: z
+      .number()
+      .int()
+      .min(60)
+      .max(3 * 3600)
+      .default(900),
+    /** How long a search is answered from the cache (a search costs 100 of 10,000 daily units). */
+    searchCacheSec: z
+      .number()
+      .int()
+      .min(300, 'At least 5 minutes, or the quota runs out')
+      .max(7 * 86_400)
+      .default(21_600),
+    blockedVideoIds: z
+      .array(z.string().regex(/^[A-Za-z0-9_-]{11}$/, 'A YouTube video id has 11 characters'))
+      .max(5000)
+      .default([]),
+    blockedChannelIds: z
+      .array(z.string().regex(/^UC[A-Za-z0-9_-]{22}$/, 'A channel id starts with UC'))
+      .max(5000)
+      .default([]),
   }),
 } as const;
 

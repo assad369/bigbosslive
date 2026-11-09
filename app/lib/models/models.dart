@@ -1,4 +1,7 @@
 import '../core/utils/json.dart';
+import 'youtube.dart';
+
+export 'youtube.dart';
 
 /// Compact identity used in rooms, chat, leaderboards and lists.
 class UserBrief {
@@ -373,6 +376,7 @@ class RoomDetail {
     required this.seats,
     this.backgroundUrl,
     this.clockOffset = Duration.zero,
+    this.youtube,
   });
   final LiveRoom room;
   final String livekitRoom;
@@ -385,6 +389,9 @@ class RoomDetail {
 
   /// Server − device clock, so the elapsed time is right on a phone whose clock is off.
   final Duration clockOffset;
+
+  /// YouTube music as the room was read; the controller keeps the newest by `rev`.
+  final YouTubeState? youtube;
 
   RoomDetail copyWith({
     LiveRoom? room,
@@ -400,6 +407,7 @@ class RoomDetail {
     seats: seats ?? this.seats,
     backgroundUrl: backgroundUrl == null ? this.backgroundUrl : backgroundUrl(),
     clockOffset: clockOffset,
+    youtube: youtube,
   );
 
   factory RoomDetail.fromJson(Json j) {
@@ -414,6 +422,7 @@ class RoomDetail {
       clockOffset: serverTime == null
           ? Duration.zero
           : serverTime.difference(DateTime.now()),
+      youtube: YouTubeState.tryParse(j['youtube']),
     );
   }
 }

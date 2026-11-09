@@ -60,6 +60,12 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { hostId: 1, startedAt: -1 } },
     // Seat balance broadcasts: the live rooms where a user is on a seat.
     { key: { 'seats.userId': 1 }, partialFilterExpression: { status: 'live' } },
+    // `youtube.sweep`: songs that ended with nobody reporting it.
+    {
+      key: { 'youtube.current.endsAt': 1 },
+      partialFilterExpression: { 'youtube.current.endsAt': { $type: 'number' } },
+      name: 'youtube_ends_at',
+    },
   ],
   roomPresence: [{ key: { roomId: 1, identity: 1 }, unique: true }],
   roomBans: [
@@ -233,6 +239,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   idempotency: [{ key: { createdAt: 1 }, expireAfterSeconds: 7 * 86400 }],
   // SightGuard retries a delivery for well under a week; older ids can be forgotten.
   sightguardEvents: [{ key: { receivedAt: 1 }, expireAfterSeconds: 7 * 86400 }],
+  // YouTube searches and lookups expire on their own.
+  youtubeCache: [{ key: { expiresAt: 1 }, expireAfterSeconds: 0 }],
   auditLogs: [
     { key: { createdAt: -1 } },
     { key: { adminId: 1, createdAt: -1 } },

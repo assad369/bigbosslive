@@ -280,4 +280,9 @@ export const LIVEKIT_TOPICS = {
   reaction: 'bb.reaction',
   entry: 'bb.entry',
   roomEnded: 'bb.room.ended',
+  /** Full snapshot of a live's YouTube music (`YouTubeState`), ordered by its `rev`. */
+  youtube: 'bb.youtube',
 } as const;
+
+/** Songs a live's YouTube queue holds; keeps the snapshot packet small. */
+export const YT_QUEUE_MAX = 30;

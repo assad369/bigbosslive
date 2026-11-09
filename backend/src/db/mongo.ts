@@ -58,6 +58,7 @@ export interface Collections {
   idempotency: Collection<S.IdempotencyDoc>;
   migrations: Collection<S.MigrationDoc>;
   sightguardEvents: Collection<S.SightGuardEventDoc>;
+  youtubeCache: Collection<S.YoutubeCacheDoc>;
 }
 
 const NAMES: Record<keyof Collections, string> = {
@@ -109,6 +110,7 @@ const NAMES: Record<keyof Collections, string> = {
   idempotency: 'idempotency_keys',
   migrations: 'migrations',
   sightguardEvents: 'sightguard_events',
+  youtubeCache: 'youtube_cache',
 };
 
 export interface Database {
