@@ -225,3 +225,125 @@ describe('gift transactions', () => {
     expect(h.livekit.topics('bb.gift')).toHaveLength(1);
   });
 });
+
+describe('room gifts', () => {
+  beforeEach(() => {
+    h.livekit.data = [];
+  });
+
+  async function liveRoom(diamonds: number) {
+    const { sender, receiver: host } = await pair(diamonds);
+    const { room } = await h.ctx.services.live.start(host, {
+      type: 'video',
+      title: 'Room gifts',
+      coverUrl: null,
+      tags: [],
+    });
+    return { sender, host, roomId: room.id, oid: new ObjectId(room.id) };
+  }
+
+  const send = (sender: string, receiver: string, roomId: string, k = key()) =>
+    h.api
+      .post('/v1/gifts/send')
+      .set(h.as(sender))
+      .set('Idempotency-Key', k)
+      .send({ giftId, quantity: 2, receiverIds: [receiver], roomId });
+
+  it('saves one chat message per gift and sends it inside bb.gift', async () => {
+    const { sender, host, roomId, oid } = await liveRoom(5000);
+    const k = key();
+    const res = await send(sender, host, roomId, k);
+    expect(res.status).toBe(200);
+
+    const rows = await h.ctx.col.liveMessages.find({ roomId: oid }).toArray();
+    expect(rows).toHaveLength(1);
+    expect(String(rows[0]!._id)).toBe(res.body.transactionId);
+    expect(rows[0]).toMatchObject({
+      userId: sender,
+      type: 'gift',
+      gift: {
+        transactionId: res.body.transactionId,
+        giftId,
+        name: 'Crown',
+        iconUrl: 'https://cdn.test/crown.png',
+        quantity: 2,
+        totalCost: 1000,
+        receivers: [{ id: host, displayName: expect.any(String) }],
+      },
+    });
+
+    const packet = h.livekit.topics('bb.gift')[0]!.payload as {
+      message: Record<string, unknown> & { user: Record<string, unknown> };
+    };
+    expect(packet.message).toMatchObject({
+      id: res.body.transactionId,
+      type: 'gift',
+      text: expect.stringContaining('sent Crown ×2 to'),
+      gift: { name: 'Crown', quantity: 2 },
+    });
+    expect(packet.message.user).toMatchObject({
+      uid: sender,
+      role: 'audience',
+      level: expect.any(Number),
+    });
+
+    // A retry with the same key replays: no second charge, row or broadcast.
+    const again = await send(sender, host, roomId, k);
+    expect(again.body.replayed).toBe(true);
+    expect(await h.ctx.col.liveMessages.countDocuments({ roomId: oid })).toBe(1);
+    expect(h.livekit.topics('bb.gift')).toHaveLength(1);
+  });
+
+  it('a reply to a gift message quotes the gift', async () => {
+    const { sender, host, roomId } = await liveRoom(5000);
+    const sent = await send(sender, host, roomId);
+    const reply = await h.api
+      .post(`/v1/live/${roomId}/chat`)
+      .set(h.as(host))
+      .send({ type: 'text', text: 'Thank you!', replyToId: sent.body.transactionId });
+    expect(reply.status).toBe(201);
+    expect(reply.body.message.replyTo).toMatchObject({
+      id: sent.body.transactionId,
+      userId: sender,
+      text: '🎁 Crown ×2',
+    });
+  });
+
+  it('gifts a guest on stage and a viewer who is watching', async () => {
+    const { sender, roomId, oid } = await liveRoom(5000);
+    const guest = (await h.user(`guest${n}`))._id;
+    const viewer = (await h.user(`viewer${n}`))._id;
+    await h.ctx.col.liveRooms.updateOne(
+      { _id: oid, 'seats.index': 1 },
+      { $set: { 'seats.$.userId': guest } },
+    );
+    await h.ctx.col.roomPresence.insertOne({
+      roomId: oid,
+      identity: viewer,
+      joinedAt: h.ctx.clock.now(),
+    });
+    expect((await send(sender, guest, roomId)).status).toBe(200);
+    expect((await send(sender, viewer, roomId)).status).toBe(200);
+    const v = await h.ctx.col.users.findOne({ _id: viewer });
+    expect(v!.wallet.diamonds).toBe(700);
+    // Only the host's gifts count towards the room total.
+    const room = await h.ctx.col.liveRooms.findOne({ _id: oid });
+    expect(room!.giftDiamonds).toBe(0);
+  });
+
+  it('refuses a receiver who is not in the room, without charging', async () => {
+    const { sender, roomId, oid } = await liveRoom(5000);
+    const outsider = (await h.user(`out${n}`, { displayName: 'Outsider' }))._id;
+    const res = await send(sender, outsider, roomId);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({
+      code: 'receiver_not_in_room',
+      message: 'Outsider is no longer in this live',
+    });
+    const s = await h.ctx.col.users.findOne({ _id: sender });
+    expect(s!.wallet.diamonds).toBe(5000);
+    expect(await ledgerSum(sender, 'diamonds')).toBe(0);
+    expect(await h.ctx.col.liveMessages.countDocuments({ roomId: oid })).toBe(0);
+    expect(h.livekit.topics('bb.gift')).toHaveLength(0);
+  });
+});

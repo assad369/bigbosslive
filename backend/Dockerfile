@@ -6,6 +6,8 @@ WORKDIR /repo
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY backend/package.json backend/
+# Vendored @sightguard/sdk tarball referenced by backend/package.json (file:vendor/…).
+COPY backend/vendor backend/vendor
 RUN npm ci --workspace backend --workspace @bigboss/shared --include-workspace-root=false --include=dev
 COPY packages/shared packages/shared
 COPY backend backend

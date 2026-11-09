@@ -6,6 +6,10 @@ export interface JobPayloads {
   'announcement.send': { announcementId: string };
   'push.user': { userId: string; title: string; body: string; data?: Record<string, string> };
   'push.followers': { hostId: string; roomId: string };
+  /** Start or stop SightGuard supervision of a live room. */
+  'sightguard.live': { op: 'start' | 'end'; roomId: string; livekitRoom: string; hostId: string };
+  /** Submit an uploaded video for async moderation; the verdict arrives by webhook. */
+  'sightguard.video': { url: string; userId: string; metadata: Record<string, string> };
 }
 export type JobName = keyof JobPayloads;
 export type JobHandlers = { [K in JobName]: (data: JobPayloads[K]) => Promise<void> };

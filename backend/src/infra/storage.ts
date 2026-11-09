@@ -33,6 +33,8 @@ export interface StorageGateway {
   presignUpload(opts: PresignUploadOptions): Promise<PresignedUpload>;
   /** True when `url` is the public URL of an object this user uploaded into `folder`. */
   isOwnUpload(url: string, folder: string, ownerId: string): Promise<boolean>;
+  /** True when `url` is a dashboard-uploaded platform asset (under `admin/`). */
+  isPlatformAsset(url: string): Promise<boolean>;
   /** Throws when the bucket is unreachable with the current credentials. */
   verify(): Promise<void>;
   /** Replaces the bucket's CORS config with `bucketCorsRules(origins)`. */
@@ -87,6 +89,12 @@ export function isOwnUploadUrl(
 }
 
 /** Headers the client must send with the PUT, exactly as signed. */
+export function isPlatformAssetUrl(base: string, url: string): boolean {
+  if (!base) return false;
+  const prefix = `${base.replace(/\/$/, '')}/admin/`;
+  return url.startsWith(prefix) && !url.slice(prefix.length).includes('..');
+}
+
 export function uploadHeaders(o: PresignUploadOptions): Record<string, string> {
   return {
     'Content-Type': o.contentType,
@@ -157,6 +165,10 @@ export function createS3Storage(settings: () => Promise<S3Settings | null>): Sto
     async isOwnUpload(url, folder, ownerId) {
       const cfg = await settings();
       return isOwnUploadUrl(cfg?.publicBaseUrl ?? '', url, folder, ownerId);
+    },
+    async isPlatformAsset(url) {
+      const cfg = await settings();
+      return isPlatformAssetUrl(cfg?.publicBaseUrl ?? '', url);
     },
     async verify() {
       const { cfg, client } = await resolve();

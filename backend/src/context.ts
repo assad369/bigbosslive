@@ -4,6 +4,7 @@ import type { Collections, Database } from './db/mongo.js';
 import type { AuthProvider, PushGateway } from './infra/firebase.js';
 import type { IapGateway } from './infra/iap.js';
 import type { LiveKitGateway } from './infra/livekit.js';
+import type { SightGuardGateway } from './infra/sightguard.js';
 import type { StorageGateway } from './infra/storage.js';
 import type { Logger } from './lib/logger.js';
 import type { Clock } from './lib/time.js';
@@ -27,6 +28,7 @@ export interface Ctx {
   push: PushGateway;
   storage: StorageGateway;
   iap: IapGateway;
+  sightguard: SightGuardGateway;
   realtime: RealtimeBus;
   jobs: JobQueue;
   services: Services;

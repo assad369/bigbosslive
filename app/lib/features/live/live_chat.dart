@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -300,14 +301,7 @@ class ChatBubble extends StatelessWidget {
         'joined the live',
         style: TextStyle(color: BBColors.champagne, fontSize: 12),
       ),
-      ChatKind.gift => Text(
-        '🎁 ${line.text}',
-        style: const TextStyle(
-          color: BBColors.goldLight,
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      ChatKind.gift => _GiftContent(line: line),
       _ => Text(
         line.text,
         maxLines: 4,
@@ -370,6 +364,72 @@ class ChatBubble extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A gift line: the gift's picture, then "sent Rose ×10 to Alice, Bob".
+class _GiftContent extends StatelessWidget {
+  const _GiftContent({required this.line});
+  final ChatLine line;
+
+  static const _icon = 22.0;
+  static const _style = TextStyle(color: BBColors.goldLight, fontSize: 13);
+
+  @override
+  Widget build(BuildContext context) {
+    final gift = line.gift;
+    if (gift == null) {
+      return Text('🎁 ${line.text}', style: _style);
+    }
+    final receivers = gift.receiverNames.join(', ');
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox.square(
+          dimension: _icon,
+          child: gift.iconUrl.isEmpty
+              ? const Icon(
+                  Icons.card_giftcard_rounded,
+                  size: _icon,
+                  color: BBColors.goldLight,
+                )
+              : CachedNetworkImage(
+                  imageUrl: gift.iconUrl,
+                  fit: BoxFit.contain,
+                  errorWidget: (_, _, _) => const Icon(
+                    Icons.card_giftcard_rounded,
+                    size: _icon,
+                    color: BBColors.goldLight,
+                  ),
+                ),
+        ),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(text: 'sent '),
+                TextSpan(
+                  text: gift.name,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                TextSpan(
+                  text: ' ×${gift.quantity}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+                if (receivers.isNotEmpty) TextSpan(text: ' to $receivers'),
+              ],
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: _style,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -614,7 +674,7 @@ class _ChatComposerState extends State<ChatComposer> {
                   Expanded(
                     child: Text(
                       'Replying to ${reply.user?.displayName ?? ''}: '
-                      '${reply.kind == ChatKind.voice ? '🎤 Voice message' : reply.text}',
+                      '${reply.preview}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(

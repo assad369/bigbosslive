@@ -358,6 +358,114 @@ void main() {
     expect(c.detail!.room.giftDiamonds, 1234);
   });
 
+  Map<String, dynamic> giftPacket({Map<String, dynamic>? message}) => {
+    'transactionId': 't1',
+    'sender': _brief('fan'),
+    'gift': {
+      'id': 'g',
+      'name': 'Rose',
+      'price': 10,
+      'iconUrl': 'https://cdn.test/rose.png',
+    },
+    'quantity': 10,
+    'receivers': [_brief('host'), _brief('guest')],
+    'roomGiftDiamonds': 70,
+    'message': ?message,
+  };
+
+  test('a gift shows the chat message the server saved', () {
+    final c = _controller();
+    c.handleServerPacket(
+      'bb.gift',
+      giftPacket(
+        message: {
+          'id': 't1',
+          'type': 'gift',
+          'text': 'sent Rose ×10 to User host, User guest',
+          'voice': null,
+          'replyTo': null,
+          'gift': {
+            'transactionId': 't1',
+            'giftId': 'g',
+            'name': 'Rose',
+            'iconUrl': 'https://cdn.test/rose.png',
+            'quantity': 10,
+            'totalCost': 200,
+            'receivers': [
+              {'id': 'host', 'displayName': 'User host'},
+              {'id': 'guest', 'displayName': 'User guest'},
+            ],
+          },
+          'user': _brief('fan', role: 'moderator'),
+          'at': '2026-11-09T10:00:00.000Z',
+        },
+      ),
+    );
+    final gifts = c.chat.where((l) => l.kind == ChatKind.gift).toList();
+    expect(gifts, hasLength(1));
+    final line = gifts.single;
+    expect(line.id, 't1');
+    expect(line.isMessage, isTrue); // can be replied to, reported and deleted
+    expect(line.user!.id, 'fan');
+    expect(line.role, RoomRole.admin);
+    expect(line.gift!.name, 'Rose');
+    expect(line.gift!.iconUrl, 'https://cdn.test/rose.png');
+    expect(line.gift!.quantity, 10);
+    expect(line.gift!.receiverNames, ['User host', 'User guest']);
+    expect(line.preview, '🎁 Rose ×10');
+
+    // The same gift again (a redelivered packet) adds nothing.
+    c.handleServerPacket('bb.gift', giftPacket());
+    expect(c.chat.where((l) => l.kind == ChatKind.gift), hasLength(1));
+  });
+
+  test('without a saved message the app writes its own gift line', () {
+    final c = _controller();
+    c.handleServerPacket('bb.gift', giftPacket());
+    final line = c.chat.singleWhere((l) => l.kind == ChatKind.gift);
+    expect(line.id, 't1');
+    expect(line.isMessage, isFalse); // nothing on the server to reply to
+    expect(line.gift!.name, 'Rose');
+    expect(line.gift!.receiverNames, ['User host', 'User guest']);
+    expect(line.text, 'sent Rose ×10 to User host, User guest');
+  });
+
+  test('automated moderation notices reach the participant', () async {
+    final c = _controller(me: 'guest');
+    final warned = c.notices.first;
+    c.handleServerPacket('bb.system', {'kind': 'moderation', 'action': 'warn'});
+    expect(await warned, contains('community guidelines'));
+    final muted = c.notices.first;
+    c.handleServerPacket('bb.system', {
+      'kind': 'moderation',
+      'action': 'muted',
+      'media': 'video',
+    });
+    expect(await muted, contains('camera was turned off'));
+  });
+
+  test('a moderation end and a system kick keep why it happened', () async {
+    final viewer = _controller(me: 'v');
+    viewer.status = LiveStatus.live;
+    viewer.handleServerPacket('bb.room.ended', {
+      'roomId': 'r1',
+      'reason': 'moderation',
+    });
+    expect(viewer.status, LiveStatus.ended);
+    expect(viewer.endReason, 'moderation');
+
+    final kicked = _controller(me: 'v');
+    kicked.status = LiveStatus.live;
+    kicked.handleServerPacket('bb.kick', {'uid': 'v', 'by': 'system'});
+    expect(kicked.status, LiveStatus.kicked);
+    expect(kicked.removedByModeration, isTrue);
+
+    final byHost = _controller(me: 'v');
+    byHost.status = LiveStatus.live;
+    byHost.handleServerPacket('bb.kick', {'uid': 'v', 'by': 'host'});
+    expect(byHost.removedByModeration, isFalse);
+  });
+
   test('a declined PK challenge clears the waiting state', () {
     final c = _controller(me: 'host');
     c.pkOutgoing = PkBattle.fromJson(_battle('b2', status: 'pending'));

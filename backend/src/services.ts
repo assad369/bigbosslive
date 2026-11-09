@@ -17,6 +17,8 @@ import { NotificationsService } from './modules/notifications/notifications.serv
 import { PkService } from './modules/pk/pk.service.js';
 import { StorageSettingsService } from './modules/config/storage-settings.service.js';
 import { ShareService } from './modules/share/share.service.js';
+import { SightGuardEventsService } from './modules/sightguard/sightguard-events.service.js';
+import { SightGuardService } from './modules/sightguard/sightguard.service.js';
 import { StoreService } from './modules/store/store.service.js';
 import { UsersService } from './modules/users/users.service.js';
 import { IapService } from './modules/wallet/iap.service.js';
@@ -41,6 +43,8 @@ export interface Services {
   notifications: NotificationsService;
   pk: PkService;
   share: ShareService;
+  sightguard: SightGuardService;
+  sightguardEvents: SightGuardEventsService;
   stats: StatsService;
   storageSettings: StorageSettingsService;
   store: StoreService;
@@ -72,6 +76,8 @@ export function createServices(ctx: Ctx): Services {
     notifications: new NotificationsService(ctx),
     pk: new PkService(ctx),
     share: new ShareService(ctx),
+    sightguard: new SightGuardService(ctx),
+    sightguardEvents: new SightGuardEventsService(ctx),
     stats: new StatsService(ctx),
     storageSettings: new StorageSettingsService(ctx),
     store: new StoreService(ctx),

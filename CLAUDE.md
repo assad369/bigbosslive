@@ -146,6 +146,11 @@ cd app && flutter analyze && flutter test && dart format lib test
   reference them. Voice messages must be the sender's own `voice` upload
   (`storage.isOwnUpload`). Clients must ignore data packets that have a participant sender.
   Only server packets (`participant == null`) are trusted.
+- Room gifts go only to people in the room: the host, seated guests, or viewers with a
+  `room_presence` row (`LiveService.firstAbsent`, else 400 `receiver_not_in_room`). Each one
+  is saved as a `live_messages` row (`type: 'gift'`, `_id` = the gift transaction id, so never
+  twice) and rides inside the `bb.gift` packet as `message`, not as a `bb.chat` packet. Older
+  apps would show it twice. The app falls back to a local line when `message` is missing.
 - Rooms with no heartbeat for `live.staleAfterSec` are ended by the `live.sweep` job.
 - Gift and entrance effects keep the clip's own sound (`EffectView(sound: true)`), mixed with
   LiveKit (`mixWithOthers`, never taking the audio session). Everything else (frames, looping
@@ -185,6 +190,32 @@ cd app && flutter analyze && flutter test && dart format lib test
   Flutter's own deep linking is off on both platforms (`DeepLinkService` handles them).
 - `LINK_HOST` is one dart-define for Dart and the Android manifest. On iOS it is the Runner
   `LINK_HOST` build setting.
+
+## Content moderation (SightGuard)
+
+- Setup and the channel table are in `docs/sightguard.md`. It is off unless `SIGHTGUARD_ENABLED`.
+  The SDK is behind `infra/sightguard.ts` (`FakeSightGuard` in tests) and is vendored as
+  `backend/vendor/*.tgz`.
+- Policy lives in `SightGuardService` only.
+  - Text and most images fail **open**.
+  - Avatars and live covers/backgrounds fail **closed**, with 503 `moderation_unavailable`.
+  - A reject is 422 `content_rejected`.
+  - The word filter (`assertClean`) still runs first.
+- Uploads never pass through the API, so images are checked **by URL** when the URL is saved.
+  Profile and room fields are checked only when they change. Platform `admin/` assets are skipped.
+- A `review` verdict publishes now. Each check sends a `ContentRef` (ids allocated *before* the
+  check) as metadata, so a later `review.completed` or `video.completed` reject can undo exactly
+  that content. A new moderated entry point needs a ref type and an undo case in
+  `SightGuardEventsService`.
+- Webhooks (`POST /v1/webhooks/sightguard`) are deduped by the `sightguard_events` insert. A
+  failed handler drops the row so the retry runs. Undo and room actions are conditional updates,
+  so replaying them is safe.
+- Live actions go through `LiveService.system*`, which uses actor `system` and writes
+  `AuditService.recordSystem`. The host is never evicted (their live is ended, `endReason:
+  'moderation'`). In a PK, the opponent's violation applies to the opponent's own room. A host
+  seat never gets a mute flag, because nothing could clear it.
+- Bans need `SIGHTGUARD_AUTO_BAN`, and staff are never auto-banned. Supervision start/end and
+  video submits are `sightguard.*` jobs, so they never block or fail the user action.
 
 ## Realtime & jobs
 

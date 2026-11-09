@@ -9,6 +9,7 @@ import { connectMongo } from './db/mongo.js';
 import { createFcmGateway, createFirebaseAuth, noopPush } from './infra/firebase.js';
 import { createIapGateway } from './infra/iap.js';
 import { createLiveKitGateway } from './infra/livekit.js';
+import { createSightGuardGateway } from './infra/sightguard.js';
 import { createS3Storage } from './infra/storage.js';
 import { BullJobQueue, InlineJobQueue } from './jobs/queue.js';
 import { jobHandlers, TickScheduler } from './jobs/scheduler.js';
@@ -51,8 +52,11 @@ async function main(): Promise<void> {
     // Resolved per call: dashboard settings override env `S3_*` without a restart.
     storage: createS3Storage(() => ctx.services.storageSettings.resolve()),
     iap: createIapGateway(env),
+    sightguard: createSightGuardGateway(env),
     jobs,
   });
+  if (ctx.sightguard.enabled)
+    log.info({ live: ctx.sightguard.liveEnabled }, 'SightGuard moderation enabled');
   if (!firebaseConfigured)
     log.warn('FIREBASE_PROJECT_ID not set — authentication will reject every request');
 

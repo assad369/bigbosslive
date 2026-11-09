@@ -231,6 +231,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   ],
   banners: [{ key: { placement: 1, active: 1, sortOrder: 1 } }],
   idempotency: [{ key: { createdAt: 1 }, expireAfterSeconds: 7 * 86400 }],
+  // SightGuard retries a delivery for well under a week; older ids can be forgotten.
+  sightguardEvents: [{ key: { receivedAt: 1 }, expireAfterSeconds: 7 * 86400 }],
   auditLogs: [
     { key: { createdAt: -1 } },
     { key: { adminId: 1, createdAt: -1 } },

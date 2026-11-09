@@ -152,14 +152,39 @@ export class UsersService {
 
   async updateProfile(uid: string, patch: Partial<ProfileInput>): Promise<UserDoc> {
     const $set: Partial<UserDoc> = { updatedAt: this.ctx.clock.now() };
+    const sightguard = this.ctx.services.sightguard;
+    // Only what changed is sent to SightGuard: re-saving a profile with an unchanged avatar
+    // must not fail while moderation is down (avatars fail closed).
+    const current =
+      sightguard.enabled &&
+      (patch.displayName !== undefined || patch.bio !== undefined || patch.avatarUrl)
+        ? await this.get(uid)
+        : null;
     if (patch.displayName !== undefined) {
       const name = await this.ctx.services.moderation.assertClean(patch.displayName, 'displayName');
+      if (current && patch.displayName !== current.displayName)
+        await sightguard.assertText('username', patch.displayName, uid, {
+          type: 'profile',
+          uid,
+          field: 'displayName',
+        });
       $set.displayName = name;
       $set.displayNameLower = name.toLowerCase();
     }
-    if (patch.bio !== undefined)
+    if (patch.bio !== undefined) {
       $set.bio = await this.ctx.services.moderation.assertClean(patch.bio, 'bio');
-    if (patch.avatarUrl !== undefined) $set.avatarUrl = patch.avatarUrl;
+      if (current && patch.bio !== current.bio)
+        await sightguard.assertText('bio', patch.bio, uid, { type: 'profile', uid, field: 'bio' });
+    }
+    if (patch.avatarUrl !== undefined) {
+      if (current && patch.avatarUrl && patch.avatarUrl !== current.avatarUrl)
+        await sightguard.assertImageUrl('avatar', patch.avatarUrl, uid, {
+          type: 'avatar',
+          uid,
+          url: patch.avatarUrl,
+        });
+      $set.avatarUrl = patch.avatarUrl;
+    }
     if (patch.gender !== undefined) $set.gender = patch.gender;
     if (patch.birthday !== undefined) $set.birthday = patch.birthday;
     if (patch.country !== undefined) $set.country = patch.country;

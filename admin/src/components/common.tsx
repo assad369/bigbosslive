@@ -201,6 +201,8 @@ const STATUS_COLORS: Record<string, string> = {
   failed: 'red',
   cancelled: 'default',
   expired: 'default',
+  /** Live ended by automated moderation (SightGuard). */
+  moderation: 'red',
 };
 
 export function StatusTag({ status }: { status: string }) {

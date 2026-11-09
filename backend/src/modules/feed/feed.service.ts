@@ -69,9 +69,18 @@ export class FeedService {
     const text = input.text
       ? await this.ctx.services.moderation.assertClean(input.text, 'post')
       : '';
+    const postId = new ObjectId();
+    const ref = { type: 'post', postId: String(postId) } as const;
+    const sightguard = this.ctx.services.sightguard;
+    if (input.text) await sightguard.assertText('post_text', input.text, uid, ref);
+    await Promise.all(
+      input.media
+        .filter((m) => m.type === 'image')
+        .map((m) => sightguard.assertImageUrl('post_image', m.url, uid, ref)),
+    );
     const now = this.ctx.clock.now();
     const doc: FeedPostDoc = {
-      _id: new ObjectId(),
+      _id: postId,
       authorId: uid,
       text,
       media: input.media,
@@ -83,6 +92,9 @@ export class FeedService {
       updatedAt: now,
     };
     await this.ctx.col.feedPosts.insertOne(doc);
+    // Videos are checked asynchronously; a reject removes the post (`video.completed`).
+    for (const m of input.media)
+      if (m.type === 'video') await sightguard.submitVideo(m.url, uid, ref);
     return (await this.hydrate([doc], uid))[0]!;
   }
 
@@ -242,8 +254,13 @@ export class FeedService {
     if (await this.ctx.services.users.isBlockedEitherWay(uid, post.authorId))
       throw forbidden('You cannot comment on this post');
     const clean = await this.ctx.services.moderation.assertClean(text, 'comment');
+    const commentId = new ObjectId();
+    await this.ctx.services.sightguard.assertText('comment', text, uid, {
+      type: 'comment',
+      commentId: String(commentId),
+    });
     const doc = {
-      _id: new ObjectId(),
+      _id: commentId,
       postId,
       authorId: uid,
       text: clean,
@@ -305,6 +322,30 @@ export class FeedService {
     }
     await this.ctx.col.feedComments.updateOne({ _id: commentId }, { $set: { status: 'removed' } });
     await this.ctx.col.feedPosts.updateOne({ _id: c.postId }, { $inc: { commentCount: -1 } });
+  }
+
+  // ── Automated moderation (SightGuard verdicts) ─────────────────────────────────
+
+  /** Removes a post a moderator or the video check rejected. Returns its author, or null. */
+  async systemRemovePost(postId: ObjectId): Promise<string | null> {
+    const res = await this.ctx.col.feedPosts.findOneAndUpdate(
+      { _id: postId, status: { $ne: 'removed' } },
+      { $set: { status: 'removed', updatedAt: this.ctx.clock.now() } },
+      { projection: { authorId: 1 } },
+    );
+    return res?.authorId ?? null;
+  }
+
+  /** Removes a rejected comment. Conditional, so a redelivery never double-decrements. */
+  async systemRemoveComment(commentId: ObjectId): Promise<string | null> {
+    const c = await this.ctx.col.feedComments.findOneAndUpdate(
+      { _id: commentId, status: 'active' },
+      { $set: { status: 'removed' } },
+      { projection: { postId: 1, authorId: 1 } },
+    );
+    if (!c) return null;
+    await this.ctx.col.feedPosts.updateOne({ _id: c.postId }, { $inc: { commentCount: -1 } });
+    return c.authorId;
   }
 
   // ── Admin ──────────────────────────────────────────────────────────────────

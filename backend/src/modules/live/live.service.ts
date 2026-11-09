@@ -2,7 +2,14 @@ import { ObjectId, type Filter, type Sort } from 'mongodb';
 import { z } from 'zod';
 import { LIVEKIT_TOPICS, ROOM_TYPES, SOCKET, type RoomType } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
-import type { LiveMessageDoc, LiveRoomDoc, SeatDoc } from '../../db/schema.js';
+import type {
+  GiftDoc,
+  GiftTransactionDoc,
+  LiveGiftMessage,
+  LiveMessageDoc,
+  LiveRoomDoc,
+  SeatDoc,
+} from '../../db/schema.js';
 import {
   AppError,
   badRequest,
@@ -201,6 +208,8 @@ export class LiveService {
 
   private async resume(room: LiveRoomDoc) {
     const host = await this.ctx.services.users.get(room.hostId);
+    // Idempotent: re-registers supervision if the first attempt never got through.
+    await this.ctx.services.sightguard.startLive(supervised(room));
     await this.ctx.col.liveRooms.updateOne(
       { _id: room._id },
       {
@@ -226,10 +235,18 @@ export class LiveService {
     if (existing) return this.resume(existing);
 
     const host = await this.ctx.services.users.get(hostId);
+    const roomId = new ObjectId();
     // Display names are moderated when set, so only a user-typed title needs checking here.
     const title = input.title
       ? await this.ctx.services.moderation.assertClean(input.title, 'title')
       : host.displayName.slice(0, 60);
+    if (input.title)
+      await this.ctx.services.sightguard.assertText('live_title', input.title, hostId, {
+        type: 'live_title',
+        roomId: String(roomId),
+      });
+    if (input.coverUrl && input.coverUrl !== host.avatarUrl)
+      await this.assertCover(roomId, hostId, 'coverUrl', input.coverUrl);
     const liveCfg = await this.ctx.services.config.get('live');
     const seatCount = input.type === 'audio' ? liveCfg.audioSeatCount : liveCfg.videoSeatCount;
     const seats: SeatDoc[] = Array.from({ length: seatCount }, (_, index) => ({
@@ -241,7 +258,7 @@ export class LiveService {
     }));
     const now = this.ctx.clock.now();
     const room: LiveRoomDoc = {
-      _id: new ObjectId(),
+      _id: roomId,
       hostId,
       type: input.type,
       status: 'live',
@@ -279,6 +296,7 @@ export class LiveService {
       throw err;
     }
     await this.ctx.col.users.updateOne({ _id: hostId }, { $set: { liveRoomId: room._id } });
+    await this.ctx.services.sightguard.startLive(supervised(room));
 
     const detail = await this.detail(room._id);
     await this.publishDirectory(room._id);
@@ -348,11 +366,23 @@ export class LiveService {
     hostId: string,
     patch: { title?: string; backgroundUrl?: string | null; coverUrl?: string | null },
   ) {
+    const current = await this.ctx.col.liveRooms.findOne({ _id: roomId, hostId, status: 'live' });
+    if (!current) throw notFound('Your live room');
     const $set: Partial<LiveRoomDoc> = {};
-    if (patch.title !== undefined)
+    if (patch.title !== undefined) {
       $set.title = await this.ctx.services.moderation.assertClean(patch.title, 'title');
-    if (patch.backgroundUrl !== undefined) $set.backgroundUrl = patch.backgroundUrl;
-    if (patch.coverUrl !== undefined) $set.coverUrl = patch.coverUrl;
+      if (patch.title !== current.title)
+        await this.ctx.services.sightguard.assertText('live_title', patch.title, hostId, {
+          type: 'live_title',
+          roomId: String(roomId),
+        });
+    }
+    for (const field of ['coverUrl', 'backgroundUrl'] as const) {
+      const url = patch[field];
+      if (url === undefined) continue;
+      if (url && url !== current[field]) await this.assertCover(roomId, hostId, field, url);
+      $set[field] = url;
+    }
     const res = await this.ctx.col.liveRooms.findOneAndUpdate(
       { _id: roomId, hostId, status: 'live' },
       { $set },
@@ -430,6 +460,7 @@ export class LiveService {
       .sendData(room.livekitRoom, LIVEKIT_TOPICS.roomEnded, { roomId: String(room._id), reason })
       .catch(() => undefined);
     await this.ctx.livekit.deleteRoom(room.livekitRoom).catch(() => undefined);
+    await this.ctx.services.sightguard.endLive(supervised(room));
     this.ctx.realtime.toRoom(SOCKET.namespaces.app, 'rooms', SOCKET.app.roomEnded, {
       id: String(room._id),
     });
@@ -596,13 +627,23 @@ export class LiveService {
     if (room.moderatorIds.includes(targetUid) && room.hostId !== actor.uid && !actor.isAdmin) {
       throw forbidden('Moderators cannot remove other moderators');
     }
+    await this.evict(room, targetUid, actor.uid, banMinutes);
+  }
+
+  /** Room ban, role and seat revoked, then the participant is told and disconnected. */
+  private async evict(
+    room: LiveRoomDoc,
+    targetUid: string,
+    by: string,
+    banMinutes: number | null,
+  ): Promise<void> {
     const now = this.ctx.clock.now();
     await this.ctx.col.roomBans.updateOne(
       { hostId: room.hostId, userId: targetUid },
       {
         $set: {
           until: banMinutes === null ? null : addSeconds(now, banMinutes * 60),
-          by: actor.uid,
+          by,
           createdAt: now,
         },
       },
@@ -618,7 +659,7 @@ export class LiveService {
     }
     await this.vacateSeatOf(room, targetUid);
     await this.ctx.livekit
-      .sendData(room.livekitRoom, LIVEKIT_TOPICS.kick, { uid: targetUid, by: actor.uid })
+      .sendData(room.livekitRoom, LIVEKIT_TOPICS.kick, { uid: targetUid, by })
       .catch(() => undefined);
     await this.ctx.livekit.removeParticipant(room.livekitRoom, targetUid).catch(() => undefined);
   }
@@ -678,8 +719,14 @@ export class LiveService {
     await this.assertNotBanned(room, uid);
     let text = '';
     let voice: LiveMessageDoc['voice'] = null;
+    const messageId = new ObjectId();
     if (input.type === 'text') {
       text = await this.ctx.services.moderation.assertClean(input.text, 'chat');
+      await this.ctx.services.sightguard.assertChat(input.text, uid, {
+        type: 'live_message',
+        roomId: String(roomId),
+        messageId: String(messageId),
+      });
     } else {
       if (!(await this.ctx.storage.isOwnUpload(input.voiceUrl, VOICE_FOLDER, uid)))
         throw badRequest('Voice messages must be uploaded through the app');
@@ -698,12 +745,12 @@ export class LiveService {
         id: String(target._id),
         userId: target.userId,
         displayName: author?.displayName ?? 'User',
-        text: target.type === 'voice' ? '🎤 Voice message' : target.text.slice(0, 80),
+        text: replyPreview(target),
       };
     }
     const now = this.ctx.clock.now();
     const doc: LiveMessageDoc = {
-      _id: new ObjectId(),
+      _id: messageId,
       roomId,
       userId: uid,
       type: input.type,
@@ -726,6 +773,76 @@ export class LiveService {
     };
     await this.ctx.livekit.sendData(room.livekitRoom, LIVEKIT_TOPICS.chat, message);
     return message;
+  }
+
+  /**
+   * The chat row for a committed room gift, saved like any message so it can be replied to,
+   * reported and deleted. Its `_id` is the gift transaction's, so a gift never gets two rows.
+   * Returns the message as `chat()` does; the caller sends it inside the `bb.gift` packet.
+   */
+  async giftMessage(
+    room: LiveRoomDoc,
+    tx: GiftTransactionDoc,
+    gift: GiftDoc,
+    names: Map<string, { displayName: string }>,
+  ) {
+    const receivers = tx.receivers.map((r) => ({
+      id: r.userId,
+      displayName: names.get(r.userId)?.displayName ?? 'User',
+    }));
+    const detail: LiveGiftMessage = {
+      transactionId: String(tx._id),
+      giftId: String(gift._id),
+      name: gift.name,
+      iconUrl: gift.iconUrl,
+      quantity: tx.quantity,
+      totalCost: tx.totalCost,
+      receivers,
+    };
+    const text = `sent ${gift.name} ×${tx.quantity} to ${receivers.map((r) => r.displayName).join(', ')}`;
+    const doc: LiveMessageDoc = {
+      _id: tx._id,
+      roomId: room._id,
+      userId: tx.senderId,
+      type: 'gift',
+      text,
+      voice: null,
+      gift: detail,
+      replyTo: null,
+      createdAt: tx.createdAt,
+      deletedAt: null,
+    };
+    try {
+      await this.ctx.col.liveMessages.insertOne(doc);
+    } catch (err) {
+      if (!isDuplicateKeyError(err)) throw err;
+    }
+    const { metadata } = await this.metadataFor(tx.senderId, this.roleOf(room, tx.senderId));
+    return {
+      id: String(doc._id),
+      type: doc.type,
+      text,
+      voice: null,
+      replyTo: null,
+      gift: detail,
+      user: metadata,
+      at: doc.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * The first of [uids] who is not in [room]: not the host, not seated and not watching
+   * (no `room_presence` row). Null when everyone is there.
+   */
+  async firstAbsent(room: LiveRoomDoc, uids: string[]): Promise<string | null> {
+    const staged = new Set([room.hostId, ...room.seats.map((s) => s.userId)]);
+    const rest = uids.filter((uid) => !staged.has(uid));
+    if (!rest.length) return null;
+    const present = await this.ctx.col.roomPresence
+      .find({ roomId: room._id, identity: { $in: rest } }, { projection: { identity: 1 } })
+      .toArray();
+    const here = new Set(present.map((p) => p.identity));
+    return rest.find((uid) => !here.has(uid)) ?? null;
   }
 
   /** The author, the host, a room moderator or staff can remove a chat message for everyone. */
@@ -1150,6 +1267,142 @@ export class LiveService {
     if (room) await this.end(room._id, 'webhook', null);
   }
 
+  // ── Automated moderation (SightGuard verdicts; no human actor) ──────────────────
+
+  /** Live room for a LiveKit room name, if it is one of ours and still live. */
+  async liveByLivekitRoom(livekitRoom: string): Promise<LiveRoomDoc | null> {
+    return this.ctx.col.liveRooms.findOne({ livekitRoom, status: 'live' });
+  }
+
+  /** Ends a live on a SightGuard verdict. */
+  async systemEnd(room: LiveRoomDoc, reason: string): Promise<boolean> {
+    const ended = await this.end(room._id, 'moderation', 'system');
+    if (!ended) return false;
+    await this.ctx.services.audit.recordSystem(
+      'sightguard.live.end',
+      { type: 'room', id: String(room._id) },
+      { hostId: room.hostId, reason },
+    );
+    return true;
+  }
+
+  /**
+   * Removes a participant on a SightGuard verdict, with a short room ban so they can't rejoin
+   * straight away. The host is never evicted from their own live: end it instead.
+   */
+  async systemRemove(room: LiveRoomDoc, uid: string, reason: string): Promise<boolean> {
+    if (uid === room.hostId) return false;
+    await this.evict(room, uid, 'system', SYSTEM_REMOVE_BAN_MINUTES);
+    await this.ctx.services.audit.recordSystem(
+      'sightguard.live.remove',
+      { type: 'user', id: uid },
+      { roomId: String(room._id), reason, banMinutes: SYSTEM_REMOVE_BAN_MINUTES },
+    );
+    return true;
+  }
+
+  /**
+   * Turns off one kind of media on the SFU after a violation (video for visual and on-screen
+   * text, audio for speech). A seated guest's seat flag is set too, so their client keeps it
+   * off and only a host or room admin can lift it. The host seat carries no flag (nobody could
+   * clear it); a host who turns the camera back on and offends again is escalated by
+   * SightGuard's strike ladder.
+   */
+  async systemMute(
+    room: LiveRoomDoc,
+    uid: string,
+    kind: 'audio' | 'video',
+    reason: string,
+  ): Promise<void> {
+    await this.ctx.livekit
+      .muteTracks(room.livekitRoom, uid, kind, true)
+      .catch((err: unknown) => this.ctx.log.warn({ err }, 'moderation mute failed'));
+    const seat = room.seats.find((x) => x.userId === uid && x.index > 0);
+    if (seat) {
+      await this.ctx.col.liveRooms.updateOne(
+        { _id: room._id, 'seats.index': seat.index, 'seats.userId': uid },
+        { $set: { [kind === 'audio' ? 'seats.$.muted' : 'seats.$.videoMuted']: true } },
+      );
+      await this.broadcastSeats(room._id);
+    }
+    await this.notifyModeration(room, uid, { action: 'muted', media: kind });
+    await this.ctx.services.audit.recordSystem(
+      'sightguard.live.mute',
+      { type: 'user', id: uid },
+      { roomId: String(room._id), media: kind, reason },
+    );
+  }
+
+  /** Private in-room notice to one participant (`bb.system`, kind `moderation`). */
+  async notifyModeration(
+    room: LiveRoomDoc,
+    uid: string,
+    payload: { action: 'warn' | 'muted'; media?: 'audio' | 'video' },
+  ): Promise<void> {
+    await this.ctx.livekit
+      .sendData(room.livekitRoom, LIVEKIT_TOPICS.system, { kind: 'moderation', ...payload }, [uid])
+      .catch(() => undefined);
+  }
+
+  /** Removes a chat message a moderator rejected after it went out. */
+  async systemDeleteChat(roomId: ObjectId, messageId: ObjectId): Promise<boolean> {
+    const res = await this.ctx.col.liveMessages.updateOne(
+      { _id: messageId, roomId, deletedAt: null },
+      { $set: { deletedAt: this.ctx.clock.now() } },
+    );
+    if (!res.modifiedCount) return false;
+    const room = await this.ctx.col.liveRooms.findOne({ _id: roomId, status: 'live' });
+    if (room) await this.broadcastSystem(room, { kind: 'chat_deleted', id: String(messageId) });
+    return true;
+  }
+
+  /**
+   * Undoes a rejected title or cover while the room is still live. Conditional on the value,
+   * so a newer title or picture set since then is left alone.
+   */
+  async systemResetRoomField(
+    roomId: ObjectId,
+    field: 'title' | 'coverUrl' | 'backgroundUrl',
+    rejected?: string,
+  ): Promise<boolean> {
+    const room = await this.ctx.col.liveRooms.findOne({ _id: roomId, status: 'live' });
+    if (!room) return false;
+    const value =
+      field === 'title'
+        ? (await this.ctx.services.users.get(room.hostId)).displayName.slice(0, 60)
+        : null;
+    const res = await this.ctx.col.liveRooms.findOneAndUpdate(
+      { _id: roomId, status: 'live', ...(rejected !== undefined ? { [field]: rejected } : {}) },
+      { $set: { [field]: value } },
+      { returnDocument: 'after' },
+    );
+    if (!res) return false;
+    await this.broadcastSystem(res, {
+      kind: 'room_updated',
+      title: res.title,
+      coverUrl: res.coverUrl,
+      backgroundUrl: res.backgroundUrl,
+    });
+    await this.publishDirectory(roomId);
+    return true;
+  }
+
+  /** Live covers and backgrounds are shown to everyone: fail closed. Platform assets pass. */
+  private async assertCover(
+    roomId: ObjectId,
+    hostId: string,
+    field: 'coverUrl' | 'backgroundUrl',
+    url: string,
+  ): Promise<void> {
+    if (await this.ctx.storage.isPlatformAsset(url)) return;
+    await this.ctx.services.sightguard.assertImageUrl('live_cover', url, hostId, {
+      type: 'live_cover',
+      roomId: String(roomId),
+      field,
+      url,
+    });
+  }
+
   /** Close rooms whose host stopped heart-beating (app killed, network lost). */
   async sweepStale(): Promise<number> {
     const { staleAfterSec } = await this.ctx.services.config.get('live');
@@ -1170,4 +1423,20 @@ export class LiveService {
     );
     return ended;
   }
+}
+
+/** Minutes a participant removed by automated moderation stays banned from that host's room. */
+const SYSTEM_REMOVE_BAN_MINUTES = 30;
+
+const supervised = (room: LiveRoomDoc) => ({
+  roomId: String(room._id),
+  livekitRoom: room.livekitRoom,
+  hostId: room.hostId,
+});
+
+/** What a reply shows of the message it answers. */
+function replyPreview(m: LiveMessageDoc): string {
+  if (m.type === 'voice') return '🎤 Voice message';
+  if (m.type === 'gift' && m.gift) return `🎁 ${m.gift.name} ×${m.gift.quantity}`;
+  return m.text.slice(0, 80);
 }

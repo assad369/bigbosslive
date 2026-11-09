@@ -57,6 +57,7 @@ export interface Collections {
   auditLogs: Collection<S.AuditLogDoc>;
   idempotency: Collection<S.IdempotencyDoc>;
   migrations: Collection<S.MigrationDoc>;
+  sightguardEvents: Collection<S.SightGuardEventDoc>;
 }
 
 const NAMES: Record<keyof Collections, string> = {
@@ -107,6 +108,7 @@ const NAMES: Record<keyof Collections, string> = {
   auditLogs: 'audit_logs',
   idempotency: 'idempotency_keys',
   migrations: 'migrations',
+  sightguardEvents: 'sightguard_events',
 };
 
 export interface Database {

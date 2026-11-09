@@ -29,7 +29,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     super.initState();
     _sub = ref
         .read(socketProvider)
-        .on('chat:message')
+        .events
+        .where(
+          (e) => e.name == 'chat:message' || e.name == 'chat:message_removed',
+        )
+        .map((e) => e.data)
         // Keep the rows on screen; only the order and previews change.
         .listen((_) => _list.refresh(keepItems: true));
   }
@@ -184,6 +188,17 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   .catchError((Object _) {}),
             );
           }
+        }),
+      )
+      ..add(
+        // Moderation removed a message for both sides.
+        socket.on('chat:message_removed').listen((data) {
+          if (!mounted || data['conversationId'] != widget.conversationId) {
+            return;
+          }
+          setState(
+            () => _messages.removeWhere((x) => x.id == data['messageId']),
+          );
         }),
       )
       ..add(

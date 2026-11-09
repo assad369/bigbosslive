@@ -21,11 +21,15 @@ Map<String, dynamic> _seat(int index, String? uid) => {
   'user': uid == null ? null : {'id': uid, 'displayName': 'User $uid'},
 };
 
-LiveRoomController _controller(String me, {List<String> mods = const []}) {
+LiveRoomController _controller(
+  String me, {
+  List<String> mods = const [],
+  String type = 'video',
+}) {
   final c = LiveRoomController(roomId: 'r1', myUid: me, repo: _FakeRepo());
   c.detail = RoomDetail.fromJson({
     'id': 'r1',
-    'type': 'video',
+    'type': type,
     'status': 'live',
     'title': 'Room',
     'host': {
@@ -81,7 +85,10 @@ void main() {
   // LiveKit's Room starts a periodic timer, so controllers are built outside the
   // widget tests' fake-async zone.
   late LiveRoomController host, guest, viewer, railHost, barHost, foldHost;
+  late LiveRoomController coHost, audioGuest;
   setUpAll(() {
+    coHost = _controller('guest');
+    audioGuest = _controller('guest', type: 'audio');
     host = _controller('host')..cameraOn = true;
     guest = _controller('guest', mods: ['guest'])..cameraOn = true;
     viewer = _controller('viewer');
@@ -142,6 +149,32 @@ void main() {
     await tester.tap(find.byTooltip('Show controls'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('Share'), findsOneWidget);
+  });
+
+  testWidgets('a guest on stage in another host\'s live gets the camera tools', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_rail(coHost));
+    expect(find.byTooltip('Unmute'), findsOneWidget); // not connected: mic off
+    expect(find.byTooltip('Camera on'), findsOneWidget);
+    expect(find.byTooltip('Flip camera'), findsOneWidget);
+    // Filters apply to the guest's own camera, so they work in any host's room.
+    expect(find.byTooltip('Beauty & filters'), findsOneWidget);
+    // Host-only controls stay hidden.
+    expect(find.byTooltip('Lock live'), findsNothing);
+  });
+
+  testWidgets('a guest in an audio live gets the mic but no camera tools', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_rail(audioGuest));
+    expect(find.byTooltip('Camera on'), findsNothing);
+    expect(find.byTooltip('Beauty & filters'), findsNothing);
+    expect(
+      find.byTooltip('Mute').evaluate().length +
+          find.byTooltip('Unmute').evaluate().length,
+      1,
+    );
   });
 
   testWidgets('a viewer gets no stage tools on the rail', (tester) async {

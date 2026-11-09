@@ -38,6 +38,30 @@ class ChatReply {
   );
 }
 
+/// What a gift line in the chat shows.
+class ChatGift {
+  const ChatGift({
+    required this.name,
+    required this.iconUrl,
+    required this.quantity,
+    required this.receiverNames,
+  });
+  final String name;
+  final String iconUrl;
+  final int quantity;
+  final List<String> receiverNames;
+
+  /// How a reply quotes it; the server sends the same text in `replyTo`.
+  String get preview => '🎁 $name ×$quantity';
+
+  factory ChatGift.fromJson(Json j) => ChatGift(
+    name: j.str('name'),
+    iconUrl: j.str('iconUrl'),
+    quantity: j.integer('quantity', 1),
+    receiverNames: j.list('receivers', (r) => r.str('displayName', 'User')),
+  );
+}
+
 class ChatLine {
   const ChatLine({
     required this.id,
@@ -48,6 +72,8 @@ class ChatLine {
     this.replyTo,
     this.voiceUrl,
     this.voiceSec = 0,
+    this.gift,
+    this.fromServer = false,
   });
   final String id;
   final String text;
@@ -57,25 +83,48 @@ class ChatLine {
   final ChatReply? replyTo;
   final String? voiceUrl;
   final int voiceSec;
+  final ChatGift? gift;
+
+  /// Saved on the server (`live_messages`), so it has an id replies, reports and deletes
+  /// can name. Lines the app writes itself (joins, notices, the gift fallback) are not.
+  final bool fromServer;
 
   bool get system => kind == ChatKind.system || kind == ChatKind.join;
 
   /// Server-sent messages can be replied to, reported and deleted; local lines cannot.
-  bool get isMessage => kind == ChatKind.chat || kind == ChatKind.voice;
+  bool get isMessage =>
+      fromServer &&
+      (kind == ChatKind.chat ||
+          kind == ChatKind.voice ||
+          kind == ChatKind.gift);
+
+  /// How a reply to this line quotes it.
+  String get preview => switch (kind) {
+    ChatKind.voice => '🎤 Voice message',
+    ChatKind.gift when gift != null => gift!.preview,
+    _ => text,
+  };
 
   factory ChatLine.fromServer(Json p) {
     final u = p.obj('user');
     final voice = p.objOrNull('voice');
     final reply = p.objOrNull('replyTo');
+    final gift = p.str('type') == 'gift' ? p.objOrNull('gift') : null;
     return ChatLine(
       id: p.str('id'),
       text: p.str('text'),
-      kind: voice == null ? ChatKind.chat : ChatKind.voice,
+      kind: gift != null
+          ? ChatKind.gift
+          : voice == null
+          ? ChatKind.chat
+          : ChatKind.voice,
       user: UserBrief.fromJson(u),
       role: roleFromMetadata(u.str('role')),
       replyTo: reply == null ? null : ChatReply.fromJson(reply),
       voiceUrl: voice?.str('url'),
       voiceSec: voice?.integer('durationSec') ?? 0,
+      gift: gift == null ? null : ChatGift.fromJson(gift),
+      fromServer: true,
     );
   }
 }
@@ -233,6 +282,12 @@ class LiveRoomController extends ChangeNotifier {
   bool _staged = false;
   bool _seatReleased = false;
   Json? endSummary;
+
+  /// Why the live ended (`bb.room.ended` reason), e.g. `moderation`; null when unknown.
+  String? endReason;
+
+  /// True when automated moderation (not the host or a room admin) removed me.
+  bool removedByModeration = false;
   int _pendingHearts = 0;
 
   Stream<GiftEvent> get gifts => _gifts.stream;
@@ -670,14 +725,26 @@ class LiveRoomController extends ChangeNotifier {
         if (total is int && d != null) {
           detail = d.copyWith(room: d.room.copyWith(giftDiamonds: total));
         }
+        // The server saves the line as a chat message and sends it along. An older server
+        // (or a failed save) sends none, so write a local line. Same id either way, so a
+        // gift never shows twice.
+        final message = p.objOrNull('message');
         _addChat(
-          ChatLine(
-            id: 'g${event.id}',
-            kind: ChatKind.gift,
-            text:
-                'sent ${event.gift.name} ×${event.quantity} to ${event.receiverNames.join(', ')}',
-            user: event.sender,
-          ),
+          message != null && message.str('id').isNotEmpty
+              ? ChatLine.fromServer(message)
+              : ChatLine(
+                  id: event.id,
+                  kind: ChatKind.gift,
+                  text:
+                      'sent ${event.gift.name} ×${event.quantity} to ${event.receiverNames.join(', ')}',
+                  user: event.sender,
+                  gift: ChatGift(
+                    name: event.gift.name,
+                    iconUrl: event.gift.iconUrl,
+                    quantity: event.quantity,
+                    receiverNames: event.receiverNames,
+                  ),
+                ),
         );
       // Stream-only events: their widgets listen to the streams, nothing else changes, so
       // they don't rebuild the room.
@@ -692,6 +759,7 @@ class LiveRoomController extends ChangeNotifier {
       case 'bb.kick':
         if (p.str('uid') == myUid) {
           status = LiveStatus.kicked;
+          removedByModeration = p.strOrNull('by') == 'system';
           unawaited(_teardown());
         }
       case 'bb.seats':
@@ -699,6 +767,7 @@ class LiveRoomController extends ChangeNotifier {
       case 'bb.system':
         _onSystem(p);
       case 'bb.room.ended':
+        endReason = p.strOrNull('reason');
         _ended();
       case 'bb.pk.invitation':
         if (!_pkInvites.isClosed) {
@@ -849,6 +918,34 @@ class LiveRoomController extends ChangeNotifier {
         if (joined != null) _join(UserBrief.fromJson(joined));
       case 'chat_deleted':
         chat.removeWhere((c) => c.id == p.str('id'));
+      case 'moderation':
+        _onModeration(p);
+    }
+  }
+
+  /// Automated moderation notices, sent to this participant only.
+  void _onModeration(Json p) {
+    switch (p.str('action')) {
+      case 'warn':
+        _notice(
+          'Your live may break our community guidelines. '
+          'Continued violations will end it.',
+        );
+      case 'muted':
+        // The SFU already muted the track; turn it off here too so the controls
+        // show the truth and it stays off until the user turns it back on.
+        final audio = p.str('media') == 'audio';
+        if (audio) {
+          _micOffByMe = true;
+        } else {
+          _cameraOffByMe = true;
+        }
+        unawaited(_syncPublishing());
+        _notice(
+          audio
+              ? 'Your mic was turned off for breaking our community guidelines'
+              : 'Your camera was turned off for breaking our community guidelines',
+        );
     }
   }
 

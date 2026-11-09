@@ -890,6 +890,19 @@ paths:
         raw body),
         responses: { '200': { description: OK }, '401': { $ref: '#/components/responses/Error' } },
       }
+  /v1/webhooks/sightguard:
+    post:
+      {
+        tags: [Live],
+        security: [],
+        summary: SightGuard moderation verdicts (HMAC-signed raw body; 404 while disabled),
+        responses:
+          {
+            '200': { description: 'OK ({ ok, duplicate })' },
+            '401': { $ref: '#/components/responses/Error' },
+            '404': { $ref: '#/components/responses/Error' },
+          },
+      }
 
   /v1/pk/invite:
     post:
@@ -1018,6 +1031,11 @@ paths:
     post:
       tags: [Economy]
       summary: Send a gift (atomic, idempotent)
+      description: >-
+        With `roomId`, every receiver must be in that live (the host, a seated guest, or a
+        viewer with a presence row), else 400 `receiver_not_in_room`. A room gift is saved as a
+        `type: gift` chat message (id = transactionId) and sent to the room in the `bb.gift`
+        data packet as `message`, alongside the gift, sender, receivers and `roomGiftDiamonds`.
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         {
@@ -1043,6 +1061,11 @@ paths:
       responses:
         {
           '200': { description: '{ transactionId, totalCost, diamonds, replayed }' },
+          '400':
+            {
+              description: 'bad_request, or receiver_not_in_room for a room gift',
+              $ref: '#/components/responses/Error',
+            },
           '402': { $ref: '#/components/responses/Error' },
         }
   /v1/wallet:

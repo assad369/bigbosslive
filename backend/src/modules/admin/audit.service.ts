@@ -31,6 +31,28 @@ export class AuditService {
     }
   }
 
+  /** An automated action with no admin behind it (SightGuard verdicts). Never throws. */
+  async recordSystem(
+    action: string,
+    target: { type: string; id: string | null },
+    payload?: unknown,
+  ): Promise<void> {
+    try {
+      await this.ctx.col.auditLogs.insertOne({
+        adminId: 'system',
+        adminRole: 'system',
+        action,
+        targetType: target.type,
+        targetId: target.id,
+        payload: payload ?? null,
+        ip: '',
+        createdAt: this.ctx.clock.now(),
+      });
+    } catch (err) {
+      this.ctx.log.error({ err, action }, 'audit log write failed');
+    }
+  }
+
   async list(
     filter: { adminId?: string; action?: string; targetId?: string },
     page: number,

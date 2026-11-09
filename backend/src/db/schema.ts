@@ -147,7 +147,7 @@ export interface LiveRoomDoc {
   startedAt: Date;
   lastHeartbeatAt: Date;
   endedAt: Date | null;
-  endReason: 'host' | 'admin' | 'stale' | 'webhook' | 'banned' | null;
+  endReason: 'host' | 'admin' | 'stale' | 'webhook' | 'banned' | 'moderation' | null;
   endedBy: string | null;
 }
 
@@ -173,12 +173,24 @@ export interface LiveMessageDoc {
   _id: ObjectId;
   roomId: ObjectId;
   userId: string;
-  type: 'text' | 'voice';
+  type: 'text' | 'voice' | 'gift';
   text: string;
   voice: { url: string; durationSec: number } | null;
+  /** Set on `type: 'gift'` rows, whose `_id` is the gift transaction's. Absent on older rows. */
+  gift?: LiveGiftMessage | null;
   replyTo: { id: string; userId: string; displayName: string; text: string } | null;
   createdAt: Date;
   deletedAt: Date | null;
+}
+
+export interface LiveGiftMessage {
+  transactionId: string;
+  giftId: string;
+  name: string;
+  iconUrl: string;
+  quantity: number;
+  totalCost: number;
+  receivers: { id: string; displayName: string }[];
 }
 
 export interface SeatRequestDoc {
@@ -452,6 +464,8 @@ export interface MessageDoc {
   mediaUrl: string | null;
   clientId: string | null;
   deletedFor: string[];
+  /** Set when moderation removed the message for both sides. Absent on older rows. */
+  removedAt?: Date | null;
   createdAt: Date;
 }
 
@@ -685,8 +699,9 @@ export interface AppConfigDoc {
 
 export interface AuditLogDoc {
   _id?: ObjectId;
+  /** `system` for automated actions (SightGuard verdicts). */
   adminId: string;
-  adminRole: AdminRole;
+  adminRole: AdminRole | 'system';
   action: string;
   targetType: string;
   targetId: string | null;
@@ -701,6 +716,13 @@ export interface IdempotencyDoc {
   _id: string;
   result: unknown;
   createdAt: Date;
+}
+
+/** A processed SightGuard webhook delivery. The unique `_id` (event id) is the dedupe guard. */
+export interface SightGuardEventDoc {
+  _id: string;
+  type: string;
+  receivedAt: Date;
 }
 
 export interface MigrationDoc {

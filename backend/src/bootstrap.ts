@@ -5,6 +5,7 @@ import type { Database } from './db/mongo.js';
 import type { AuthProvider, PushGateway } from './infra/firebase.js';
 import type { IapGateway } from './infra/iap.js';
 import type { LiveKitGateway } from './infra/livekit.js';
+import type { SightGuardGateway } from './infra/sightguard.js';
 import type { StorageGateway } from './infra/storage.js';
 import type { JobQueue } from './jobs/queue.js';
 import type { Logger } from './lib/logger.js';
@@ -22,6 +23,8 @@ export interface ContextDeps {
   push: PushGateway;
   storage: StorageGateway;
   iap: IapGateway;
+  /** Content moderation; `disabledSightGuard` when not configured. */
+  sightguard: SightGuardGateway;
   jobs: JobQueue;
   clock?: Clock;
 }

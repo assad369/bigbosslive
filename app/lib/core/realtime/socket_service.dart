@@ -29,6 +29,7 @@ class SocketService {
     'chat:message',
     'chat:read',
     'chat:typing',
+    'chat:message_removed',
     'notification:new',
     'wallet:updated',
     'rooms:upserted',

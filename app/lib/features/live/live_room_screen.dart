@@ -126,7 +126,12 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
         !_kickShown &&
         (ModalRoute.of(context)?.isCurrent ?? false)) {
       _kickShown = true;
-      showMessage(context, 'You were removed from this live');
+      showMessage(
+        context,
+        c.removedByModeration
+            ? 'You were removed for breaking our community guidelines'
+            : 'You were removed from this live',
+      );
       _popSoon();
     }
   }
@@ -180,25 +185,21 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
     if (mounted) context.pop();
   }
 
+  /// Anyone in the room can be gifted; [to] (a tapped profile) is offered first.
   void _openGifts([UserBrief? to]) {
     final d = c.detail;
     if (d == null) return;
-    final onStage = <UserBrief>[
-      d.room.host,
-      ...c.stage.map((s) => s.user!).where((u) => u.id != d.room.host.id),
-    ].where((u) => u.id != c.myUid).toList();
-    if (to != null && to.id != c.myUid) {
-      onStage
-        ..removeWhere((u) => u.id == to.id)
-        ..insert(0, to);
-    }
-    if (onStage.isEmpty) {
-      return showMessage(
-        context,
-        'Gifts are for your guests and viewers to send',
-      );
-    }
-    GiftPanel.show(context, roomId: widget.roomId, receivers: onStage);
+    GiftPanel.show(
+      context,
+      roomId: widget.roomId,
+      myUid: c.myUid,
+      hostId: d.room.host.id,
+      stage: [
+        d.room.host,
+        ...c.stage.map((s) => s.user!).where((u) => u.id != d.room.host.id),
+      ],
+      preselected: to,
+    );
   }
 
   void _openUser(UserBrief u) =>
@@ -310,10 +311,17 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
             message: c.error ?? '',
             action: GoldButton(label: 'Try again', onPressed: _rejoin),
           ),
-          LiveStatus.kicked => const _Ended(
+          LiveStatus.kicked => _Ended(
             icon: Icons.block_rounded,
             title: 'You were removed from this live',
-            message: 'The host or a room admin removed you.',
+            message: c.removedByModeration
+                ? 'You were removed for breaking our community guidelines.'
+                : 'The host or a room admin removed you.',
+          ),
+          LiveStatus.ended when c.endReason == 'moderation' => _Ended(
+            icon: Icons.gpp_bad_rounded,
+            title: c.isHost ? 'Your live was ended' : 'This live has ended',
+            message: 'This live was ended for violating community guidelines.',
           ),
           LiveStatus.ended when c.isHost => _Ended(
             title: 'Your live has ended',

@@ -66,10 +66,21 @@ export class ChatService {
     const text = input.text
       ? await this.ctx.services.moderation.assertClean(input.text, 'message')
       : null;
+    const messageId = new ObjectId();
+    const ref = { type: 'message', messageId: String(messageId) } as const;
+    if (input.text)
+      await this.ctx.services.sightguard.assertText('private_chat', input.text, senderId, ref);
+    if (input.type === 'image' && input.mediaUrl)
+      await this.ctx.services.sightguard.assertImageUrl(
+        'chat_media',
+        input.mediaUrl,
+        senderId,
+        ref,
+      );
     const conv = await this.conversationWith(senderId, input.toUserId);
     const now = this.ctx.clock.now();
     const doc: MessageDoc = {
-      _id: new ObjectId(),
+      _id: messageId,
       conversationId: conv._id,
       senderId,
       type: input.type,
@@ -161,7 +172,13 @@ export class ChatService {
   async messages(uid: string, conversationId: ObjectId, cursor: string | undefined, limit: number) {
     await this.assertParticipant(uid, conversationId);
     const rows = await this.ctx.col.messages
-      .find({ conversationId, deletedFor: { $ne: uid }, ...afterCursor(cursor) })
+      .find({
+        conversationId,
+        deletedFor: { $ne: uid },
+        // `null` also matches rows written before the field existed.
+        removedAt: null,
+        ...afterCursor(cursor),
+      })
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit + 1)
       .toArray();
@@ -193,6 +210,42 @@ export class ChatService {
     if (!msg) throw notFound('Message');
     await this.assertParticipant(uid, msg.conversationId);
     await this.ctx.col.messages.updateOne({ _id: messageId }, { $addToSet: { deletedFor: uid } });
+  }
+
+  /**
+   * Removes a message for both sides after moderation rejected it. If it was the latest one,
+   * the conversation preview stops showing it. Returns the sender, or null if already gone.
+   */
+  async systemRemove(messageId: ObjectId): Promise<string | null> {
+    const now = this.ctx.clock.now();
+    const msg = await this.ctx.col.messages.findOneAndUpdate(
+      { _id: messageId, removedAt: null },
+      { $set: { removedAt: now } },
+    );
+    if (!msg) return null;
+    const conv = await this.ctx.col.conversations.findOneAndUpdate(
+      {
+        _id: msg.conversationId,
+        'lastMessage.senderId': msg.senderId,
+        'lastMessage.at': msg.createdAt,
+      },
+      { $set: { 'lastMessage.text': 'Message removed', 'lastMessage.type': 'text' } },
+    );
+    const participants =
+      conv?.participants ??
+      (
+        await this.ctx.col.conversations.findOne(
+          { _id: msg.conversationId },
+          { projection: { participants: 1 } },
+        )
+      )?.participants ??
+      [];
+    for (const uid of participants)
+      this.ctx.realtime.toUser(SOCKET.namespaces.app, uid, SOCKET.app.chatMessageRemoved, {
+        conversationId: String(msg.conversationId),
+        messageId: String(messageId),
+      });
+    return msg.senderId;
   }
 
   async unreadTotal(uid: string): Promise<number> {

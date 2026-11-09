@@ -20,20 +20,46 @@ final giftsProvider = FutureProvider<List<Gift>>(
 
 /// Bottom sheet for sending gifts in a room. Each tap is its own idempotent transaction; a
 /// retry of a send that got no answer reuses its key, so it can't be charged twice.
+///
+/// Anyone in the room can be gifted: the host and guests on stage are offered first, and
+/// "Viewers" adds someone who is watching.
 class GiftPanel extends ConsumerStatefulWidget {
-  const GiftPanel({super.key, required this.roomId, required this.receivers});
+  const GiftPanel({
+    super.key,
+    required this.roomId,
+    required this.myUid,
+    required this.hostId,
+    required this.stage,
+    this.preselected,
+  });
   final String roomId;
-  final List<UserBrief> receivers;
+  final String myUid;
+  final String hostId;
+
+  /// The host and the guests on stage.
+  final List<UserBrief> stage;
+
+  /// Who to gift first, e.g. the person whose profile was tapped (on stage or watching).
+  final UserBrief? preselected;
 
   static Future<void> show(
     BuildContext context, {
     required String roomId,
-    required List<UserBrief> receivers,
+    required String myUid,
+    required String hostId,
+    required List<UserBrief> stage,
+    UserBrief? preselected,
   }) => showModalBottomSheet<void>(
     context: context,
     backgroundColor: BBColors.espresso,
     isScrollControlled: true,
-    builder: (_) => GiftPanel(roomId: roomId, receivers: receivers),
+    builder: (_) => GiftPanel(
+      roomId: roomId,
+      myUid: myUid,
+      hostId: hostId,
+      stage: stage,
+      preselected: preselected,
+    ),
   );
 
   @override
@@ -44,17 +70,65 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
   Gift? _selected;
   int _qty = 1;
   bool _sending = false;
-  late String _receiver = widget.receivers.first.id;
+
+  /// The receiver chips: the tapped person first, then the stage, then viewers picked here.
+  late final List<UserBrief> _receivers = _initialReceivers();
+  late String? _receiver = _receivers.firstOrNull?.id;
+
+  late final Set<String> _stageIds = {for (final u in widget.stage) u.id};
 
   /// The last send that got no answer (network or timeout). Tapping Send again with the same
   /// gift, quantity and receiver retries *that* send; anything else is a new gift.
   ({String intent, String key})? _unanswered;
 
+  List<UserBrief> _initialReceivers() {
+    final first = widget.preselected;
+    final out = <UserBrief>[
+      if (first != null && first.id != widget.myUid) first,
+    ];
+    for (final u in widget.stage) {
+      if (u.id != widget.myUid && out.every((o) => o.id != u.id)) out.add(u);
+    }
+    return out;
+  }
+
+  String? _tag(UserBrief u) {
+    if (u.id == widget.hostId) return 'Host';
+    if (_stageIds.contains(u.id)) return 'Guest';
+    return null;
+  }
+
+  Future<void> _pickViewer() async {
+    final picked = await showModalBottomSheet<UserBrief>(
+      context: context,
+      backgroundColor: BBColors.espresso,
+      isScrollControlled: true,
+      builder: (_) => ViewerPickerSheet(
+        roomId: widget.roomId,
+        exclude: {widget.myUid, for (final r in _receivers) r.id},
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (_receivers.every((r) => r.id != picked.id)) _receivers.add(picked);
+      _receiver = picked.id;
+    });
+  }
+
+  /// The receiver left the room: drop the chip so the next tap can't pick them again.
+  void _dropReceiver(String id) {
+    setState(() {
+      _receivers.removeWhere((r) => r.id == id);
+      if (_receiver == id) _receiver = _receivers.firstOrNull?.id;
+    });
+  }
+
   Future<void> _send() async {
     final gift = _selected;
-    if (gift == null || _sending) return;
+    final receiver = _receiver;
+    if (gift == null || receiver == null || _sending) return;
     setState(() => _sending = true);
-    final intent = '${gift.id}:$_qty:$_receiver';
+    final intent = '${gift.id}:$_qty:$receiver';
     final key = _unanswered?.intent == intent
         ? _unanswered!.key
         : ApiClient.newIdempotencyKey();
@@ -65,7 +139,7 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
           .sendGift(
             giftId: gift.id,
             quantity: _qty,
-            receiverIds: [_receiver],
+            receiverIds: [receiver],
             roomId: widget.roomId,
             idempotencyKey: key,
           );
@@ -76,7 +150,10 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
     } on ApiException catch (e) {
       if (e.isNetwork) _unanswered = (intent: intent, key: key);
       if (!mounted) return;
-      if (e.insufficientBalance) {
+      if (e.code == 'receiver_not_in_room') {
+        _dropReceiver(receiver);
+        showError(context, e);
+      } else if (e.insufficientBalance) {
         final go = await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
@@ -114,26 +191,53 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
         height: MediaQuery.sizeOf(context).height * 0.5,
         child: Column(
           children: [
-            if (widget.receivers.length > 1)
-              SizedBox(
-                height: 48,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  children: [
-                    for (final r in widget.receivers)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          avatar: BBAvatar.user(r, size: 22),
-                          label: Text(r.displayName),
-                          selected: _receiver == r.id,
-                          onSelected: (_) => setState(() => _receiver = r.id),
+            SizedBox(
+              height: 48,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  if (_receivers.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Center(
+                        child: Text(
+                          'No one to gift yet',
+                          style: TextStyle(
+                            color: BBColors.champagne,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
-                  ],
-                ),
+                    ),
+                  for (final r in _receivers)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        avatar: BBAvatar.user(r, size: 22),
+                        label: _ReceiverLabel(
+                          name: r.displayName,
+                          tag: _tag(r),
+                        ),
+                        selected: _receiver == r.id,
+                        onSelected: (_) => setState(() => _receiver = r.id),
+                      ),
+                    ),
+                  Center(
+                    child: ActionChip(
+                      avatar: const Icon(
+                        Icons.group_add_rounded,
+                        size: 18,
+                        color: BBColors.goldLight,
+                      ),
+                      label: const Text('Viewers'),
+                      tooltip: 'Gift someone who is watching',
+                      onPressed: _pickViewer,
+                    ),
+                  ),
+                ],
               ),
+            ),
             Expanded(
               child: gifts.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
@@ -255,7 +359,9 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                       label: 'Send',
                       height: 44,
                       loading: _sending,
-                      onPressed: _selected == null ? null : _send,
+                      onPressed: _selected == null || _receiver == null
+                          ? null
+                          : _send,
                     ),
                   ),
                 ],
@@ -266,6 +372,116 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
       ),
     );
   }
+}
+
+class _ReceiverLabel extends StatelessWidget {
+  const _ReceiverLabel({required this.name, this.tag});
+  final String name;
+  final String? tag;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = tag;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 120),
+          child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        if (t != null) ...[
+          const SizedBox(width: 4),
+          Text(
+            t,
+            style: const TextStyle(
+              color: BBColors.goldLight,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The people watching the live, to pick one to gift. Pops with the chosen [UserBrief].
+class ViewerPickerSheet extends ConsumerStatefulWidget {
+  const ViewerPickerSheet({
+    super.key,
+    required this.roomId,
+    this.exclude = const {},
+  });
+  final String roomId;
+
+  /// Me and anyone already offered as a receiver.
+  final Set<String> exclude;
+
+  @override
+  ConsumerState<ViewerPickerSheet> createState() => _ViewerPickerSheetState();
+}
+
+class _ViewerPickerSheetState extends ConsumerState<ViewerPickerSheet> {
+  late Future<List<UserBrief>> _viewers = _load();
+
+  Future<List<UserBrief>> _load() async {
+    final rows = await ref.read(liveRepo).viewers(widget.roomId);
+    return rows.where((u) => !widget.exclude.contains(u.id)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.5,
+      child: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Text(
+              'Gift a viewer',
+              style: TextStyle(
+                color: BBColors.ivory,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: FutureBuilder<List<UserBrief>>(
+              future: _viewers,
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return ErrorView(
+                    error: snap.error!,
+                    onRetry: () => setState(() => _viewers = _load()),
+                  );
+                }
+                final items = snap.data;
+                if (items == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (items.isEmpty) {
+                  return const EmptyState(
+                    icon: Icons.visibility_outlined,
+                    title: 'No other viewers right now',
+                  );
+                }
+                return ListView(
+                  children: [
+                    for (final v in items)
+                      UserTile(
+                        user: v,
+                        onTap: () => Navigator.of(context).pop(v),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// Queued, full-screen gift celebrations plus a sliding banner.

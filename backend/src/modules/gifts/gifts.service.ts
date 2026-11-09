@@ -3,7 +3,13 @@ import { z } from 'zod';
 import { ANIMATION_FORMATS, LIVEKIT_TOPICS, type Gift } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { GiftDoc, GiftTransactionDoc, LiveRoomDoc } from '../../db/schema.js';
-import { badRequest, forbidden, isDuplicateKeyError, notFound } from '../../lib/errors.js';
+import {
+  badRequest,
+  forbidden,
+  isDuplicateKeyError,
+  notFound,
+  receiverNotInRoom,
+} from '../../lib/errors.js';
 import { activeVipTier } from '../users/users.presenter.js';
 
 export const giftInput = z.object({
@@ -148,6 +154,12 @@ export class GiftsService {
         status: 'live',
       });
       if (!room) throw notFound('Live room');
+      // Only people in the room: the host, guests on stage and viewers watching right now.
+      const absent = await this.ctx.services.live.firstAbsent(room, receiverIds);
+      if (absent) {
+        const brief = (await this.ctx.services.users.briefs([absent])).get(absent);
+        throw receiverNotInRoom(brief?.displayName ?? 'This user');
+      }
     }
 
     // Resolve agency commission rates up front (reads outside the transaction are fine:
@@ -293,6 +305,13 @@ export class GiftsService {
         // The committed total, so clients set (not add to) the "diamonds this live" counter.
         this.ctx.col.liveRooms.findOne({ _id: room._id }, { projection: { giftDiamonds: 1 } }),
       ]);
+      // The chat row. Without it the broadcast still goes out and clients write their own line.
+      const message = await this.ctx.services.live
+        .giftMessage(room, tx, gift, briefs)
+        .catch((err: unknown) => {
+          this.ctx.log.warn({ err, txId: String(tx._id) }, 'gift chat message failed');
+          return null;
+        });
       await this.ctx.livekit
         .sendData(room.livekitRoom, LIVEKIT_TOPICS.gift, {
           transactionId: String(tx._id),
@@ -302,6 +321,7 @@ export class GiftsService {
           quantity: tx.quantity,
           totalCost: tx.totalCost,
           roomGiftDiamonds: after?.giftDiamonds ?? null,
+          message,
         })
         .catch((err: unknown) => this.ctx.log.warn({ err }, 'gift broadcast failed'));
     }

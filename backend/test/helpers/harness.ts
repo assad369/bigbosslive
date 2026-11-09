@@ -14,7 +14,16 @@ import type { AuthProvider, PushGateway, PushMessage } from '../../src/infra/fir
 import type { IapGateway } from '../../src/infra/iap.js';
 import type { LiveKitGateway, TokenRequest } from '../../src/infra/livekit.js';
 import {
+  InvalidWebhookSignatureError,
+  ModerationUnavailableError,
+  type ModerationRequest,
+  type ModerationVerdict,
+  type SightGuardGateway,
+  type WebhookEvent,
+} from '../../src/infra/sightguard.js';
+import {
   isOwnUploadUrl,
+  isPlatformAssetUrl,
   uploadHeaders,
   type PresignUploadOptions,
   type StorageGateway,
@@ -163,11 +172,71 @@ export const fakeStorage: StorageGateway & {
   },
   isOwnUpload: async (url, folder, ownerId) =>
     isOwnUploadUrl('https://cdn.test', url, folder, ownerId),
+  isPlatformAsset: async (url) => isPlatformAssetUrl('https://cdn.test', url),
   verify: async () => undefined,
   async applyCors(origins) {
     fakeStorage.corsOrigins = origins;
   },
 };
+
+/**
+ * Scripted SightGuard. Content listed in `verdicts` (by text or URL) gets that verdict, the
+ * rest is allowed. `outage` makes every check fail as unavailable. Webhooks verify when the
+ * `sightguard-signature` header is `valid-signature`.
+ */
+export class FakeSightGuard implements SightGuardGateway {
+  enabled = true;
+  liveEnabled = true;
+  outage: false | 'down' | 'invalid_media' = false;
+  verdicts = new Map<string, ModerationVerdict>();
+  checks: { kind: 'text' | 'image'; content: string; req: ModerationRequest }[] = [];
+  videos: { url: string; req: ModerationRequest }[] = [];
+  live: { op: 'start' | 'end'; room: string; hostIdentity?: string }[] = [];
+
+  reject(content: string, ...categories: string[]) {
+    this.verdicts.set(content, { decision: 'reject', categories });
+  }
+  reset() {
+    this.enabled = true;
+    this.liveEnabled = true;
+    this.outage = false;
+    this.verdicts.clear();
+    this.checks = [];
+    this.videos = [];
+    this.live = [];
+  }
+  private verdict(kind: 'text' | 'image', content: string, req: ModerationRequest) {
+    this.checks.push({ kind, content, req });
+    if (this.outage) throw new ModerationUnavailableError('down', this.outage === 'invalid_media');
+    return this.verdicts.get(content) ?? { decision: 'allow' as const, categories: [] };
+  }
+  async moderateText(text: string, req: ModerationRequest) {
+    return this.verdict('text', text, req);
+  }
+  async moderateImageUrl(url: string, req: ModerationRequest) {
+    return this.verdict('image', url, req);
+  }
+  async submitVideo(url: string, req: ModerationRequest) {
+    if (this.outage) throw new ModerationUnavailableError('down');
+    this.videos.push({ url, req });
+  }
+  async startLive(input: { room: string; hostIdentity: string }) {
+    if (this.outage) throw new ModerationUnavailableError('down');
+    this.live.push({ op: 'start', room: input.room, hostIdentity: input.hostIdentity });
+  }
+  async endLive(room: string) {
+    if (this.outage) throw new ModerationUnavailableError('down');
+    this.live.push({ op: 'end', room });
+  }
+  verifyWebhook(
+    rawBody: string | Buffer,
+    headers: Record<string, string | string[] | undefined>,
+  ): WebhookEvent {
+    if (headers['sightguard-signature'] !== 'valid-signature')
+      throw new InvalidWebhookSignatureError('signature mismatch');
+    return JSON.parse(rawBody.toString()) as WebhookEvent;
+  }
+}
 
 export class FakeIap implements IapGateway {
   google = new Map<string, { productId: string; orderId: string }>();
@@ -196,6 +265,7 @@ export interface Harness {
   livekit: FakeLiveKit;
   push: FakePush;
   iap: FakeIap;
+  sightguard: FakeSightGuard;
   jobs: InlineJobQueue;
   client: MongoClient;
   /** Insert a user directly (bypassing the API) with optional overrides. */
@@ -229,6 +299,7 @@ export async function createHarness(): Promise<Harness> {
   const livekit = new FakeLiveKit();
   const push = new FakePush();
   const iap = new FakeIap();
+  const sightguard = new FakeSightGuard();
   const jobs = new InlineJobQueue(log);
 
   const ctx = buildContext({
@@ -241,6 +312,7 @@ export async function createHarness(): Promise<Harness> {
     push,
     storage: fakeStorage,
     iap,
+    sightguard,
     jobs,
     clock,
   });
@@ -304,6 +376,7 @@ export async function createHarness(): Promise<Harness> {
     livekit,
     push,
     iap,
+    sightguard,
     jobs,
     client,
     user,

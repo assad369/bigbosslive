@@ -231,6 +231,8 @@ export const SOCKET = {
     roomEnded: 'rooms:ended',
     chatMessage: 'chat:message',
     chatRead: 'chat:read',
+    /** A message moderation removed for both sides: `{ conversationId, messageId }`. */
+    chatMessageRemoved: 'chat:message_removed',
     /** Client → server and relayed to the peer. */
     chatTyping: 'chat:typing',
     notification: 'notification:new',

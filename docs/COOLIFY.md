@@ -184,12 +184,14 @@ regardless (`npm ci --include=dev`).
 | `APPLE_BUNDLE_ID`, `APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY_BASE64`, `APPLE_ENVIRONMENT` | App Store Server API (`base64 -i AuthKey_XXX.p8 \| tr -d '\n'`) |
 | `JOBS_ENABLED` | `true` |
 | `AGENCY_RESET_TIMEZONE` | `Asia/Dhaka` |
+| `SIGHTGUARD_ENABLED`, `SIGHTGUARD_API_URL`, `SIGHTGUARD_API_KEY`, `SIGHTGUARD_WEBHOOK_SECRET`, `SIGHTGUARD_LIVEKIT_CONNECTION_ID` | content moderation (optional, off by default), see [sightguard.md](sightguard.md) |
 
 The server validates its environment at boot and refuses to start in production without
 `REDIS_URL`, `LIVEKIT_*` and `FIREBASE_PROJECT_ID`. Any problem shows up as one error in the
 deployment logs, listing every bad variable.
 
-Mark secrets (`*_SECRET`, `*_BASE64`, `MONGODB_URI`, `REDIS_URL`, `S3_SECRET_ACCESS_KEY`) as
+Mark secrets (`*_SECRET`, `*_BASE64`, `MONGODB_URI`, `REDIS_URL`, `S3_SECRET_ACCESS_KEY`,
+`SIGHTGUARD_API_KEY`) as
 locked in Coolify so they aren't shown in the UI.
 
 ## 7. Admin dashboard and games

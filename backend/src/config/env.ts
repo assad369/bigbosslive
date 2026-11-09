@@ -57,6 +57,25 @@ const EnvSchema = z.object({
   APPLE_PRIVATE_KEY_BASE64: z.string().optional(),
   APPLE_ENVIRONMENT: z.enum(['production', 'sandbox']).default('production'),
 
+  /**
+   * SightGuard content moderation (images, text, video, live streams). Off unless enabled: when
+   * off every check allows and nothing is sent. See CLAUDE.md "Content moderation".
+   */
+  SIGHTGUARD_ENABLED: bool.default(false),
+  SIGHTGUARD_API_URL: z.url().optional(),
+  SIGHTGUARD_API_KEY: z.string().startsWith('sg_live_').optional(),
+  /** Signing secret of the SightGuard webhook endpoint pointing at /v1/webhooks/sightguard. */
+  SIGHTGUARD_WEBHOOK_SECRET: z.string().min(16).optional(),
+  /** LiveKit connection id from the SightGuard dashboard. Unset = live streams unsupervised. */
+  SIGHTGUARD_LIVEKIT_CONNECTION_ID: z.string().optional(),
+  /** Time budget for a live chat check; on timeout the message goes through (fail open). */
+  SIGHTGUARD_CHAT_TIMEOUT_MS: z.coerce.number().int().min(50).max(5000).default(300),
+  /**
+   * Ban automatically when SightGuard ends a stream and recommends a ban, or a moderator
+   * confirms a live violation. Off by default: moderators confirm bans themselves.
+   */
+  SIGHTGUARD_AUTO_BAN: bool.default(false),
+
   JOBS_ENABLED: bool.default(true),
   AGENCY_RESET_TIMEZONE: z.string().default('Asia/Dhaka'),
 });
@@ -75,6 +94,14 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     throw new Error(`Invalid environment configuration:\n${issues.join('\n')}`);
   }
   const env = parsed.data;
+  if (
+    env.SIGHTGUARD_ENABLED &&
+    !(env.SIGHTGUARD_API_URL && env.SIGHTGUARD_API_KEY && env.SIGHTGUARD_WEBHOOK_SECRET)
+  ) {
+    throw new Error(
+      'SIGHTGUARD_API_URL, SIGHTGUARD_API_KEY and SIGHTGUARD_WEBHOOK_SECRET are required when SIGHTGUARD_ENABLED',
+    );
+  }
   if (env.NODE_ENV === 'production') {
     const missing = (
       [

@@ -84,7 +84,6 @@ class LiveUserSheet extends ConsumerWidget {
     final seat = c.detail?.seats
         .where((s) => s.index > 0 && s.user?.id == user.id)
         .firstOrNull;
-    final onStage = role == RoomRole.host || seat != null;
     // Admins can't act on the host or on each other; the server enforces the same.
     final canModerate =
         !me &&
@@ -288,7 +287,8 @@ class LiveUserSheet extends ConsumerWidget {
                           ),
                   ),
                 ],
-                if (!me && onStage) ...[
+                // Anyone in the room can be gifted; the server checks they're still here.
+                if (!me) ...[
                   const SizedBox(width: 10),
                   IconButton.filledTonal(
                     tooltip: 'Send a gift',

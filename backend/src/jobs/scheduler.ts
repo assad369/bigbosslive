@@ -17,6 +17,8 @@ export function jobHandlers(ctx: Ctx): JobHandlers {
     },
     'push.followers': ({ hostId, roomId }) =>
       ctx.services.notifications.pushFollowersGoLive(hostId, roomId),
+    'sightguard.live': (job) => ctx.services.sightguard.runLiveJob(job),
+    'sightguard.video': (job) => ctx.services.sightguard.runVideoJob(job),
   };
 }
 
