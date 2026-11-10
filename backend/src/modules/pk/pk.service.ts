@@ -47,6 +47,7 @@ export class PkService {
         avatarUrl: briefs.get(h.uid)?.avatarUrl ?? null,
         level: briefs.get(h.uid)?.level ?? 0,
         vipTier: briefs.get(h.uid)?.vipTier ?? 0,
+        badge: briefs.get(h.uid)?.badge ?? null,
         frameUrl: briefs.get(h.uid)?.frameUrl ?? null,
         frameFormat: briefs.get(h.uid)?.frameFormat ?? 'none',
       })),

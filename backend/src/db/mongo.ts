@@ -25,7 +25,8 @@ export interface Collections {
   recharges: Collection<S.RechargeDoc>;
   rechargePackages: Collection<S.RechargePackageDoc>;
   levelConfigs: Collection<S.LevelConfigDoc>;
-  vipPackages: Collection<S.VipPackageDoc>;
+  tierPackages: Collection<S.TierPackageDoc>;
+  userTierPackages: Collection<S.UserTierPackageDoc>;
   cosmetics: Collection<S.CosmeticDoc>;
   userCosmetics: Collection<S.UserCosmeticDoc>;
   agencies: Collection<S.AgencyDoc>;
@@ -77,7 +78,8 @@ const NAMES: Record<keyof Collections, string> = {
   recharges: 'recharges',
   rechargePackages: 'recharge_packages',
   levelConfigs: 'level_configs',
-  vipPackages: 'vip_packages',
+  tierPackages: 'tier_packages',
+  userTierPackages: 'user_tier_packages',
   cosmetics: 'cosmetics',
   userCosmetics: 'user_cosmetics',
   agencies: 'agencies',

@@ -71,7 +71,7 @@ describe('admin uploads', () => {
     expect((await presign(as, { kind: 'banner', contentType: 'image/png' })).status).toBe(422);
   });
 
-  it('decoration slots take animations into their own folders; VIP frames take no video', async () => {
+  it('decoration slots take animations into their own folders; tier badges take no Lottie', async () => {
     const as = h.as('boss', 'admin');
     const lottie = await presign(as, {
       kind: 'cosmetic-asset',
@@ -80,14 +80,18 @@ describe('admin uploads', () => {
     });
     expect(lottie.status).toBe(200);
     expect(lottie.body.key).toMatch(/^admin\/cosmetics\/assets\/boss\/.+\.json$/);
-    const frame = await presign(as, {
-      kind: 'vip-frame',
+    const badge = await presign(as, {
+      kind: 'tier-badge',
       contentType: 'application/octet-stream',
       size: 500_000,
     });
-    expect(frame.body.key).toMatch(/^admin\/vip\/frames\/boss\/.+\.svga$/);
+    expect(badge.body.key).toMatch(/^admin\/tiers\/badges\/boss\/.+\.svga$/);
     expect(
-      (await presign(as, { kind: 'vip-frame', contentType: 'video/mp4', size: 1000 })).status,
+      (await presign(as, { kind: 'tier-badge', contentType: 'video/mp4', size: 1000 })).status,
+    ).toBe(200);
+    expect(
+      (await presign(as, { kind: 'tier-badge', contentType: 'application/json', size: 1000 }))
+        .status,
     ).toBe(400);
     expect(
       (

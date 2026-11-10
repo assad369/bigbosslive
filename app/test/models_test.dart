@@ -12,6 +12,12 @@ void main() {
       'bio': 'hi',
       'level': 12,
       'vipTier': 2,
+      'badge': {
+        'imageUrl': 'https://cdn.test/b.png',
+        'svgaUrl': null,
+        'mp4Url': 'https://cdn.test/b.mp4',
+        'blendMode': 'additive',
+      },
       'followers': 10,
       'following': 3,
       'isLive': true,
@@ -34,6 +40,14 @@ void main() {
       expect(me.id, 'u1');
       expect(me.brief.displayName, 'Golden Boss');
       expect(me.brief.vipTier, 2);
+      expect(
+        me.brief.badge,
+        const TierBadge(
+          imageUrl: 'https://cdn.test/b.png',
+          mp4Url: 'https://cdn.test/b.mp4',
+          additive: true,
+        ),
+      );
       expect(me.wallet.diamonds, 500);
       expect(me.wallet.agentStock, 1000);
       expect(me.isAgent, isTrue);

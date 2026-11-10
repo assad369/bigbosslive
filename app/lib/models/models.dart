@@ -3,6 +3,49 @@ import 'youtube.dart';
 
 export 'youtube.dart';
 
+/// Artwork of a tier package, drawn as a badge at the bottom-right of the avatar. Up to
+/// three renditions of the same picture; [TierBadgeView] plays MP4, else SVGA, else the image.
+class TierBadge {
+  const TierBadge({
+    this.imageUrl,
+    this.svgaUrl,
+    this.mp4Url,
+    this.additive = false,
+  });
+
+  final String? imageUrl;
+  final String? svgaUrl;
+  final String? mp4Url;
+
+  /// The MP4 was exported on black: key black to transparent.
+  final bool additive;
+
+  bool get isEmpty => imageUrl == null && svgaUrl == null && mp4Url == null;
+
+  /// Null when [j] is absent or carries no rendition, so "has a badge" is a null check.
+  static TierBadge? fromJsonOrNull(Json? j) {
+    if (j == null) return null;
+    final b = TierBadge(
+      imageUrl: j.strOrNull('imageUrl'),
+      svgaUrl: j.strOrNull('svgaUrl'),
+      mp4Url: j.strOrNull('mp4Url'),
+      additive: j.str('blendMode') == 'additive',
+    );
+    return b.isEmpty ? null : b;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is TierBadge &&
+      other.imageUrl == imageUrl &&
+      other.svgaUrl == svgaUrl &&
+      other.mp4Url == mp4Url &&
+      other.additive == additive;
+
+  @override
+  int get hashCode => Object.hash(imageUrl, svgaUrl, mp4Url, additive);
+}
+
 /// Compact identity used in rooms, chat, leaderboards and lists.
 class UserBrief {
   const UserBrief({
@@ -12,6 +55,7 @@ class UserBrief {
     this.avatarUrl,
     this.level = 0,
     this.vipTier = 0,
+    this.badge,
     this.country,
     this.frameUrl,
     this.frameFormat = 'none',
@@ -23,11 +67,14 @@ class UserBrief {
   final String? avatarUrl;
   final int level;
 
-  /// 0 none, 1 VIP, 2 VVIP, 3 King.
+  /// 0 none, 1 VIP, 2 VVIP, 3 Crown, 4 King (see `VipTier`).
   final int vipTier;
+
+  /// The worn tier package's badge; null without an active tier.
+  final TierBadge? badge;
   final String? country;
 
-  /// Resolved avatar frame (equipped store frame, else the VIP tier's frame).
+  /// Equipped avatar frame (the ring); tiers carry no frame of their own.
   final String? frameUrl;
 
   /// How [frameUrl] plays: `none` (image), `svga`, `lottie`.
@@ -40,6 +87,7 @@ class UserBrief {
     avatarUrl: j.strOrNull('avatarUrl'),
     level: j.integer('level'),
     vipTier: j.integer('vipTier'),
+    badge: TierBadge.fromJsonOrNull(j.objOrNull('badge')),
     country: j.strOrNull('country'),
     frameUrl: j.strOrNull('frameUrl'),
     frameFormat: j.str('frameFormat', 'none'),
@@ -52,6 +100,7 @@ class UserBrief {
     avatarUrl: avatarUrl,
     level: level ?? this.level,
     vipTier: vipTier,
+    badge: badge,
     country: country,
     frameUrl: frameUrl,
     frameFormat: frameFormat,
@@ -761,36 +810,62 @@ class AppNotification {
   );
 }
 
-class VipPackage {
-  const VipPackage({
+/// A tier package: badge artwork that puts its wearer in [tier] while it lasts.
+class TierPackage {
+  const TierPackage({
     required this.id,
     required this.tier,
     required this.name,
     required this.priceDiamonds,
     required this.durationDays,
-    required this.perks,
-    this.frameUrl,
-    this.frameFormat = 'none',
+    this.badge,
   });
   final String id;
+
+  /// 1 VIP, 2 VVIP, 3 Crown, 4 King.
   final int tier;
   final String name;
   final int priceDiamonds;
   final int durationDays;
-  final List<String> perks;
+  final TierBadge? badge;
 
-  /// The avatar frame members of this tier wear.
-  final String? frameUrl;
-  final String frameFormat;
-  factory VipPackage.fromJson(Json j) => VipPackage(
-    id: j.str('_id', j.str('id')),
+  factory TierPackage.fromJson(Json j) => TierPackage(
+    id: j.str('id'),
     tier: j.integer('tier'),
     name: j.str('name'),
     priceDiamonds: j.integer('priceDiamonds'),
     durationDays: j.integer('durationDays'),
-    perks: j.strings('perks'),
-    frameUrl: j.strOrNull('frameUrl'),
-    frameFormat: j.str('frameFormat', 'none'),
+    badge: TierBadge.fromJsonOrNull(j.objOrNull('badge')),
+  );
+}
+
+/// A tier package in the user's inventory.
+class OwnedTierPackage {
+  const OwnedTierPackage({
+    required this.package,
+    this.expiresAt,
+    this.expired = false,
+    this.worn = false,
+  });
+  final TierPackage package;
+  final DateTime? expiresAt;
+  final bool expired;
+
+  /// The one being worn now (at most one).
+  final bool worn;
+
+  factory OwnedTierPackage.fromJson(Json j) => OwnedTierPackage(
+    package: TierPackage.fromJson(j.obj('package')),
+    expiresAt: j.date('expiresAt'),
+    expired: j.flag('expired'),
+    worn: j.flag('worn'),
+  );
+
+  OwnedTierPackage copyWith({bool? worn}) => OwnedTierPackage(
+    package: package,
+    expiresAt: expiresAt,
+    expired: expired,
+    worn: worn ?? this.worn,
   );
 }
 
@@ -863,6 +938,7 @@ class PkHost {
     this.avatarUrl,
     this.level = 0,
     this.vipTier = 0,
+    this.badge,
     this.frameUrl,
     this.frameFormat = 'none',
   });
@@ -877,6 +953,7 @@ class PkHost {
   final String? avatarUrl;
   final int level;
   final int vipTier;
+  final TierBadge? badge;
   final String? frameUrl;
   final String frameFormat;
 
@@ -888,6 +965,7 @@ class PkHost {
     avatarUrl: avatarUrl,
     level: level,
     vipTier: vipTier,
+    badge: badge,
     frameUrl: frameUrl,
     frameFormat: frameFormat,
   );
@@ -902,6 +980,7 @@ class PkHost {
     avatarUrl: j.strOrNull('avatarUrl'),
     level: j.integer('level'),
     vipTier: j.integer('vipTier'),
+    badge: TierBadge.fromJsonOrNull(j.objOrNull('badge')),
     frameUrl: j.strOrNull('frameUrl'),
     frameFormat: j.str('frameFormat', 'none'),
   );

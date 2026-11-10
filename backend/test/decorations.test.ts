@@ -31,20 +31,6 @@ beforeAll(async () => {
   h = await createHarness();
   await h.user(ADMIN.uid, { adminRole: ADMIN.role });
   await h.user('helpdesk', { adminRole: 'support' });
-  await h.ctx.services.store.upsertVipPackage(null, {
-    tier: 3,
-    name: 'King',
-    priceDiamonds: 100,
-    durationDays: 30,
-    perks: [],
-    badgeUrl: null,
-    frameUrl: 'https://cdn.test/vip/king.svga',
-    frameFormat: 'svga',
-    entryAnimationUrl: 'https://cdn.test/vip/king-entry.mp4',
-    entryAnimationFormat: 'mp4',
-    active: true,
-    sortOrder: 0,
-  });
 });
 afterAll(async () => h.close());
 
@@ -257,62 +243,6 @@ describe('admin grants', () => {
           .send({ cosmeticId: item.id })
       ).status,
     ).toBe(403);
-  });
-});
-
-describe('admin VIP grants', () => {
-  const grant = (uid: string, body: Record<string, unknown>, k = key()) =>
-    h.api.post(`/v1/admin/users/${uid}/vip`).set(admin()).set('Idempotency-Key', k).send(body);
-
-  it('extends the same tier, replaces on set, and removes with tier 0', async () => {
-    await h.user('member');
-    const first = await grant('member', { tier: 2, days: 10 });
-    expect(first.status).toBe(200);
-    const extended = await grant('member', { tier: 2, days: 5 });
-    expect(new Date(extended.body.expiresAt).getTime() - h.clock.now().getTime()).toBe(15 * DAY);
-    const set = await grant('member', { tier: 2, days: 3, mode: 'set' });
-    expect(new Date(set.body.expiresAt).getTime() - h.clock.now().getTime()).toBe(3 * DAY);
-    // A different tier starts from now even when extending.
-    const upgraded = await grant('member', { tier: 3, days: 4 });
-    expect(new Date(upgraded.body.expiresAt).getTime() - h.clock.now().getTime()).toBe(4 * DAY);
-    expect(await brief('member')).toMatchObject({
-      vipTier: 3,
-      frameUrl: 'https://cdn.test/vip/king.svga',
-    });
-
-    expect((await grant('member', { tier: 1 })).status).toBe(422);
-    const removed = await grant('member', { tier: 0 });
-    expect(removed.body).toMatchObject({ tier: 0, expiresAt: null });
-    expect(await brief('member')).toMatchObject({ vipTier: 0, frameUrl: null });
-  });
-
-  it('a retried grant replays instead of stacking days', async () => {
-    await h.user('retry');
-    const k = key();
-    const a = await grant('retry', { tier: 1, days: 30 }, k);
-    const b = await grant('retry', { tier: 1, days: 30 }, k);
-    expect(b.body).toMatchObject({ replayed: true, expiresAt: a.body.expiresAt });
-    expect(
-      await h.ctx.col.auditLogs.countDocuments({ action: 'user.vip', targetId: 'retry' }),
-    ).toBe(1);
-    expect(
-      (await h.api.post('/v1/admin/users/retry/vip').set(admin()).send({ tier: 1, days: 1 }))
-        .status,
-    ).toBe(400);
-  });
-
-  it('re-ranks the live room of a host who is on air', async () => {
-    await h.user('onair');
-    const { room } = await h.ctx.services.live.start('onair', {
-      type: 'audio',
-      title: 'Talk',
-      coverUrl: null,
-      tags: [],
-    });
-    await grant('onair', { tier: 3, days: 30 }).expect(200);
-    expect((await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(room.id) }))!.hostVipTier).toBe(
-      3,
-    );
   });
 });
 

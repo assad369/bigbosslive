@@ -32,7 +32,15 @@ export const TICKS: { name: string; everyMs: number; run: (ctx: Ctx) => Promise<
   // Songs that ended while every player was hidden; deadlines are `youtube.current.endsAt`.
   { name: 'youtube.sweep', everyMs: 2_000, run: (ctx) => ctx.services.youtube.sweep() },
   { name: 'live.sweep', everyMs: 30_000, run: (ctx) => ctx.services.live.sweepStale() },
-  { name: 'store.sweep', everyMs: 60 * 60_000, run: (ctx) => ctx.services.store.sweepExpired() },
+  // Expired tier packages come off first, so decorations worn through that tier follow.
+  {
+    name: 'store.sweep',
+    everyMs: 60 * 60_000,
+    run: async (ctx) => {
+      await ctx.services.tierPackages.sweep();
+      await ctx.services.store.sweepExpired();
+    },
+  },
   // Hourly is enough: members are also rolled lazily on their first earning in a new month.
   {
     name: 'agencies.reset',

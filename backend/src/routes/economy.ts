@@ -6,6 +6,7 @@ import {
   COSMETIC_TYPES,
   EQUIPPABLE_COSMETIC_TYPES,
   GAME_KEYS,
+  MAX_VIP_TIER,
   SHORT_ID_PATTERN,
 } from '@bigboss/shared';
 import type { Ctx } from '../context.js';
@@ -31,7 +32,7 @@ import { agencyProfileInput, toAgencySummary } from '../modules/agencies/agencie
 const idParams = z.object({ id: objectIdString });
 const gameParam = z.object({ key: z.enum(GAME_KEYS) });
 
-/** Gifts, wallet, store (VIP/cosmetics), agents, agencies, withdrawals and games. */
+/** Gifts, wallet, store (tier packages/cosmetics), agents, agencies, withdrawals and games. */
 export function economyRoutes(ctx: Ctx): Router {
   const r = Router();
   // Scope auth to this router's own prefixes so unknown /v1 paths still fall through to 404.
@@ -144,13 +145,39 @@ export function economyRoutes(ctx: Ctx): Router {
   });
 
   // ── Store ─────────────────────────────────────────────────────────────────
-  r.get('/store/vip', async (_req, res) => {
-    res.json({ items: await store.vipPackages() });
+  // Tier packages (VIP / VVIP / Crown / King): badge artwork; one is worn at a time.
+  const tierQuery = z.object({
+    tier: z.coerce.number().int().min(1).max(MAX_VIP_TIER).optional(),
   });
 
-  r.post('/store/vip/:id/purchase', moneyLimit, async (req, res) => {
+  r.get('/store/tier-packages', async (req, res) => {
+    const { tier } = parseQuery(req, tierQuery);
+    res.json({ items: await ctx.services.tierPackages.list(tier) });
+  });
+
+  r.get('/store/tier-packages/mine', async (req, res) => {
+    const { tier } = parseQuery(req, tierQuery);
+    res.json({ items: await ctx.services.tierPackages.mine(currentUser(req).uid, tier) });
+  });
+
+  r.post('/store/tier-packages/wear', async (req, res) => {
+    const { packageId } = parseBody(req, z.object({ packageId: objectIdString.nullable() }));
+    await ctx.services.tierPackages.wear(
+      currentUser(req).uid,
+      packageId ? toObjectId(packageId) : null,
+    );
+    res.status(204).end();
+  });
+
+  r.post('/store/tier-packages/:id/purchase', moneyLimit, async (req, res) => {
     const { id } = parseParams(req, idParams);
-    res.json(await store.purchaseVip(currentUser(req).uid, toObjectId(id), idempotencyKey(req)));
+    res.json(
+      await ctx.services.tierPackages.purchase(
+        currentUser(req).uid,
+        toObjectId(id),
+        idempotencyKey(req),
+      ),
+    );
   });
 
   r.get('/store/items', async (req, res) => {

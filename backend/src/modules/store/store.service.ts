@@ -20,32 +20,11 @@ import {
   type OwnedCosmetic,
 } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
-import type { CosmeticDoc, UserDoc, VipPackageDoc } from '../../db/schema.js';
-import {
-  badRequest,
-  conflict,
-  forbidden,
-  isDuplicateKeyError,
-  notFound,
-} from '../../lib/errors.js';
+import type { CosmeticDoc, UserDoc } from '../../db/schema.js';
+import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
 import { once } from '../../lib/idempotency.js';
 import { addDays } from '../../lib/time.js';
 import { activeVipTier } from '../users/users.presenter.js';
-
-export const vipPackageInput = z.object({
-  tier: z.number().int().min(1).max(MAX_VIP_TIER),
-  name: z.string().trim().min(1).max(40),
-  priceDiamonds: z.number().int().positive(),
-  durationDays: z.number().int().min(1).max(366),
-  perks: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
-  badgeUrl: z.url().nullable().default(null),
-  frameUrl: z.url().nullable().default(null),
-  frameFormat: z.enum(FRAME_FORMATS).default('none'),
-  entryAnimationUrl: z.url().nullable().default(null),
-  entryAnimationFormat: z.enum(ANIMATION_FORMATS).default('none'),
-  active: z.boolean().default(true),
-  sortOrder: z.number().int().default(0),
-});
 
 export const cosmeticInput = z.object({
   type: z.enum(COSMETIC_TYPES),
@@ -70,18 +49,6 @@ export const cosmeticListQuery = z.object({
   status: z.enum(['active', 'inactive']).optional(),
   q: z.string().trim().max(40).optional(),
 });
-
-export const vipGrantInput = z
-  .object({
-    tier: z.number().int().min(0).max(MAX_VIP_TIER),
-    days: z.number().int().min(1).max(MAX_GRANT_DAYS).optional(),
-    /** `extend` adds to an unexpired membership of the same tier; `set` restarts from now. */
-    mode: z.enum(['extend', 'set']).default('extend'),
-  })
-  .refine((v) => v.tier === 0 || v.days !== undefined, {
-    message: 'Pick how many days',
-    path: ['days'],
-  });
 
 export function toCosmetic(c: CosmeticDoc): Cosmetic {
   return {
@@ -120,7 +87,7 @@ function formatOfUrl(url: string): AnimationFormat | null {
 /** Rules a decoration must satisfy whole: checked on create and on the merged result of a patch. */
 function checkCosmetic(c: Omit<CosmeticDoc, '_id' | 'createdAt'>): void {
   if (c.vipIncluded && c.vipTierRequired < 1)
-    throw badRequest('Pick the VIP tier that includes this decoration');
+    throw badRequest('Pick the tier that includes this decoration');
   if (c.type === 'frame' && !(FRAME_FORMATS as readonly string[]).includes(c.animationFormat))
     throw badRequest('Avatar frames must be an image, SVGA or Lottie');
   const fromFile = formatOfUrl(c.assetUrl);
@@ -161,151 +128,9 @@ function unequipFields(type: EquippableCosmeticType) {
 
 const sameId = (a: ObjectId | null | undefined, b: ObjectId) => !!a && a.equals(b);
 
-/** VIP memberships and cosmetics (avatar frames, entry animations, room backgrounds, bubbles). */
+/** Cosmetics (avatar frames, entry animations, room backgrounds, bubbles). Tier packages live in `TierPackagesService`. */
 export class StoreService {
   constructor(private readonly ctx: Ctx) {}
-
-  // ── VIP ──────────────────────────────────────────────────────────────────
-
-  async vipPackages(includeInactive = false): Promise<VipPackageDoc[]> {
-    return this.ctx.col.vipPackages
-      .find(includeInactive ? {} : { active: true })
-      .sort({ tier: 1 })
-      .toArray();
-  }
-
-  async upsertVipPackage(
-    id: ObjectId | null,
-    input: z.infer<typeof vipPackageInput>,
-  ): Promise<VipPackageDoc> {
-    let saved: VipPackageDoc;
-    let previousTier: number | null = null;
-    try {
-      if (!id) {
-        saved = { _id: new ObjectId(), ...input };
-        await this.ctx.col.vipPackages.insertOne(saved);
-      } else {
-        const before = await this.ctx.col.vipPackages.findOneAndUpdate(
-          { _id: id },
-          { $set: input },
-          { returnDocument: 'before' },
-        );
-        if (!before) throw notFound('VIP package');
-        previousTier = before.tier;
-        saved = { ...before, ...input };
-      }
-    } catch (err) {
-      if (isDuplicateKeyError(err))
-        throw conflict(`A package for VIP ${input.tier} already exists`);
-      throw err;
-    }
-    // Members wear their tier's frame: re-sync everyone on the affected tiers.
-    await this.syncTierFrame(saved.tier);
-    if (previousTier !== null && previousTier !== saved.tier)
-      await this.syncTierFrame(previousTier);
-    return saved;
-  }
-
-  /** The VIP frame fields a holder of `tier` should carry, from that tier's package. */
-  private async tierFrame(tier: number, session?: ClientSession) {
-    const pkg = tier
-      ? await this.ctx.col.vipPackages.findOne({ tier }, session ? { session } : {})
-      : null;
-    return {
-      'equipped.vipFrameUrl': pkg?.frameUrl ?? null,
-      'equipped.vipFrameFormat': pkg?.frameUrl ? pkg.frameFormat : 'none',
-    } as const;
-  }
-
-  private async syncTierFrame(tier: number): Promise<void> {
-    await this.ctx.col.users.updateMany({ 'vip.tier': tier }, { $set: await this.tierFrame(tier) });
-  }
-
-  /** Set a membership with its tier frame, and re-rank the user's live room if they're on air. */
-  private async applyVip(
-    session: ClientSession,
-    uid: string,
-    tier: number,
-    expiresAt: Date | null,
-  ): Promise<void> {
-    await this.ctx.col.users.updateOne(
-      { _id: uid },
-      { $set: { vip: { tier, expiresAt }, ...(await this.tierFrame(tier, session)) } },
-      { session },
-    );
-    await this.ctx.col.liveRooms.updateOne(
-      { hostId: uid, status: 'live' },
-      { $set: { hostVipTier: tier } },
-      { session },
-    );
-  }
-
-  /**
-   * Admin grant (or removal with tier 0) of VIP. `extend` adds `days` to an unexpired
-   * membership of the same tier; otherwise, and with `set`, it runs `days` from now. Keyed
-   * per admin so a retried request never stacks days twice.
-   */
-  async grantVip(uid: string, input: z.infer<typeof vipGrantInput>, adminUid: string, key: string) {
-    const { result, replayed } = await once(
-      this.ctx,
-      'vip_grant',
-      uid,
-      `${adminUid}:${key}`,
-      async (session) => {
-        const user = await this.ctx.col.users.findOne(
-          { _id: uid },
-          { session, projection: { vip: 1 } },
-        );
-        if (!user) throw notFound('User');
-        if (input.tier === 0) {
-          await this.applyVip(session, uid, 0, null);
-          return { tier: 0, expiresAt: null as string | null };
-        }
-        const now = this.ctx.clock.now();
-        const extending = input.mode === 'extend' && activeVipTier(user.vip, now) === input.tier;
-        // A legacy membership with no expiry stays open-ended when extended.
-        const expiresAt =
-          extending && !user.vip.expiresAt
-            ? null
-            : addDays(extending ? user.vip.expiresAt! : now, input.days!);
-        await this.applyVip(session, uid, input.tier, expiresAt);
-        return { tier: input.tier, expiresAt: expiresAt?.toISOString() ?? null };
-      },
-    );
-    return { ...result, replayed };
-  }
-
-  /**
-   * Buy or renew VIP. Renewing the active tier extends from the current expiry; upgrading
-   * starts fresh from now; buying a lower tier than the active one is refused.
-   */
-  async purchaseVip(uid: string, packageId: ObjectId, key: string) {
-    const pkg = await this.ctx.col.vipPackages.findOne({ _id: packageId, active: true });
-    if (!pkg) throw notFound('VIP package');
-    const { result, replayed } = await once(this.ctx, 'vip', uid, key, async (session) => {
-      const user = await this.ctx.col.users.findOne(
-        { _id: uid },
-        { session, projection: { vip: 1 } },
-      );
-      if (!user) throw notFound('User');
-      const now = this.ctx.clock.now();
-      const current = activeVipTier(user.vip, now);
-      if (current > pkg.tier) throw badRequest(`You already have VIP ${current}`);
-      const base = current === pkg.tier && user.vip.expiresAt ? user.vip.expiresAt : now;
-      const expiresAt = addDays(base, pkg.durationDays);
-      const diamonds = await this.ctx.services.wallet.debit(session, {
-        uid,
-        currency: 'diamonds',
-        amount: pkg.priceDiamonds,
-        reason: 'vip_purchase',
-        refId: String(pkg._id),
-        meta: { tier: pkg.tier, days: pkg.durationDays },
-      });
-      await this.applyVip(session, uid, pkg.tier, expiresAt);
-      return { tier: pkg.tier, expiresAt: expiresAt.toISOString(), diamonds };
-    });
-    return { ...result, replayed };
-  }
 
   // ── Cosmetics catalog ──────────────────────────────────────────────────────────
 
@@ -501,7 +326,7 @@ export class StoreService {
     if (!item) throw notFound('Item');
     if (item.vipIncluded)
       throw badRequest(
-        `Included with ${vipTierLabel(item.vipTierRequired) ?? `VIP ${item.vipTierRequired}`}`,
+        `Included with ${vipTierLabel(item.vipTierRequired) ?? `tier ${item.vipTierRequired}`}`,
       );
     const { result, replayed } = await once(this.ctx, 'cosmetic', uid, key, async (session) => {
       const user = await this.ctx.col.users.findOne(
@@ -510,7 +335,9 @@ export class StoreService {
       );
       if (!user) throw notFound('User');
       if (item.vipTierRequired > activeVipTier(user.vip, this.ctx.clock.now()))
-        throw forbidden(`Requires VIP ${item.vipTierRequired}`);
+        throw forbidden(
+          `Requires ${vipTierLabel(item.vipTierRequired) ?? `tier ${item.vipTierRequired}`}`,
+        );
       let diamonds = user.wallet.diamonds;
       if (item.priceDiamonds > 0) {
         diamonds = await this.ctx.services.wallet.debit(session, {
@@ -744,25 +571,16 @@ export class StoreService {
 
   /**
    * The entrance effect played when `uid` joins a room: their equipped entry animation (one
-   * worn through VIP only while that tier is held), else the effect of their VIP tier, else none.
+   * worn through a tier only while that tier is held), else none.
    */
   async entryEffectFor(uid: string, vipTier: number): Promise<EntryEffect | null> {
     const user = await this.ctx.col.users.findOne({ _id: uid }, { projection: { equipped: 1 } });
     const e = user?.equipped;
-    if (e?.entryAnimationId && (e.entryAnimationVipTier ?? 0) <= vipTier) {
-      const item = await this.ctx.col.cosmetics.findOne(
-        { _id: e.entryAnimationId },
-        { projection: { assetUrl: 1, animationFormat: 1 } },
-      );
-      if (item) return { url: item.assetUrl, format: item.animationFormat };
-    }
-    if (vipTier <= 0) return null;
-    const pkg = await this.ctx.col.vipPackages.findOne(
-      { tier: vipTier },
-      { projection: { entryAnimationUrl: 1, entryAnimationFormat: 1 } },
+    if (!e?.entryAnimationId || (e.entryAnimationVipTier ?? 0) > vipTier) return null;
+    const item = await this.ctx.col.cosmetics.findOne(
+      { _id: e.entryAnimationId },
+      { projection: { assetUrl: 1, animationFormat: 1 } },
     );
-    return pkg?.entryAnimationUrl
-      ? { url: pkg.entryAnimationUrl, format: pkg.entryAnimationFormat ?? 'none' }
-      : null;
+    return item ? { url: item.assetUrl, format: item.animationFormat } : null;
   }
 }

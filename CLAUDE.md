@@ -96,37 +96,65 @@ cd app && flutter analyze && flutter test && dart format lib test
   and dropped on create, update and monthly reset.
 - Every agency action writes `agency_audit`.
 
-## VIP ladder & cosmetics
+## Tier packages (VIP / VVIP / Crown / King) & cosmetics
 
-- `vipTier` 1/2/3 = VIP/VVIP/King (`VIP_TIERS`). Higher tiers sort first in viewer lists and on
-  the Popular tab (`liveRooms.hostVipTier`).
-- The frame a user shows comes from `resolveFrame()`: an equipped store frame, else their active
-  tier's frame (`equipped.vipFrame*`, copied from the package on purchase or grant and re-synced
-  when the package changes). It is never read from `equipped` directly. Briefs, LiveKit
-  metadata, PK hosts and room hosts all carry `frameUrl` + `frameFormat`.
-- Entrance effect at `/join`: the equipped entry animation, else the tier's
-  `entryAnimationUrl`. The app plays SVGA, Lottie and MP4 (muted) via `EffectView`, and draws
-  every avatar with `BBAvatar.user()`.
-- The decoration library (`cosmetics`) is unlimited and paged in the admin. A decoration with
-  `vipIncluded` is a tier perk: holders of `vipTierRequired`+ wear it free without an ownership
-  row, and it can't be bought. Equipping records `equipped.frameVipTier` /
-  `entryAnimationVipTier` (0 = owned, else the entitling tier), so `resolveFrame()` and
-  `entryEffectFor()` drop it the moment the tier lapses. The hourly `store.sweep` only tidies up.
-- Editing a decoration re-syncs its wearers (`syncEquipped`). Its type never changes. Frames
-  can't be MP4 (`FRAME_FORMATS`; `FrameView` draws nothing for it), and the format must match
-  the file's extension.
-- Admin grants (`POST /admin/users/:uid/vip` and `/admin/users/:uid/cosmetics`) are keyed by
-  `Idempotency-Key`, scoped to the admin, and audited once. A granted frame or entrance effect
-  is equipped at once. VIP `extend` adds to an unexpired membership of the same tier.
-  `applyVip()` also re-ranks the host's live room (`hostVipTier`).
-- A decoration is deleted only while nobody holds or wears it. Otherwise it is deactivated.
-  Grants may use inactive items, which is how event-only decorations reach users.
+- **Tiers:** `vipTier` 1/2/3/4 = VIP/VVIP/Crown/King (`VIP_TIERS`; King moved from 3 to 4 in
+  migration `2026-11-10-tier-packages`). Higher tiers sort first in viewer lists and on the
+  Popular tab (`liveRooms.hostVipTier`).
+- **Model:** a tier package (`tier_packages`, `TierPackagesService` in `modules/vip`) is badge
+  artwork sold for `durationDays`.
+  - A user may own many (`user_tier_packages`, one row per package; buying again extends it) and
+    wears one at a time.
+  - The worn one is `users.vip` = `{ tier, expiresAt, packageId, badge }`, and that sets their
+    tier. Any owned, unexpired package may be worn, a lower tier included.
+  - `TierPackagesService` is the only writer of `users.vip`. Each write (`writeSlot`) also
+    re-ranks the host's live room and, after commit, re-mints their LiveKit metadata
+    (`LiveService.refreshIdentity`).
+- **Expiry and edits:**
+  - `activeVipTier()` / `activeBadge()` ignore an expired slot, and the hourly `store.sweep`
+    clears it and drops the room rank.
+  - A package's `tier` never changes after creation.
+  - Editing the artwork re-syncs `vip.badge` on everyone wearing it.
+  - A package is deleted only while nobody holds it. Otherwise it is deactivated, and grants may
+    still use it.
+- **The badge:** three renditions in their own fields (`badge.imageUrl/svgaUrl/mp4Url`, plus
+  `blendMode`). Each URL's extension must match its field (`checkBadge`); an extensionless URL
+  keeps its slot. Briefs, LiveKit metadata, PK hosts and room hosts carry `badge`.
+- **App rendering:** `TierBadgeView` (`core/widgets/tier_badge.dart`) plays MP4 > SVGA > image.
+  - Every failure falls to the next rendition.
+  - MP4s are muted, looping, `mixWithOthers`, played from `TierBadgeVideoCache`, and metered by
+    `VideoBadgeBudget` (6 at once, 3 while a live room is connected).
+  - `additive` is a luminance-to-alpha `ColorFiltered`.
+  - `BBAvatar` draws the badge at the photo's bottom-right (`AvatarBadgeSlot`: `size × 0.36`,
+    none below 28). Chat rows show it inline (`InlineTierBadge`) with `showBadge: false` on the
+    avatar, so it never appears twice. Tier pills and tints come from `VipTier`
+    (`core/vip_tier.dart`).
+- **Purchase:** idempotent (`once()`, scope `tier_package`) and debited as `vip_purchase`, so it
+  never moves level.
+- **Admin:** grants (`POST /admin/users/:uid/tier-packages`) are keyed by `Idempotency-Key`,
+  scoped to the admin, audited once, free, and worn at once.
+- **No tier frame or tier entrance effect:** tiers carry neither. `resolveFrame()` is the
+  equipped store frame only, never read from `equipped` directly. The entrance effect at
+  `/join` is the equipped entry animation only. The app plays effects via `EffectView`.
+- **The decoration library (`cosmetics`):**
+  - It is unlimited and paged in the admin.
+  - A decoration with `vipIncluded` is a tier perk: holders of `vipTierRequired`+ wear it free
+    without an ownership row, and it can't be bought.
+  - Equipping records `equipped.frameVipTier` / `entryAnimationVipTier` (0 = owned, else the
+    entitling tier), so `resolveFrame()` and `entryEffectFor()` drop it the moment the tier lapses.
+- **Editing a decoration:**
+  - It re-syncs its wearers (`syncEquipped`).
+  - Its type never changes.
+  - Frames can't be MP4 (`FRAME_FORMATS`), and the format must match the file's extension.
+- **Decoration grants** (`/admin/users/:uid/cosmetics`) are keyed and audited like tier package
+  grants. A granted frame or entrance effect is equipped at once. A decoration is deleted only
+  while nobody holds or wears it.
 
 ## Live rooms
 
 - One live room per host (partial unique index on `status: 'live'`). `start()` resumes an existing
   room instead of failing.
-- LiveKit identity == uid. Tokens are minted server-side with metadata (level, VIP, role) and
+- LiveKit identity == uid. Tokens are minted server-side with metadata (level, tier, badge, role) and
   `canUpdateOwnMetadata: false`. Publish rights go only to the host and seated guests. A role
   change (seated, unseated, made room admin) re-mints the participant's grant and metadata via
   `livekit.updateParticipant` in the same call path.

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Input, Select, Space, Tag } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
+import { VIP_TIERS } from '@bigboss/shared';
 import { Money, PageHeader, StatusTag, UserCell } from '../../components/common';
+import { activeTierOf } from '../../lib/tiers';
 import { ServerTable } from '../../components/ServerTable';
 import { ago } from '../../lib/format';
 
@@ -18,7 +20,8 @@ export interface AdminUser {
   country: string | null;
   wallet: { diamonds: number; agentStock: number };
   level: { level: number; points: number };
-  vip: { tier: number; expiresAt: string | null };
+  /** The worn tier package; `tier` is stale once `expiresAt` passes (see `activeTierOf`). */
+  vip: { tier: number; expiresAt: string | null; packageId?: string | null };
   stats: {
     followers: number;
     following: number;
@@ -37,6 +40,7 @@ export interface AdminUser {
 export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string | undefined>();
+  const [tier, setTier] = useState<number | undefined>();
   const [sort, setSort] = useState('new');
 
   return (
@@ -52,7 +56,7 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
       <ServerTable<AdminUser>
         queryKey="users"
         url="/admin/users"
-        filters={{ q, status, sort, agent: agentsOnly ? 'true' : undefined }}
+        filters={{ q, status, tier, sort, agent: agentsOnly ? 'true' : undefined }}
         rowKey="_id"
         toolbar={
           <Space wrap>
@@ -70,6 +74,17 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
               onChange={setStatus}
               style={{ width: 130 }}
               options={['active', 'banned', 'deleted'].map((s) => ({ value: s, label: s }))}
+            />
+            <Select
+              allowClear
+              placeholder="Tier"
+              value={tier}
+              onChange={setTier}
+              style={{ width: 130 }}
+              options={[...VIP_TIERS].reverse().map((t) => ({
+                value: t.tier,
+                label: t.tier >= 3 ? `👑 ${t.label}` : t.label,
+              }))}
             />
             <Select
               value={sort}
@@ -95,7 +110,7 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
                   displayName: u.displayName,
                   avatarUrl: u.avatarUrl,
                   level: u.level.level,
-                  vipTier: u.vip.tier,
+                  vipTier: activeTierOf(u.vip),
                 }}
               />
             ),

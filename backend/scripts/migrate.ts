@@ -110,6 +110,9 @@ const MIGRATIONS: Migration[] = [
   {
     id: '2026-10-27-vip-ladder',
     async up(db) {
+      // `vip_packages` was retired by 2026-11-10-tier-packages; reached through a raw handle.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const vipPackages = db.db.collection<any>('vip_packages');
       // The ladder is VIP / VVIP / King. Rename only packages still on their seeded names.
       const renames: [number, string, string][] = [
         [1, 'Gold VIP', 'VIP'],
@@ -117,11 +120,11 @@ const MIGRATIONS: Migration[] = [
         [3, 'Royal VIP', 'King'],
       ];
       for (const [tier, from, to] of renames)
-        await db.col.vipPackages.updateOne({ tier, name: from }, { $set: { name: to } });
-      await db.col.vipPackages.updateMany({ tier: { $gt: 3 } }, { $set: { active: false } });
+        await vipPackages.updateOne({ tier, name: from }, { $set: { name: to } });
+      await vipPackages.updateMany({ tier: { $gt: 3 } }, { $set: { active: false } });
       // Packages: frame format from the file extension, and no entrance effect yet.
-      for await (const pkg of db.col.vipPackages.find({ frameFormat: { $exists: false } })) {
-        await db.col.vipPackages.updateOne(
+      for await (const pkg of vipPackages.find({ frameFormat: { $exists: false } })) {
+        await vipPackages.updateOne(
           { _id: pkg._id },
           {
             $set: {
@@ -143,7 +146,7 @@ const MIGRATIONS: Migration[] = [
         { 'equipped.frameFormat': { $exists: false } },
         { $set: { 'equipped.frameFormat': 'none' } },
       );
-      for await (const pkg of db.col.vipPackages.find()) {
+      for await (const pkg of vipPackages.find()) {
         await db.col.users.updateMany(
           { 'vip.tier': pkg.tier },
           {
@@ -161,6 +164,36 @@ const MIGRATIONS: Migration[] = [
     async up(db) {
       // Beans are folded into diamonds and every stored bean field is renamed.
       console.log(JSON.stringify(await migrateToSingleCurrency(db)));
+    },
+  },
+  {
+    id: '2026-11-10-tier-packages',
+    async up(db) {
+      // VIP becomes tier packages (VIP / VVIP / Crown / King), sold as badge artwork. Old
+      // memberships are not carried over: the old packages and every worn tier are dropped.
+      await db.db
+        .collection('vip_packages')
+        .drop()
+        .catch(() => undefined);
+      await db.col.users.updateMany(
+        {},
+        {
+          $set: { vip: { tier: 0, expiresAt: null, packageId: null, badge: null } },
+          $unset: { 'equipped.vipFrameUrl': '', 'equipped.vipFrameFormat': '' },
+        },
+      );
+      await db.col.liveRooms.updateMany({ hostVipTier: { $gt: 0 } }, { $set: { hostVipTier: 0 } });
+      // King moves from tier 3 to 4 (Crown is the new 3): whatever needed King still does.
+      await db.col.gifts.updateMany({ vipTierRequired: 3 }, { $set: { vipTierRequired: 4 } });
+      await db.col.cosmetics.updateMany({ vipTierRequired: 3 }, { $set: { vipTierRequired: 4 } });
+      await db.col.users.updateMany(
+        { 'equipped.frameVipTier': 3 },
+        { $set: { 'equipped.frameVipTier': 4 } },
+      );
+      await db.col.users.updateMany(
+        { 'equipped.entryAnimationVipTier': 3 },
+        { $set: { 'equipped.entryAnimationVipTier': 4 } },
+      );
     },
   },
 ];

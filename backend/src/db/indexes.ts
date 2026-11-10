@@ -30,7 +30,13 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
       key: { 'equipped.entryAnimationId': 1 },
       partialFilterExpression: { 'equipped.entryAnimationId': { $type: 'objectId' } },
     },
-    // Items worn through VIP, for the sweep that takes them off once the tier lapses.
+    // Wearers of a tier package (catalog re-sync) and worn slots by expiry (the sweep).
+    {
+      key: { 'vip.packageId': 1 },
+      partialFilterExpression: { 'vip.packageId': { $type: 'objectId' } },
+    },
+    { key: { 'vip.expiresAt': 1 }, partialFilterExpression: { 'vip.tier': { $gt: 0 } } },
+    // Items worn through a tier, for the sweep that takes them off once the tier lapses.
     {
       key: { 'equipped.frameVipTier': 1 },
       partialFilterExpression: { 'equipped.frameVipTier': { $gt: 0 } },
@@ -110,7 +116,11 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { createdAt: -1 } },
   ],
   rechargePackages: [{ key: { sku: 1 }, unique: true }],
-  vipPackages: [{ key: { tier: 1 }, unique: true }],
+  tierPackages: [{ key: { active: 1, tier: 1, sortOrder: 1 } }],
+  userTierPackages: [
+    { key: { userId: 1, packageId: 1 }, unique: true },
+    { key: { packageId: 1, expiresAt: 1 } },
+  ],
   cosmetics: [
     { key: { type: 1, active: 1, sortOrder: 1 } },
     { key: { type: 1, sortOrder: 1, _id: -1 } },

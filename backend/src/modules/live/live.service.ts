@@ -19,7 +19,7 @@ import {
 } from '../../lib/errors.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
 import { addSeconds } from '../../lib/time.js';
-import { activeVipTier, resolveFrame } from '../users/users.presenter.js';
+import { activeBadge, activeVipTier, resolveFrame } from '../users/users.presenter.js';
 import { toLiveRoom, toRoomDetail } from './live.presenter.js';
 
 const objectIdHex = z.string().regex(/^[a-f0-9]{24}$/i);
@@ -175,6 +175,27 @@ export class LiveService {
       .catch(() => undefined);
   }
 
+  /**
+   * After a user's identity changed (their tier package was put on, taken off or expired):
+   * re-mint their LiveKit metadata in every room they are in, and refresh the directory card
+   * of the room they host.
+   */
+  async refreshIdentity(uid: string): Promise<void> {
+    const present = await this.ctx.col.roomPresence
+      .find({ identity: uid }, { projection: { roomId: 1 } })
+      .toArray();
+    const rooms = await this.ctx.col.liveRooms
+      .find({
+        status: 'live',
+        $or: [{ hostId: uid }, { _id: { $in: present.map((p) => p.roomId) } }],
+      })
+      .toArray();
+    for (const room of rooms) {
+      await this.syncParticipant(room, uid, this.roleOf(room, uid));
+      if (room.hostId === uid) await this.publishDirectory(room._id);
+    }
+  }
+
   private async metadataFor(uid: string, role: LiveRole) {
     const user = await this.ctx.services.users.get(uid);
     const now = this.ctx.clock.now();
@@ -187,6 +208,7 @@ export class LiveService {
         avatarUrl: user.avatarUrl,
         level: user.level.level,
         vipTier: activeVipTier(user.vip, now),
+        badge: activeBadge(user.vip, now),
         ...resolveFrame(user, now),
         role,
         isAdmin: Boolean(user.adminRole),

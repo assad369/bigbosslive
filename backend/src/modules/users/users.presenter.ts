@@ -3,6 +3,7 @@ import type {
   LevelProgress,
   MeUser,
   PublicUser,
+  TierBadge,
   UserBrief as UserBriefWire,
 } from '@bigboss/shared';
 import type { UserDoc } from '../../db/schema.js';
@@ -42,26 +43,37 @@ export type PublicUserSource = Pick<
   | 'createdAt'
 >;
 
-/** VIP tier only counts while unexpired; the stored tier is not cleared by a job. */
+/**
+ * The tier of the worn tier package, only while unexpired: an expired slot reads as none
+ * before the hourly sweep clears it.
+ */
 export function activeVipTier(vip: UserDoc['vip'], now = new Date()): number {
   return vip.tier > 0 && (!vip.expiresAt || vip.expiresAt > now) ? vip.tier : 0;
 }
 
+/** The worn tier package's badge while its tier is active, else null. */
+export function activeBadge(vip: UserDoc['vip'], now = new Date()): TierBadge | null {
+  if (!activeVipTier(vip, now) || !vip.badge) return null;
+  const b = vip.badge;
+  return {
+    imageUrl: b.imageUrl ?? null,
+    svgaUrl: b.svgaUrl ?? null,
+    mp4Url: b.mp4Url ?? null,
+    blendMode: b.blendMode ?? 'normal',
+  };
+}
+
 /**
- * The avatar frame a user shows: an equipped store frame wins (one worn through VIP only while
- * that tier is still held), otherwise the frame of the VIP tier they hold while it is active.
- * An expired VIP drops both without any job running.
+ * The avatar frame a user shows: the equipped store frame (one worn through a tier only while
+ * that tier is still held). Tiers carry no frame of their own; their artwork is the badge.
  */
 export function resolveFrame(
   u: { vip: UserDoc['vip']; equipped?: UserDoc['equipped'] },
   now = new Date(),
 ): { frameUrl: string | null; frameFormat: AnimationFormat } {
   const e = u.equipped;
-  const tier = activeVipTier(u.vip, now);
-  if (e?.frameUrl && (e.frameVipTier ?? 0) <= tier)
+  if (e?.frameUrl && (e.frameVipTier ?? 0) <= activeVipTier(u.vip, now))
     return { frameUrl: e.frameUrl, frameFormat: e.frameFormat ?? 'none' };
-  if (e?.vipFrameUrl && tier > 0)
-    return { frameUrl: e.vipFrameUrl, frameFormat: e.vipFrameFormat ?? 'none' };
   return { frameUrl: null, frameFormat: 'none' };
 }
 
@@ -76,6 +88,7 @@ export function toPublicUser(u: PublicUserSource, now = new Date()): PublicUser 
     country: u.country,
     level: u.level.level,
     vipTier: activeVipTier(u.vip, now),
+    badge: activeBadge(u.vip, now),
     ...resolveFrame(u, now),
     followers: u.stats.followers,
     following: u.stats.following,
@@ -119,6 +132,7 @@ export function toUserBrief(
     avatarUrl: u.avatarUrl,
     level: u.level.level,
     vipTier: activeVipTier(u.vip, now),
+    badge: activeBadge(u.vip, now),
     country: u.country,
     ...resolveFrame(u, now),
   };

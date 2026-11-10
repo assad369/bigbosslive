@@ -34,6 +34,9 @@ const AgencyDetailPage = lazy(() => economy().then((m) => ({ default: m.AgencyDe
 const catalog = () => import('./pages/catalog/CatalogPages');
 const GiftsPage = lazy(() => catalog().then((m) => ({ default: m.GiftsPage })));
 const StorePage = lazy(() => catalog().then((m) => ({ default: m.StorePage })));
+const TierPackagesPage = lazy(() =>
+  import('./pages/catalog/TierPackagesPage').then((m) => ({ default: m.TierPackagesPage })),
+);
 const LevelsPage = lazy(() => catalog().then((m) => ({ default: m.LevelsPage })));
 const PackagesPage = lazy(() => catalog().then((m) => ({ default: m.PackagesPage })));
 const GamesPage = lazy(() =>
@@ -79,6 +82,7 @@ const routes: { path: string; permission: string; element: ReactNode }[] = [
   { path: '/agencies/:id', permission: 'agencies.manage', element: <AgencyDetailPage /> },
   { path: '/gifts', permission: 'catalog.manage', element: <GiftsPage /> },
   { path: '/store', permission: 'catalog.manage', element: <StorePage /> },
+  { path: '/tier-packages', permission: 'catalog.manage', element: <TierPackagesPage /> },
   { path: '/levels', permission: 'catalog.manage', element: <LevelsPage /> },
   { path: '/packages', permission: 'catalog.manage', element: <PackagesPage /> },
   { path: '/games', permission: 'games.read', element: <GamesPage /> },

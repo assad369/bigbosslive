@@ -10,6 +10,7 @@ import {
   GAME_KEYS,
   MAX_COSMETICS_PER_BATCH,
   MAX_GRANT_DAYS,
+  MAX_VIP_TIER,
   REPORT_STATUSES,
   REPORT_TARGETS,
   ROOM_STATUSES,
@@ -49,12 +50,12 @@ import { addDays } from '../lib/time.js';
 import { CONFIG_SCHEMAS, type ConfigKey } from '../modules/config/config.service.js';
 import { giftInput } from '../modules/gifts/gifts.service.js';
 import { levelConfigInput } from '../modules/levels/levels.service.js';
+import { cosmeticInput, cosmeticListQuery } from '../modules/store/store.service.js';
 import {
-  cosmeticInput,
-  cosmeticListQuery,
-  vipGrantInput,
-  vipPackageInput,
-} from '../modules/store/store.service.js';
+  tierPackageGrantInput,
+  tierPackageInput,
+  tierPackageListQuery,
+} from '../modules/vip/tier-packages.service.js';
 import { resolveFrame } from '../modules/users/users.presenter.js';
 import { agencyInput } from '../modules/agencies/agencies.service.js';
 import { announcementInput } from '../modules/notifications/notifications.service.js';
@@ -75,9 +76,7 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ADMIN_UPLOAD_TARGETS: Record<AdminUploadKind, { folder: string; permission: Permission }> = {
   'gift-icon': { folder: 'admin/gifts/icons', permission: 'catalog.manage' },
   'gift-animation': { folder: 'admin/gifts/animations', permission: 'catalog.manage' },
-  'vip-badge': { folder: 'admin/vip/badges', permission: 'catalog.manage' },
-  'vip-frame': { folder: 'admin/vip/frames', permission: 'catalog.manage' },
-  'vip-entry': { folder: 'admin/vip/entries', permission: 'catalog.manage' },
+  'tier-badge': { folder: 'admin/tiers/badges', permission: 'catalog.manage' },
   'cosmetic-asset': { folder: 'admin/cosmetics/assets', permission: 'catalog.manage' },
   'cosmetic-preview': { folder: 'admin/cosmetics/previews', permission: 'catalog.manage' },
   'level-icon': { folder: 'admin/levels', permission: 'catalog.manage' },
@@ -183,12 +182,18 @@ export function adminRoutes(ctx: Ctx): Router {
         q: z.string().trim().max(100).optional(),
         status: z.enum(USER_STATUSES).optional(),
         agent: z.enum(['true', 'false']).optional(),
+        /** Users wearing an unexpired tier package of this tier. */
+        tier: z.coerce.number().int().min(1).max(MAX_VIP_TIER).optional(),
         sort: z.enum(['new', 'level', 'diamonds']).default('new'),
       }),
     );
     const filter: Filter<UserDoc> = {};
     if (q.status) filter.status = q.status;
     if (q.agent) filter.isAgent = q.agent === 'true';
+    if (q.tier) {
+      filter['vip.tier'] = q.tier;
+      filter['vip.expiresAt'] = { $gt: ctx.clock.now() };
+    }
     if (q.q) {
       const term = q.q.trim();
       filter.$or = [
@@ -334,12 +339,31 @@ export function adminRoutes(ctx: Ctx): Router {
     res.status(204).end();
   });
 
-  r.post('/users/:uid/vip', can('users.edit'), async (req, res) => {
+  // ── User tier packages (VIP / VVIP / Crown / King) ────────────────────────────
+  r.get('/users/:uid/tier-packages', can('users.read'), async (req, res) => {
     const { uid } = parseParams(req, uidParam);
-    const input = parseBody(req, vipGrantInput);
-    const result = await s.store.grantVip(uid, input, currentUser(req).uid, idempotencyKey(req));
-    if (!result.replayed) await audit(req, 'user.vip', 'user', uid, { ...input, ...result });
+    res.json({ items: await s.tierPackages.mine(uid) });
+  });
+
+  r.post('/users/:uid/tier-packages', can('users.edit'), async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    const { packageId, days } = parseBody(req, tierPackageGrantInput);
+    const result = await s.tierPackages.grant(
+      uid,
+      toObjectId(packageId),
+      days,
+      currentUser(req).uid,
+      idempotencyKey(req),
+    );
+    if (!result.replayed) await audit(req, 'user.tier_package.grant', 'user', uid, result);
     res.json(result);
+  });
+
+  r.delete('/users/:uid/tier-packages/:packageId', can('users.edit'), async (req, res) => {
+    const { uid, packageId } = parseParams(req, uidParam.extend({ packageId: objectIdString }));
+    await s.tierPackages.revoke(uid, toObjectId(packageId));
+    await audit(req, 'user.tier_package.revoke', 'user', uid, { packageId });
+    res.status(204).end();
   });
 
   // ── User decorations (frames, entrance effects, …) ──────────────────────────────
@@ -573,20 +597,30 @@ export function adminRoutes(ctx: Ctx): Router {
     res.json(result);
   });
 
-  r.get('/vip-packages', can('catalog.manage'), async (_req, res) => {
-    res.json({ items: await s.store.vipPackages(true) });
+  // ── Tier packages catalog ───────────────────────────────────────────────────
+  r.get('/tier-packages', can('catalog.manage'), async (req, res) => {
+    const q = parseQuery(req, pageQuery.merge(tierPackageListQuery));
+    res.json(await s.tierPackages.adminList(q, q.page, q.pageSize));
   });
 
-  r.post('/vip-packages', can('catalog.manage'), async (req, res) => {
-    const pkg = await s.store.upsertVipPackage(null, parseBody(req, vipPackageInput));
-    await audit(req, 'vip_package.create', 'vip_package', String(pkg._id), pkg);
-    res.status(201).json({ package: pkg });
+  r.post('/tier-packages', can('catalog.manage'), async (req, res) => {
+    const item = await s.tierPackages.create(parseBody(req, tierPackageInput));
+    await audit(req, 'tier_package.create', 'tier_package', item.id, item);
+    res.status(201).json({ item });
   });
 
-  r.put('/vip-packages/:id', can('catalog.manage'), async (req, res) => {
-    const pkg = await s.store.upsertVipPackage(oid(req), parseBody(req, vipPackageInput));
-    await audit(req, 'vip_package.update', 'vip_package', String(pkg._id), pkg);
-    res.json({ package: pkg });
+  r.patch('/tier-packages/:id', can('catalog.manage'), async (req, res) => {
+    const patch = parsePatch(req, tierPackageInput);
+    const item = await s.tierPackages.update(oid(req), patch);
+    await audit(req, 'tier_package.update', 'tier_package', item.id, patch);
+    res.json({ item });
+  });
+
+  r.delete('/tier-packages/:id', can('catalog.manage'), async (req, res) => {
+    const id = oid(req);
+    await s.tierPackages.remove(id);
+    await audit(req, 'tier_package.delete', 'tier_package', String(id));
+    res.status(204).end();
   });
 
   r.get('/cosmetics', can('catalog.manage'), async (req, res) => {

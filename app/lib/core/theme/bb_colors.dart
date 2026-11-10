@@ -70,11 +70,14 @@ abstract final class BBColors {
   static const pkBlue = Color(0xFF3D7BD9);
   static const heart = Color(0xFFE5486B);
 
-  /// VIP ladder: VIP purple, VVIP gold, King crimson. Rings, badges, entrance banners.
+  /// Tier ladder: VIP purple, VVIP gold, Crown rose, King crimson. Pills, chat tints,
+  /// entrance banners. Mirrors `palette` in `packages/shared/src/theme.ts`.
   static const vip = Color(0xFFA855F7);
   static const vipDeep = Color(0xFF7E22CE);
   static const vvip = Color(0xFFF4C542);
   static const vvipDeep = Color(0xFFC98A0B);
+  static const crown = Color(0xFFF472B6);
+  static const crownDeep = Color(0xFFBE185D);
   static const king = Color(0xFFD7263D);
   static const kingDeep = Color(0xFF8E0F22);
 
@@ -95,6 +98,11 @@ abstract final class BBColors {
     end: Alignment.bottomRight,
     colors: [vvip, vvipDeep],
   );
+  static const crownGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [crown, crownDeep],
+  );
   static const kingGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
@@ -102,18 +110,20 @@ abstract final class BBColors {
     stops: [0, 0.45, 1],
   );
 
-  /// Gradient for a `vipTier` (1 VIP, 2 VVIP, 3 King); null when there is no tier.
+  /// Gradient for a `vipTier` (1 VIP, 2 VVIP, 3 Crown, 4 King); null when there is no tier.
   static LinearGradient? tierGradient(int tier) => switch (tier) {
     1 => vipGradient,
     2 => vvipGradient,
-    >= 3 => kingGradient,
+    3 => crownGradient,
+    >= 4 => kingGradient,
     _ => null,
   };
 
   static Color tierColor(int tier) => switch (tier) {
     1 => vip,
     2 => vvipDeep,
-    >= 3 => king,
+    3 => crownDeep,
+    >= 4 => king,
     _ => inkSubtle,
   };
 

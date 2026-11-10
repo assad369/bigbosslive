@@ -15,6 +15,7 @@ import '../../core/utils/format.dart';
 import '../../core/utils/json.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../store/tier_packages_screen.dart';
 
 final userProvider = FutureProvider.autoDispose.family<PublicUser, String>(
   (ref, uid) => ref.watch(accountRepo).user(uid),
@@ -134,13 +135,27 @@ class MeScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            const _MenuCard(
+              children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(16, 14, 16, 0),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      'Packages',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+                TierPackageTiles(),
+              ],
+            ),
+            const SizedBox(height: 12),
             _MenuCard(
               children: [
-                _MenuItem(
-                  icon: Icons.workspace_premium_outlined,
-                  label: 'VIP membership',
-                  onTap: () => context.push('/vip'),
-                ),
                 _MenuItem(
                   icon: Icons.storefront_outlined,
                   label: 'Store · frames & entries',

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Alert,
@@ -29,14 +29,16 @@ import {
   WalletOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { MAX_GRANT_DAYS, SHORT_ID_PATTERN, VIP_TIERS, vipTierLabel } from '@bigboss/shared';
+import { SHORT_ID_PATTERN, vipTierLabel } from '@bigboss/shared';
 import { get, send, useIntentKey } from '../../lib/api';
 import { ago, dateTime, duration, num } from '../../lib/format';
-import { ActionButton, Money, PageHeader, StatusTag, VipTag } from '../../components/common';
+import { ActionButton, Money, PageHeader, StatusTag } from '../../components/common';
+import { AssignTierPackageModal, UserTierPackages } from '../../components/TierPackageAdmin';
 import { FormModal } from '../../components/FormModal';
 import { useAuth } from '../../auth/useAuth';
 import { brand } from '../../theme';
 import type { AdminUser } from './UsersPage';
+import { activeTierOf, VIP_COLORS } from '../../lib/tiers';
 import { UserDecorations } from './UserDecorations';
 
 interface Detail {
@@ -63,11 +65,7 @@ interface LedgerRow {
   createdAt: string;
 }
 
-type Modal = 'ban' | 'recharge' | 'adjust' | 'vip' | 'shortId' | 'edit' | null;
-
-/** The stored tier outlives its expiry; only an unexpired one counts. */
-const activeTierOf = (vip: AdminUser['vip']) =>
-  vip.tier > 0 && (!vip.expiresAt || new Date(vip.expiresAt) > new Date()) ? vip.tier : 0;
+type Modal = 'ban' | 'recharge' | 'adjust' | 'tier' | 'shortId' | 'edit' | null;
 
 export function UserDetailPage() {
   const { uid = '' } = useParams();
@@ -77,17 +75,6 @@ export function UserDetailPage() {
   const key = ['user', uid];
   const q = useQuery({ queryKey: key, queryFn: () => get<Detail>(`/admin/users/${uid}`) });
   const rechargeKey = useIntentKey(modal === 'recharge');
-  const vipKey = useIntentKey(modal === 'vip');
-  const storedVip = q.data?.user.vip;
-  // Stable while the dialog is open: FormModal re-seeds the form whenever this changes.
-  const vipInitial = useMemo(
-    () => ({
-      tier: storedVip ? activeTierOf(storedVip) || 1 : 1,
-      days: 30,
-      mode: 'extend' as const,
-    }),
-    [storedVip],
-  );
   const ledger = useQuery({
     queryKey: ['user-ledger', uid, currency],
     queryFn: () =>
@@ -171,7 +158,7 @@ export function UserDetailPage() {
               <Space wrap style={{ justifyContent: 'center' }}>
                 <StatusTag status={user.status} />
                 {vipTier > 0 && (
-                  <Tag icon={<CrownFilled />} color="gold">
+                  <Tag icon={<CrownFilled />} color={VIP_COLORS[vipTier]}>
                     {vipTierLabel(vipTier) ?? `Tier ${vipTier}`}
                   </Tag>
                 )}
@@ -235,8 +222,8 @@ export function UserDetailPage() {
                         <Descriptions.Item label="Live time">
                           {duration(user.stats.liveSeconds)}
                         </Descriptions.Item>
-                        <Descriptions.Item label="VIP expires">
-                          {user.vip.expiresAt ? dateTime(user.vip.expiresAt) : '—'}
+                        <Descriptions.Item label="Tier package expires">
+                          {vipTier > 0 && user.vip.expiresAt ? dateTime(user.vip.expiresAt) : '—'}
                         </Descriptions.Item>
                         <Descriptions.Item label="Agency">
                           {agencyMember
@@ -252,7 +239,9 @@ export function UserDetailPage() {
                       </Descriptions>
                       <Space wrap style={{ marginTop: 16 }}>
                         {can('users.edit') && (
-                          <Button onClick={() => setModal('vip')}>Set VIP</Button>
+                          <Button icon={<CrownFilled />} onClick={() => setModal('tier')}>
+                            Assign Tier Package
+                          </Button>
                         )}
                         {can('users.edit') && (
                           <Button onClick={() => setModal('shortId')}>Change short ID</Button>
@@ -285,16 +274,14 @@ export function UserDetailPage() {
                   ),
                 },
                 {
+                  key: 'tier',
+                  label: 'Tier package',
+                  children: <UserTierPackages uid={uid} />,
+                },
+                {
                   key: 'decorations',
-                  label: 'VIP & decorations',
-                  children: (
-                    <UserDecorations
-                      uid={uid}
-                      vipTier={vipTier}
-                      vipExpiresAt={user.vip.expiresAt}
-                      onSetVip={() => setModal('vip')}
-                    />
-                  ),
+                  label: 'Decorations',
+                  children: <UserDecorations uid={uid} />,
                 },
                 ...(can('wallet.read')
                   ? [
@@ -517,77 +504,7 @@ export function UserDetailPage() {
         )}
       </FormModal>
 
-      <FormModal<{ tier: number; days?: number; mode: 'extend' | 'set' }>
-        open={modal === 'vip'}
-        title="Set VIP"
-        onClose={() => setModal(null)}
-        initialValues={vipInitial}
-        invalidate={[...invalidate, ['user-cosmetics', uid]]}
-        submit={(v) =>
-          send('post', `/admin/users/${uid}/vip`, v.tier === 0 ? { tier: 0 } : v, {
-            'Idempotency-Key': vipKey,
-          })
-        }
-      >
-        {() => (
-          <>
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message={
-                vipTier > 0 ? (
-                  <>
-                    Currently <VipTag tier={vipTier} />{' '}
-                    {user.vip.expiresAt
-                      ? `until ${dateTime(user.vip.expiresAt)}`
-                      : 'with no expiry'}
-                  </>
-                ) : (
-                  'No active VIP membership.'
-                )
-              }
-            />
-            <Form.Item name="tier" label="Tier" rules={[{ required: true }]}>
-              <Radio.Group
-                optionType="button"
-                buttonStyle="solid"
-                options={[
-                  { value: 0, label: 'None' },
-                  ...VIP_TIERS.map((t) => ({ value: t.tier, label: t.label })),
-                ]}
-              />
-            </Form.Item>
-            <Form.Item noStyle dependencies={['tier']}>
-              {({ getFieldValue }) =>
-                getFieldValue('tier') === 0 ? (
-                  <Typography.Text type="secondary">
-                    Removes VIP now, with its frame, entrance effect and included decorations.
-                  </Typography.Text>
-                ) : (
-                  <>
-                    <Form.Item name="days" label="Days" rules={[{ required: true }]}>
-                      <InputNumber min={1} max={MAX_GRANT_DAYS} style={{ width: '100%' }} />
-                    </Form.Item>
-                    <Form.Item
-                      name="mode"
-                      label="If they already hold this tier"
-                      extra="A different tier always runs from today."
-                    >
-                      <Radio.Group
-                        options={[
-                          { value: 'extend', label: 'Add to the time left' },
-                          { value: 'set', label: 'Replace: run from today' },
-                        ]}
-                      />
-                    </Form.Item>
-                  </>
-                )
-              }
-            </Form.Item>
-          </>
-        )}
-      </FormModal>
+      <AssignTierPackageModal uid={uid} open={modal === 'tier'} onClose={() => setModal(null)} />
 
       <FormModal<{ shortId: string }>
         open={modal === 'shortId'}

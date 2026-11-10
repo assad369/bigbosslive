@@ -16,6 +16,7 @@ import { CrownFilled } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { vipTierLabel } from '@bigboss/shared';
+import { VIP_COLORS } from '../lib/tiers';
 import { brand } from '../theme';
 
 export function PageHeader({
@@ -157,13 +158,7 @@ export function UserCell({
   );
 }
 
-const VIP_COLORS: Record<number, string> = {
-  1: brand.palette.vip,
-  2: brand.palette.vvipDeep,
-  3: brand.palette.king,
-};
-
-/** VIP / VVIP / King marker, coloured per tier. */
+/** VIP / VVIP / Crown / King marker, coloured per tier. */
 export function VipTag({ tier }: { tier: number }) {
   const label = vipTierLabel(tier);
   if (!label) return null;

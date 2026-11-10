@@ -19,10 +19,12 @@ import '../../features/live/live_room_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/profile/profile_screens.dart';
 import '../../features/store/store_screens.dart';
+import '../../features/store/tier_packages_screen.dart';
 import '../../features/wallet/wallet_screens.dart';
 import '../../models/models.dart';
 import '../network/api_exception.dart';
 import '../providers.dart';
+import '../vip_tier.dart';
 
 /// Bridges Riverpod state into go_router's `refreshListenable`.
 class _RouterRefresh extends ChangeNotifier {
@@ -214,7 +216,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/agent', builder: (_, _) => const AgentRechargeScreen()),
       GoRoute(path: '/store', builder: (_, _) => const StoreScreen()),
-      GoRoute(path: '/vip', builder: (_, _) => const VipScreen()),
+      // Tier packages: `/vip` picks a tier, `/vip/<vip|vvip|crown|king>` is that tier's shop.
+      GoRoute(path: '/vip', builder: (_, _) => const TierPackagesHub()),
+      GoRoute(
+        path: '/vip/:tier',
+        redirect: (_, s) =>
+            VipTier.byKey(s.pathParameters['tier'] ?? '') == null
+            ? '/vip'
+            : null,
+        builder: (_, s) =>
+            TierPackagesScreen(tier: VipTier.byKey(s.pathParameters['tier']!)!),
+      ),
       GoRoute(path: '/agency', builder: (_, _) => const AgencyScreen()),
       GoRoute(
         path: '/notifications',

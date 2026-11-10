@@ -184,7 +184,8 @@ class _HostChip extends StatelessWidget {
   }
 }
 
-/// The highest-ranked viewers (VIP tier, then level, as the server sorts them). Scrolls
+/// The highest-ranked viewers (King, Crown, VVIP, VIP, then level, as the server sorts
+/// them): each tier holder's pill sits above their avatar, which wears their badge. Scrolls
 /// sideways and fades out at its right edge when there are more than fit.
 class _TopViewers extends StatelessWidget {
   const _TopViewers({required this.viewers, required this.onTapUser});
@@ -192,6 +193,19 @@ class _TopViewers extends StatelessWidget {
   final void Function(UserBrief user) onTapUser;
 
   static const _size = 30.0;
+  static const _pill = 14.0;
+
+  /// Tier first, then level; stable, so equal viewers keep the server's order.
+  static List<UserBrief> ranked(List<UserBrief> viewers) {
+    final indexed = viewers.indexed.toList()
+      ..sort((a, b) {
+        final byTier = b.$2.vipTier.compareTo(a.$2.vipTier);
+        if (byTier != 0) return byTier;
+        final byLevel = b.$2.level.compareTo(a.$2.level);
+        return byLevel != 0 ? byLevel : a.$1.compareTo(b.$1);
+      });
+    return [for (final e in indexed) e.$2];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -207,24 +221,28 @@ class _TopViewers extends StatelessWidget {
         padding: const EdgeInsets.only(left: 6),
         child: Row(
           children: [
-            for (final v in viewers)
+            for (final v in ranked(viewers))
               GestureDetector(
                 onTap: () => onTapUser(v),
                 child: Tooltip(
                   message: v.displayName,
-                  // Room around the avatar for its frame and the VIP tag.
+                  // The tier pill above, then the avatar with its frame and badge.
                   child: SizedBox(
-                    width: _size + 4,
-                    height: _size + 10,
-                    child: Stack(
-                      alignment: Alignment.topCenter,
+                    width: _size + 8,
+                    height: _pill + 2 + _size,
+                    child: Column(
                       children: [
-                        Positioned(
-                          top: 4,
-                          child: BBAvatar.user(v, size: _size),
+                        SizedBox(
+                          height: _pill,
+                          child: v.vipTier > 0
+                              ? FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: VipTag(v.vipTier),
+                                )
+                              : null,
                         ),
-                        if (v.vipTier > 0)
-                          Positioned(bottom: 0, child: VipTag(v.vipTier)),
+                        const SizedBox(height: 2),
+                        BBAvatar.user(v, size: _size),
                       ],
                     ),
                   ),

@@ -46,11 +46,13 @@ export const palette = {
   pkRed: '#D64545',
   pkBlue: '#3D7BD9',
   heart: '#E5486B',
-  /** VIP ladder: VIP purple, VVIP gold, King crimson. Rings, badges and entrance banners. */
+  /** Tier ladder: VIP purple, VVIP gold, Crown rose, King crimson. Pills, chat tints, banners. */
   vip: '#A855F7',
   vipDeep: '#7E22CE',
   vvip: '#F4C542',
   vvipDeep: '#C98A0B',
+  crown: '#F472B6',
+  crownDeep: '#BE185D',
   king: '#D7263D',
   kingDeep: '#8E0F22',
   /** Camera filter thumbnails without an avatar: sky, skin, skin shade, foliage. */
@@ -77,7 +79,8 @@ export const gradients = {
 export const vipGradients = {
   1: `linear-gradient(135deg, ${palette.vip} 0%, ${palette.vipDeep} 100%)`,
   2: `linear-gradient(135deg, ${palette.vvip} 0%, ${palette.vvipDeep} 100%)`,
-  3: `linear-gradient(135deg, ${palette.goldLight} 0%, ${palette.king} 45%, ${palette.kingDeep} 100%)`,
+  3: `linear-gradient(135deg, ${palette.crown} 0%, ${palette.crownDeep} 100%)`,
+  4: `linear-gradient(135deg, ${palette.goldLight} 0%, ${palette.king} 45%, ${palette.kingDeep} 100%)`,
 } as const;
 
 export const typography = {

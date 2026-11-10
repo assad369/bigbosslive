@@ -20,6 +20,7 @@ import {
   BankOutlined,
   BellOutlined,
   CrownOutlined,
+  SkinOutlined,
   DashboardOutlined,
   FireOutlined,
   GiftOutlined,
@@ -117,9 +118,15 @@ const NAV: NavGroup[] = [
     items: [
       { key: '/gifts', label: 'Gifts', icon: <GiftOutlined />, permission: 'catalog.manage' },
       {
-        key: '/store',
-        label: 'VIP & store',
+        key: '/tier-packages',
+        label: 'Tier Packages (VIP/VVIP/Crown/King)',
         icon: <CrownOutlined />,
+        permission: 'catalog.manage',
+      },
+      {
+        key: '/store',
+        label: 'Decorations store',
+        icon: <SkinOutlined />,
         permission: 'catalog.manage',
       },
       { key: '/levels', label: 'Levels', icon: <TrophyOutlined />, permission: 'catalog.manage' },

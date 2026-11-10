@@ -113,9 +113,18 @@ components:
         displayName: { type: string }
         avatarUrl: { type: [string, 'null'] }
         level: { type: integer }
-        vipTier: { type: integer }
+        vipTier: { type: integer, description: '0 none, 1 VIP, 2 VVIP, 3 Crown, 4 King' }
+        badge: { oneOf: [{ $ref: '#/components/schemas/TierBadge' }, { type: 'null' }] }
         country: { type: [string, 'null'] }
         frameUrl: { type: [string, 'null'] }
+    TierBadge:
+      type: object
+      description: Worn tier package artwork, drawn at the avatar's bottom-right. MP4 > SVGA > image.
+      properties:
+        imageUrl: { type: [string, 'null'] }
+        svgaUrl: { type: [string, 'null'] }
+        mp4Url: { type: [string, 'null'] }
+        blendMode: { type: string, enum: [normal, additive] }
     LevelProgress:
       type: object
       properties:
@@ -1182,13 +1191,36 @@ paths:
         summary: 'Agent totals: count, totalDiamonds, todayDiamonds, monthDiamonds (agency timezone)',
         responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error' } },
       }
-  /v1/store/vip:
-    get: { tags: [Economy], summary: VIP packages, responses: { '200': { description: OK } } }
-  /v1/store/vip/{id}/purchase:
+  /v1/store/tier-packages:
+    get:
+      {
+        tags: [Economy],
+        summary: 'Active tier packages (VIP/VVIP/Crown/King), optionally ?tier=1..4',
+        responses: { '200': { description: OK } },
+      }
+  /v1/store/tier-packages/mine:
+    get:
+      {
+        tags: [Economy],
+        summary: 'My tier packages (optionally ?tier=), with expired and worn flags',
+        responses: { '200': { description: OK } },
+      }
+  /v1/store/tier-packages/wear:
     post:
       {
         tags: [Economy],
-        summary: Buy/renew VIP,
+        summary: 'Wear an owned, unexpired package ({ packageId }) or take it off (null)',
+        responses:
+          {
+            '204': { $ref: '#/components/responses/NoContent' },
+            '403': { $ref: '#/components/responses/Error' },
+          },
+      }
+  /v1/store/tier-packages/{id}/purchase:
+    post:
+      {
+        tags: [Economy],
+        summary: Buy (or renew) a tier package and wear it,
         parameters:
           [
             { $ref: '#/components/parameters/Id' },
@@ -1845,12 +1877,59 @@ paths:
         parameters: [{ $ref: '#/components/parameters/Uid' }],
         responses: { '204': { $ref: '#/components/responses/NoContent' } },
       }
-  /v1/admin/users/{uid}/vip:
+  /v1/admin/users/{uid}/tier-packages:
+    get:
+      {
+        tags: [Admin],
+        summary: A user's tier packages (users.read),
+        parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '200': { description: OK } },
+      }
     post:
       {
         tags: [Admin],
-        summary: Set VIP tier,
+        summary: 'Grant a tier package free and wear it ({ packageId, days? }) (users.edit)',
+        parameters:
+          [
+            { $ref: '#/components/parameters/Uid' },
+            { $ref: '#/components/parameters/IdempotencyKey' },
+          ],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/users/{uid}/tier-packages/{packageId}:
+    delete:
+      {
+        tags: [Admin],
+        summary: Take back a tier package; it comes off if worn (users.edit),
         parameters: [{ $ref: '#/components/parameters/Uid' }],
+        responses: { '204': { $ref: '#/components/responses/NoContent' } },
+      }
+  /v1/admin/tier-packages:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Tier package catalog, paged (?tier, ?status, ?q) (catalog.manage)',
+        responses: { '200': { description: OK } },
+      }
+    post:
+      {
+        tags: [Admin],
+        summary: Create a tier package (catalog.manage),
+        responses: { '201': { description: Created } },
+      }
+  /v1/admin/tier-packages/{id}:
+    patch:
+      {
+        tags: [Admin],
+        summary: Update a tier package; its tier never changes (catalog.manage),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        responses: { '200': { description: OK } },
+      }
+    delete:
+      {
+        tags: [Admin],
+        summary: Delete a tier package nobody holds (409 otherwise) (catalog.manage),
+        parameters: [{ $ref: '#/components/parameters/Id' }],
         responses: { '204': { $ref: '#/components/responses/NoContent' } },
       }
   /v1/admin/users/{uid}/short-id:
@@ -1895,7 +1974,7 @@ paths:
       summary: Presigned PUT URL for catalog and engagement media
       description: >-
         Each kind needs the permission of the entity it belongs to: catalog.manage (gift-icon,
-        gift-animation, vip-badge, vip-frame, cosmetic-asset, cosmetic-preview, level-icon),
+        gift-animation, tier-badge, cosmetic-asset, cosmetic-preview, level-icon),
         games.manage (game-icon), agencies.manage (agency-logo), config.manage (banner),
         notifications.send (announcement). Types and size limits are ADMIN_UPLOAD_KINDS in
         packages/shared. SVGA uploads as application/octet-stream, Lottie as application/json.
@@ -1918,8 +1997,7 @@ paths:
                                 [
                                   gift-icon,
                                   gift-animation,
-                                  vip-badge,
-                                  vip-frame,
+                                  tier-badge,
                                   cosmetic-asset,
                                   cosmetic-preview,
                                   level-icon,

@@ -39,7 +39,7 @@ void main() {
       _wrap(
         const Row(
           mainAxisSize: MainAxisSize.min,
-          children: [LevelBadge(42), VipBadge(3), VipBadge(0)],
+          children: [LevelBadge(42), VipBadge(4), VipBadge(0)],
         ),
       ),
     );

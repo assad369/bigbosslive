@@ -377,11 +377,12 @@ class StageNamePlate extends StatelessWidget {
     ),
     child: Row(
       children: [
-        // Frames are left off at this size: they would cover the name.
+        // Frames are left off at this size: they would cover the name. The tier badge
+        // shows only from 28 up (`AvatarBadgeSlot.minAvatarSize`).
         BBAvatar(
           url: user.avatarUrl,
           name: user.displayName,
-          vipTier: user.vipTier,
+          badge: user.badge,
           ring: isHost,
           size: compact ? 20 : 28,
         ),

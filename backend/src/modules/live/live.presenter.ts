@@ -18,6 +18,7 @@ export function toLiveRoom(r: LiveRoomDoc, host: UserBrief | undefined): LiveRoo
       avatarUrl: host?.avatarUrl ?? null,
       level: host?.level ?? 0,
       vipTier: host?.vipTier ?? 0,
+      badge: host?.badge ?? null,
       country: host?.country ?? null,
       frameUrl: host?.frameUrl ?? null,
       frameFormat: host?.frameFormat ?? 'none',

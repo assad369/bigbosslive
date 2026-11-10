@@ -47,24 +47,34 @@ export const isImage = (t: MediaType | null) => !!t && t.startsWith('image/');
 
 const mb = (bytes: number) => `${Math.round((bytes / 1024 / 1024) * 10) / 10} MB`;
 
+/** Types a slot accepts: the kind's, narrowed to `only` when given (one rendition per field). */
+function typesFor(kind: AdminUploadKind, only?: readonly MediaType[]): readonly MediaType[] {
+  const all = ADMIN_UPLOAD_KINDS[kind].types as readonly MediaType[];
+  return only ? all.filter((t) => only.includes(t)) : all;
+}
+
 /** Human list of accepted formats, e.g. "PNG, WEBP, SVGA". */
-export function describeAccepted(kind: AdminUploadKind): string {
-  const exts = [...new Set(ADMIN_UPLOAD_KINDS[kind].types.map((t) => MEDIA_TYPES[t].ext))];
+export function describeAccepted(kind: AdminUploadKind, only?: readonly MediaType[]): string {
+  const exts = [...new Set(typesFor(kind, only).map((t) => MEDIA_TYPES[t].ext))];
   return `${exts.map((e) => e.toUpperCase()).join(', ')} up to ${mb(ADMIN_UPLOAD_KINDS[kind].maxBytes)}`;
 }
 
 /** The `accept` attribute for the file picker: MIME types plus extensions. */
-export function acceptAttr(kind: AdminUploadKind): string {
-  const types = ADMIN_UPLOAD_KINDS[kind].types;
+export function acceptAttr(kind: AdminUploadKind, only?: readonly MediaType[]): string {
+  const types = typesFor(kind, only);
   return [...types, ...types.map((t) => `.${MEDIA_TYPES[t].ext}`)].join(',');
 }
 
 /** Client-side check mirroring the server's; returns an error message or null. */
-export function checkFile(kind: AdminUploadKind, file: File): string | null {
+export function checkFile(
+  kind: AdminUploadKind,
+  file: File,
+  only?: readonly MediaType[],
+): string | null {
   const spec = ADMIN_UPLOAD_KINDS[kind];
   const type = mediaTypeOf(file);
-  if (!type || !(spec.types as readonly MediaType[]).includes(type))
-    return `${file.name}: unsupported file type. Use ${describeAccepted(kind)}.`;
+  if (!type || !typesFor(kind, only).includes(type))
+    return `${file.name}: unsupported file type. Use ${describeAccepted(kind, only)}.`;
   if (file.size === 0) return `${file.name} is empty.`;
   if (file.size > spec.maxBytes)
     return `${file.name} is ${mb(file.size)}; the limit is ${mb(spec.maxBytes)}.`;

@@ -10,6 +10,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
 import '../../core/theme/bb_colors.dart';
+import '../../core/vip_tier.dart';
+import '../../core/widgets/tier_badge.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../profile/profile_screens.dart';
@@ -309,14 +311,17 @@ class ChatBubble extends StatelessWidget {
         style: const TextStyle(color: BBColors.ivory, fontSize: 13),
       ),
     };
+    final tier = VipTier.of(user?.vipTier ?? 0);
+    final badge = user?.badge;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // The row's badge is drawn inline with the content, never twice on one line.
           GestureDetector(
             onTap: user == null ? null : () => onTapUser(user),
-            child: BBAvatar.user(user, size: 30),
+            child: BBAvatar.user(user, size: 30, showBadge: false),
           ),
           const SizedBox(width: 6),
           Flexible(
@@ -325,8 +330,20 @@ class ChatBubble extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.fromLTRB(9, 5, 9, 6),
                 decoration: BoxDecoration(
-                  color: BBColors.scrim,
+                  // Tier holders get their tier's tint over the scrim.
+                  color: tier == VipTier.none
+                      ? BBColors.scrim
+                      : Color.alphaBlend(
+                          tier.tint.withValues(alpha: 0.36),
+                          BBColors.scrim,
+                        ),
                   borderRadius: BorderRadius.circular(14),
+                  border: tier == VipTier.none
+                      ? null
+                      : Border.all(
+                          color: tier.tint.withValues(alpha: 0.85),
+                          width: 1,
+                        ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -356,7 +373,18 @@ class ChatBubble extends StatelessWidget {
                         ),
                       ),
                     const SizedBox(height: 2),
-                    content,
+                    if (badge == null)
+                      content
+                    else
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          InlineTierBadge(badge: badge),
+                          const SizedBox(width: 4),
+                          Flexible(child: content),
+                        ],
+                      ),
                   ],
                 ),
               ),

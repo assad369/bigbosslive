@@ -8,6 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/utils/json.dart';
+import '../../core/widgets/tier_badge.dart';
 import '../../data/repositories.dart';
 import '../../models/models.dart';
 import 'camera_filter_channel.dart';
@@ -428,6 +429,8 @@ class LiveRoomController extends ChangeNotifier {
         'Welcome to ${detail!.room.host.displayName}\'s live. Be kind — harassment gets you removed.',
       );
       _wakelock(on: true);
+      // LiveKit now holds video decoders: tier badge MP4s get a smaller share.
+      VideoBadgeBudget.instance.inLiveRoom = true;
       if (isHost) {
         _heartbeat = Timer.periodic(
           const Duration(seconds: 25),
@@ -1450,6 +1453,7 @@ class LiveRoomController extends ChangeNotifier {
     unawaited(CameraFilterChannel.clear(_cameraTrack));
     unawaited(room.disconnect().then((_) => room.dispose()));
     _wakelock(on: false);
+    VideoBadgeBudget.instance.inLiveRoom = false;
     _gifts.close();
     _entries.close();
     _pkInvites.close();

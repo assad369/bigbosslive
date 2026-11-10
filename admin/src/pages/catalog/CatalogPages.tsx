@@ -14,7 +14,6 @@ import {
   Space,
   Switch,
   Table,
-  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -29,7 +28,6 @@ import {
   VIP_TIERS,
   vipTierLabel,
   type AdminCosmetic,
-  type AnimationFormat,
   type Cosmetic,
   type CosmeticType,
   type Gift,
@@ -40,7 +38,6 @@ import { ActionButton, PageHeader, ToggleSwitch, VipTag } from '../../components
 import { AssignDecorationModal } from '../../components/AssignDecorationModal';
 import { cosmeticTypeLabel } from '../../lib/decorations';
 import { DecorationThumb } from '../../components/CosmeticPicker';
-import { DecorationPreview } from '../../components/DecorationPreview';
 import { FormModal } from '../../components/FormModal';
 import { MediaUpload } from '../../components/MediaUpload';
 import { ServerTable } from '../../components/ServerTable';
@@ -240,35 +237,7 @@ export function GiftsPage() {
   );
 }
 
-// ── VIP & cosmetics ──────────────────────────────────────────────────────────────
-
-interface VipPackage {
-  _id: string;
-  tier: number;
-  name: string;
-  priceDiamonds: number;
-  durationDays: number;
-  perks: string[];
-  badgeUrl: string | null;
-  frameUrl: string | null;
-  frameFormat: string;
-  entryAnimationUrl: string | null;
-  entryAnimationFormat: string;
-  active: boolean;
-  sortOrder: number;
-}
-
-const NEW_VIP: Partial<Omit<VipPackage, '_id'>> = {
-  durationDays: 30,
-  perks: [],
-  active: true,
-  sortOrder: 0,
-  badgeUrl: null,
-  frameUrl: null,
-  frameFormat: 'none',
-  entryAnimationUrl: null,
-  entryAnimationFormat: 'none',
-};
+// ── Decorations ──────────────────────────────────────────────────────────────────
 
 type DecorationForm = Omit<Cosmetic, 'id'>;
 const NEW_DECORATION: Partial<DecorationForm> = {
@@ -288,203 +257,14 @@ const frameFormatOptions = animationOptions.filter((o) =>
   (FRAME_FORMATS as readonly string[]).includes(o.value),
 );
 
-function VipAsset({ url, format }: { url: string | null; format?: string }) {
-  return url ? (
-    <DecorationPreview url={url} format={format as AnimationFormat} size={36} />
-  ) : (
-    <Typography.Text type="secondary">—</Typography.Text>
-  );
-}
-
 export function StorePage() {
-  const [vip, setVip] = useState<VipPackage | 'new' | null>(null);
-  const vipQ = useQuery({
-    queryKey: ['vip-packages'],
-    queryFn: () => get<{ items: VipPackage[] }>('/admin/vip-packages'),
-  });
-
   return (
     <>
       <PageHeader
-        title="VIP & store"
-        subtitle="Memberships, and an unlimited library of frames, entrance effects and other decorations"
+        title="Decorations store"
+        subtitle="An unlimited library of frames, entrance effects and other decorations. Tier badges live under Tier Packages."
       />
-      <Tabs
-        items={[
-          {
-            key: 'items',
-            label: 'Decorations',
-            children: <DecorationsTab />,
-          },
-          {
-            key: 'vip',
-            label: 'VIP tiers',
-            children: (
-              <Card
-                {...card}
-                title=" "
-                extra={
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setVip('new')}>
-                    New tier
-                  </Button>
-                }
-              >
-                <Table<VipPackage>
-                  rowKey="_id"
-                  loading={vipQ.isLoading}
-                  dataSource={vipQ.data?.items ?? []}
-                  pagination={false}
-                  scroll={{ x: 'max-content' }}
-                  columns={[
-                    {
-                      title: 'Tier',
-                      dataIndex: 'tier',
-                      render: (t: number) => (vipTierLabel(t) ? <VipTag tier={t} /> : `Tier ${t}`),
-                    },
-                    { title: 'Name', dataIndex: 'name' },
-                    {
-                      title: 'Badge',
-                      key: 'badge',
-                      render: (_, v) => <VipAsset url={v.badgeUrl} />,
-                    },
-                    {
-                      title: 'Frame',
-                      key: 'frame',
-                      render: (_, v) => <VipAsset url={v.frameUrl} format={v.frameFormat} />,
-                    },
-                    {
-                      title: 'Entrance',
-                      key: 'entry',
-                      render: (_, v) => (
-                        <VipAsset url={v.entryAnimationUrl} format={v.entryAnimationFormat} />
-                      ),
-                    },
-                    {
-                      title: 'Price',
-                      dataIndex: 'priceDiamonds',
-                      render: (p: number) => `${num(p)} 💎`,
-                    },
-                    { title: 'Days', dataIndex: 'durationDays' },
-                    {
-                      title: 'Perks',
-                      dataIndex: 'perks',
-                      render: (p: string[]) => p.map((x) => <Tag key={x}>{x}</Tag>),
-                    },
-                    {
-                      title: 'Active',
-                      dataIndex: 'active',
-                      render: (a: boolean) => (a ? <Tag color="green">yes</Tag> : <Tag>no</Tag>),
-                    },
-                    {
-                      title: '',
-                      key: 'e',
-                      render: (_, v) => (
-                        <Button size="small" onClick={() => setVip(v)}>
-                          Edit
-                        </Button>
-                      ),
-                    },
-                  ]}
-                />
-                <Typography.Paragraph type="secondary" style={{ padding: 16, margin: 0 }}>
-                  Each tier carries one default frame and entrance effect. For more tier-exclusive
-                  designs, add decorations marked “Included with tier” in the Decorations tab.
-                </Typography.Paragraph>
-              </Card>
-            ),
-          },
-        ]}
-      />
-      <FormModal<Omit<VipPackage, '_id'>>
-        open={vip !== null}
-        title={vip === 'new' ? 'New VIP tier' : 'Edit VIP tier'}
-        onClose={() => setVip(null)}
-        initialValues={vip && vip !== 'new' ? vip : NEW_VIP}
-        invalidate={[['vip-packages']]}
-        submit={(v) =>
-          vip === 'new'
-            ? send('post', '/admin/vip-packages', v)
-            : send('put', `/admin/vip-packages/${(vip as VipPackage)._id}`, v)
-        }
-      >
-        {(form) => (
-          <>
-            <Space size="large">
-              <Form.Item name="tier" label="Tier" rules={[{ required: true }]}>
-                <Select options={tierOptions} style={{ width: 140 }} />
-              </Form.Item>
-              <Form.Item name="priceDiamonds" label="Price (diamonds)" rules={[{ required: true }]}>
-                <InputNumber min={1} />
-              </Form.Item>
-              <Form.Item name="durationDays" label="Days" rules={[{ required: true }]}>
-                <InputNumber min={1} max={366} />
-              </Form.Item>
-            </Space>
-            <Form.Item name="name" label="Name" rules={[{ required: true, max: 40 }]}>
-              <Input />
-            </Form.Item>
-            <Form.Item name="perks" label="Perks">
-              <Select mode="tags" tokenSeparators={[',']} maxCount={20} />
-            </Form.Item>
-            <Form.Item name="badgeUrl" label="Badge" rules={[{ type: 'url' }]}>
-              <MediaUpload kind="vip-badge" />
-            </Form.Item>
-            <Form.Item
-              name="frameUrl"
-              label="Avatar frame"
-              rules={[{ type: 'url' }]}
-              extra="PNG/WebP/GIF or SVGA. Members of this tier wear it unless they equip a store frame."
-            >
-              <MediaUpload
-                kind="vip-frame"
-                onUploaded={({ type }) =>
-                  form.setFieldValue('frameFormat', MEDIA_TYPES[type].format)
-                }
-              />
-            </Form.Item>
-            <Form.Item name="frameFormat" label="Frame format" style={{ width: 180 }}>
-              <Select options={frameFormatOptions} />
-            </Form.Item>
-            <Form.Item
-              name="entryAnimationUrl"
-              label="Entrance effect"
-              rules={[{ type: 'url' }]}
-              extra="Plays full-screen when a member joins a live room. SVGA, Lottie or MP4."
-            >
-              <MediaUpload
-                kind="vip-entry"
-                onUploaded={({ type }) =>
-                  form.setFieldValue('entryAnimationFormat', MEDIA_TYPES[type].format)
-                }
-              />
-            </Form.Item>
-            <Form.Item
-              name="entryAnimationFormat"
-              label="Entrance format"
-              style={{ width: 180 }}
-              dependencies={['entryAnimationUrl']}
-              rules={[
-                ({ getFieldValue }) => ({
-                  validator: (_, f: string) =>
-                    !getFieldValue('entryAnimationUrl') || f !== 'none'
-                      ? Promise.resolve()
-                      : Promise.reject(new Error('Pick the entrance format')),
-                }),
-              ]}
-            >
-              <Select options={animationOptions} />
-            </Form.Item>
-            <Space size="large">
-              <Form.Item name="sortOrder" label="Sort">
-                <InputNumber />
-              </Form.Item>
-              <Form.Item name="active" label="Active" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Space>
-          </>
-        )}
-      </FormModal>
+      <DecorationsTab />
     </>
   );
 }
@@ -537,7 +317,7 @@ function DecorationsTab() {
               onChange={(v?: DecorationFilters['access']) => set({ access: v })}
               options={[
                 { value: 'store', label: 'Sold in store' },
-                { value: 'included', label: 'Included with VIP' },
+                { value: 'included', label: 'Included with a tier' },
               ]}
             />
             <Select
@@ -728,7 +508,7 @@ function DecorationsTab() {
               <MediaUpload kind="cosmetic-preview" />
             </Form.Item>
             <Space size="large" align="start" wrap>
-              <Form.Item name="vipTierRequired" label="VIP tier">
+              <Form.Item name="vipTierRequired" label="Tier">
                 <Select
                   options={tierRequiredOptions}
                   style={{ width: 140 }}

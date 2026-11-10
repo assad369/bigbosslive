@@ -410,8 +410,6 @@ export async function createHarness(): Promise<Harness> {
         entryAnimationId: null,
         frameUrl: null,
         frameFormat: 'none',
-        vipFrameUrl: null,
-        vipFrameFormat: 'none',
       },
       agencyId: null,
       liveRoomId: null,

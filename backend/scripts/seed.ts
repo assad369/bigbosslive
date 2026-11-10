@@ -79,7 +79,7 @@ await withDb(async (db) => {
           category,
           sortOrder: i,
           active: true,
-          vipTierRequired: category === 'exclusive' ? 3 : 0,
+          vipTierRequired: category === 'exclusive' ? 4 : 0,
           createdAt: now,
           updatedAt: now,
         },
@@ -89,51 +89,36 @@ await withDb(async (db) => {
   }
   console.log(`ensured ${GIFTS.length} gifts`);
 
-  // VIP tiers: VIP, VVIP, King. Perks listed here are the ones the app actually delivers.
-  const vip = [
-    {
-      tier: 1,
-      name: 'VIP',
-      priceDiamonds: 3000,
-      perks: ['VIP badge', 'VIP avatar frame', 'Entrance banner'],
-      entry: false,
-    },
-    {
-      tier: 2,
-      name: 'VVIP',
-      priceDiamonds: 9000,
-      perks: ['VVIP badge', 'Animated avatar frame', 'Entrance effect', 'Listed above VIP'],
-      entry: true,
-    },
-    {
-      tier: 3,
-      name: 'King',
-      priceDiamonds: 30000,
-      perks: [
-        'King badge',
-        'King avatar frame',
-        'Royal entrance effect',
-        'Top of Popular and viewer lists',
-        'Exclusive gifts',
-      ],
-      entry: true,
-    },
+  // Tier packages: two per tier (VIP, VVIP, Crown, King). Each is a badge on the avatar.
+  const tierPackages = [
+    { tier: 1, name: 'VIP Star', priceDiamonds: 3000 },
+    { tier: 1, name: 'VIP Comet', priceDiamonds: 5000 },
+    { tier: 2, name: 'VVIP Sun', priceDiamonds: 9000 },
+    { tier: 2, name: 'VVIP Phoenix', priceDiamonds: 14000 },
+    { tier: 3, name: 'Rose Crown', priceDiamonds: 20000 },
+    { tier: 3, name: 'Diamond Crown', priceDiamonds: 26000 },
+    { tier: 4, name: 'Royal King', priceDiamonds: 30000 },
+    { tier: 4, name: 'Emperor King', priceDiamonds: 45000 },
   ];
-  for (const [i, { entry, ...v }] of vip.entries()) {
-    await db.col.vipPackages.updateOne(
-      { tier: v.tier },
+  for (const [i, p] of tierPackages.entries()) {
+    const slug = p.name.toLowerCase().replace(/\s+/g, '-');
+    await db.col.tierPackages.updateOne(
+      { name: p.name },
       {
         $setOnInsert: {
           _id: new ObjectId(),
-          ...v,
+          ...p,
           durationDays: 30,
-          badgeUrl: `${CDN}/vip/${v.tier}.png`,
-          frameUrl: `${CDN}/vip/frame-${v.tier}.svga`,
-          frameFormat: 'svga',
-          entryAnimationUrl: entry ? `${CDN}/vip/entry-${v.tier}.svga` : null,
-          entryAnimationFormat: entry ? 'svga' : 'none',
+          badge: {
+            imageUrl: `${CDN}/tiers/${slug}.png`,
+            svgaUrl: `${CDN}/tiers/${slug}.svga`,
+            mp4Url: null,
+            blendMode: 'normal',
+          },
           active: true,
           sortOrder: i,
+          createdAt: now,
+          updatedAt: now,
         },
       },
       { upsert: true },

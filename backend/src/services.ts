@@ -21,6 +21,7 @@ import { SightGuardEventsService } from './modules/sightguard/sightguard-events.
 import { SightGuardService } from './modules/sightguard/sightguard.service.js';
 import { StoreService } from './modules/store/store.service.js';
 import { UsersService } from './modules/users/users.service.js';
+import { TierPackagesService } from './modules/vip/tier-packages.service.js';
 import { IapService } from './modules/wallet/iap.service.js';
 import { WalletService } from './modules/wallet/wallet.service.js';
 import { WithdrawalsService } from './modules/withdrawals/withdrawals.service.js';
@@ -49,6 +50,7 @@ export interface Services {
   stats: StatsService;
   storageSettings: StorageSettingsService;
   store: StoreService;
+  tierPackages: TierPackagesService;
   users: UsersService;
   wallet: WalletService;
   withdrawals: WithdrawalsService;
@@ -83,6 +85,7 @@ export function createServices(ctx: Ctx): Services {
     stats: new StatsService(ctx),
     storageSettings: new StorageSettingsService(ctx),
     store: new StoreService(ctx),
+    tierPackages: new TierPackagesService(ctx),
     users: new UsersService(ctx),
     wallet: new WalletService(ctx),
     withdrawals: new WithdrawalsService(ctx),

@@ -1,6 +1,12 @@
 import { ObjectId, type Filter } from 'mongodb';
 import { z } from 'zod';
-import { ANIMATION_FORMATS, LIVEKIT_TOPICS, type Gift } from '@bigboss/shared';
+import {
+  ANIMATION_FORMATS,
+  LIVEKIT_TOPICS,
+  MAX_VIP_TIER,
+  vipTierLabel,
+  type Gift,
+} from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { GiftDoc, GiftTransactionDoc, LiveRoomDoc } from '../../db/schema.js';
 import {
@@ -21,7 +27,7 @@ export const giftInput = z.object({
   category: z.string().trim().min(1).max(30).default('popular'),
   sortOrder: z.number().int().default(0),
   active: z.boolean().default(true),
-  vipTierRequired: z.number().int().min(0).max(10).default(0),
+  vipTierRequired: z.number().int().min(0).max(MAX_VIP_TIER).default(0),
 });
 
 export const sendGiftInput = z.object({
@@ -136,7 +142,9 @@ export class GiftsService {
 
     const sender = await this.ctx.services.users.get(senderId);
     if (gift.vipTierRequired > activeVipTier(sender.vip, this.ctx.clock.now())) {
-      throw forbidden(`This gift requires VIP ${gift.vipTierRequired}`);
+      throw forbidden(
+        `This gift requires ${vipTierLabel(gift.vipTierRequired) ?? `tier ${gift.vipTierRequired}`}`,
+      );
     }
 
     const receivers = await this.ctx.col.users

@@ -1,3 +1,4 @@
+import 'package:bigboss_live/core/vip_tier.dart';
 import 'package:bigboss_live/core/widgets/carousel.dart';
 import 'package:bigboss_live/core/widgets/frame_view.dart';
 import 'package:bigboss_live/core/widgets/widgets.dart';
@@ -29,19 +30,37 @@ void main() {
     });
   });
 
-  testWidgets('VipBadge names the VIP ladder', (tester) async {
+  testWidgets('VipBadge names the tier ladder', (tester) async {
     await tester.pumpWidget(
       _wrap(
         const Column(
           mainAxisSize: MainAxisSize.min,
-          children: [VipBadge(1), VipBadge(2), VipBadge(3), VipBadge(0)],
+          children: [
+            VipBadge(1),
+            VipBadge(2),
+            VipBadge(3),
+            VipBadge(4),
+            VipBadge(0),
+          ],
         ),
       ),
     );
     expect(find.text('VIP'), findsOneWidget);
     expect(find.text('VVIP'), findsOneWidget);
+    expect(find.text('Crown'), findsOneWidget);
     expect(find.text('King'), findsOneWidget);
     expect(VipBadge.labelFor(0), isNull);
+    expect(VipBadge.labelFor(5), isNull);
+  });
+
+  test('VipTier mirrors VIP_TIERS: numbers, keys and rank', () {
+    expect(VipTier.of(3), VipTier.crown);
+    expect(VipTier.of(4), VipTier.king);
+    expect(VipTier.of(9), VipTier.none);
+    expect(VipTier.byKey('crown')!.number, 3);
+    expect(VipTier.byKey('none'), isNull);
+    expect(VipTier.byKey('emperor'), isNull);
+    expect(VipTier.king.index > VipTier.crown.index, isTrue);
   });
 
   testWidgets('BBAvatar draws the frame in any format, SVGA only when large', (
@@ -51,7 +70,7 @@ void main() {
       id: 'u',
       shortId: '200',
       displayName: 'Queen',
-      vipTier: 3,
+      vipTier: 4,
       frameUrl: 'https://cdn.test/king.svga',
       frameFormat: 'svga',
     );

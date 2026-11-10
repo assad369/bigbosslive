@@ -4,6 +4,7 @@ import type {
   AgencyAuditAction,
   AgencyRole,
   AnimationFormat,
+  BadgeBlendMode,
   CosmeticType,
   Currency,
   GameKey,
@@ -60,14 +61,24 @@ export interface UserDoc {
     liveSeconds: number;
   };
   level: { level: number; points: number };
-  vip: { tier: number; expiresAt: Date | null };
+  /**
+   * The worn tier package (one at a time). `tier`/`expiresAt` are the package's tier and the
+   * owned row's expiry; `badge` is copied from the package (re-synced when it changes). Only
+   * `TierPackagesService` writes it. Readers go through `activeVipTier()`, so an expired slot
+   * reads as none before the sweep clears it.
+   */
+  vip: {
+    tier: number;
+    expiresAt: Date | null;
+    packageId?: ObjectId | null;
+    badge?: TierBadgeDoc | null;
+  };
   /**
    * What the user shows. `frameUrl`/`frameFormat` are copied from an equipped store frame
-   * (kept in sync when that item changes); `vipFrame*` from the package of the VIP tier they
-   * hold (kept in sync when that package changes). `frameVipTier`/`entryAnimationVipTier`
-   * are 0 for an item the user owns, else the VIP tier that lets them wear it unowned
-   * (`vipIncluded`), so a lapsed membership drops it at read time. Readers resolve the shown
-   * frame with `resolveFrame()`, never these directly.
+   * (kept in sync when that item changes). `frameVipTier`/`entryAnimationVipTier` are 0 for
+   * an item the user owns, else the tier that lets them wear it unowned (`vipIncluded`), so a
+   * lapsed tier drops it at read time. Readers resolve the shown frame with `resolveFrame()`,
+   * never these directly.
    */
   equipped: {
     frameId: ObjectId | null;
@@ -76,8 +87,6 @@ export interface UserDoc {
     frameFormat?: AnimationFormat;
     frameVipTier?: number;
     entryAnimationVipTier?: number;
-    vipFrameUrl?: string | null;
-    vipFrameFormat?: AnimationFormat;
   };
   agencyId: ObjectId | null;
   liveRoomId: ObjectId | null;
@@ -303,22 +312,38 @@ export interface LevelConfigDoc {
   iconUrl: string | null;
 }
 
-export interface VipPackageDoc {
+export interface TierBadgeDoc {
+  imageUrl: string | null;
+  svgaUrl: string | null;
+  mp4Url: string | null;
+  blendMode: BadgeBlendMode;
+}
+
+/** A tier package: badge artwork sold for `durationDays` that puts its wearer in `tier`. */
+export interface TierPackageDoc {
   _id: ObjectId;
+  /** 1 VIP, 2 VVIP, 3 Crown, 4 King. Never changes after creation. */
   tier: number;
   name: string;
   priceDiamonds: number;
   durationDays: number;
-  perks: string[];
-  badgeUrl: string | null;
-  /** Avatar frame members of this tier wear when no store frame is equipped. */
-  frameUrl: string | null;
-  frameFormat: AnimationFormat;
-  /** Entrance effect for this tier when no entry animation is equipped. */
-  entryAnimationUrl: string | null;
-  entryAnimationFormat: AnimationFormat;
+  badge: TierBadgeDoc;
   active: boolean;
   sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** A user's hold on a tier package. Buying it again extends `expiresAt`. */
+export interface UserTierPackageDoc {
+  _id?: ObjectId;
+  userId: string;
+  packageId: ObjectId;
+  tier: number;
+  acquiredAt: Date;
+  expiresAt: Date;
+  source: 'purchase' | 'admin';
+  grantedBy: string | null;
 }
 
 export interface CosmeticDoc {

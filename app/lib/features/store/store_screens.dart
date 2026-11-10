@@ -12,9 +12,6 @@ import '../../core/widgets/frame_view.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 
-final _vipProvider = FutureProvider.autoDispose(
-  (ref) => ref.watch(economyRepo).vipPackages(),
-);
 final _itemsProvider = FutureProvider.autoDispose.family(
   (ref, String type) => ref.watch(economyRepo).storeItems(type: type),
 );
@@ -82,173 +79,6 @@ Future<void> _handlePurchaseError(BuildContext context, Object e) async {
   }
 }
 
-class VipScreen extends ConsumerWidget {
-  const VipScreen({super.key});
-
-  Future<void> _buy(BuildContext context, WidgetRef ref, VipPackage p) async {
-    if (!await _confirmSpend(context, p.name, p.priceDiamonds)) return;
-    if (!context.mounted) return;
-    try {
-      final ran = await ref.read(_actionsProvider.notifier).run('vip:${p.id}', (
-        key,
-      ) async {
-        await ref.read(economyRepo).buyVip(p.id, idempotencyKey: key);
-        await ref.read(sessionProvider.notifier).refresh();
-      });
-      if (ran && context.mounted) {
-        showMessage(context, 'Welcome to ${p.name} 👑');
-      }
-    } catch (e) {
-      if (context.mounted) await _handlePurchaseError(context, e);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final me = ref.watch(meProvider);
-    final packages = ref.watch(_vipProvider);
-    final busy = ref.watch(_actionsProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('VIP')),
-      body: AsyncView(
-        value: packages,
-        onRetry: () => ref.invalidate(_vipProvider),
-        data: (items) => RefreshIndicator(
-          onRefresh: () async {
-            ref.invalidate(_vipProvider);
-            await ref.read(sessionProvider.notifier).refresh();
-          },
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (me.brief.vipTier > 0)
-                Card(
-                  child: ListTile(
-                    leading: VipBadge(me.brief.vipTier),
-                    title: const Text('Your membership'),
-                    subtitle: Text(
-                      me.vipExpiresAt == null
-                          ? ''
-                          : 'Active until ${Fmt.date(me.vipExpiresAt!)}',
-                    ),
-                  ),
-                ),
-              for (final p in items)
-                Container(
-                  margin: const EdgeInsets.only(top: 14),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    gradient:
-                        BBColors.tierGradient(p.tier) ?? BBColors.goldGradient,
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          // Preview of the tier's frame on the buyer's own avatar.
-                          Padding(
-                            padding: const EdgeInsets.all(
-                              48 * BBAvatar.frameOverhang,
-                            ),
-                            child: BBAvatar(
-                              url: me.brief.avatarUrl,
-                              name: me.brief.displayName,
-                              size: 48,
-                              frameUrl: p.frameUrl,
-                              frameFormat: p.frameFormat,
-                              vipTier: p.tier,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  p.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.titleLarge
-                                      ?.copyWith(color: BBColors.ivory),
-                                ),
-                                VipBadge(p.tier, dense: true),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${p.durationDays} days',
-                            style: const TextStyle(color: BBColors.champagne),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      for (final perk in p.perks)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text(
-                            '✦  $perk',
-                            style: const TextStyle(color: BBColors.ivory),
-                          ),
-                        ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Align(
-                              alignment: AlignmentDirectional.centerStart,
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: DiamondAmount(
-                                  p.priceDiamonds,
-                                  style: const TextStyle(
-                                    color: BBColors.ivory,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: BBColors.ivory,
-                              foregroundColor: BBColors.ink,
-                              minimumSize: const Size(110, 44),
-                            ),
-                            onPressed:
-                                me.brief.vipTier > p.tier ||
-                                    busy.contains('vip:${p.id}')
-                                ? null
-                                : () => _buy(context, ref, p),
-                            child: busy.contains('vip:${p.id}')
-                                ? const SizedBox.square(
-                                    dimension: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Text(
-                                    me.brief.vipTier == p.tier
-                                        ? 'Renew'
-                                        : 'Get',
-                                  ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class StoreScreen extends ConsumerWidget {
   const StoreScreen({super.key});
 
@@ -305,7 +135,7 @@ class _StoreGrid extends ConsumerWidget {
     }
   }
 
-  /// A VIP-included item is never bought: holders wear it at once, others see the tiers.
+  /// A tier-included item is never bought: holders wear it at once, others see the tiers.
   Future<void> _wearIncluded(
     BuildContext context,
     WidgetRef ref,

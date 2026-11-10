@@ -13,20 +13,33 @@ export const USER_STATUSES = ['active', 'banned', 'deleted'] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
 
 /**
- * The VIP ladder. A user's `vipTier` (0 = none) maps to one of these; higher tiers outrank
- * lower ones everywhere a ranking by status applies (viewer lists, the Popular tab).
+ * The tier ladder: VIP < VVIP < Crown < King. A user's `vipTier` (0 = none) is the tier of the
+ * tier package they are wearing; higher tiers outrank lower ones everywhere a ranking by
+ * status applies (viewer lists, the Popular tab).
  */
 export const VIP_TIERS = [
   { tier: 1, key: 'vip', label: 'VIP' },
   { tier: 2, key: 'vvip', label: 'VVIP' },
-  { tier: 3, key: 'king', label: 'King' },
+  { tier: 3, key: 'crown', label: 'Crown' },
+  { tier: 4, key: 'king', label: 'King' },
 ] as const;
-export const MAX_VIP_TIER = 3;
+export const MAX_VIP_TIER = 4;
 export type VipTierKey = (typeof VIP_TIERS)[number]['key'];
 
 export function vipTierLabel(tier: number): string | null {
   return VIP_TIERS.find((t) => t.tier === tier)?.label ?? null;
 }
+
+export function vipTierByKey(key: string): number | null {
+  return VIP_TIERS.find((t) => t.key === key)?.tier ?? null;
+}
+
+/**
+ * How a tier badge's MP4 is composited: `normal` is opaque, `additive` keys black to
+ * transparent (for clips exported on a black background).
+ */
+export const BADGE_BLEND_MODES = ['normal', 'additive'] as const;
+export type BadgeBlendMode = (typeof BADGE_BLEND_MODES)[number];
 
 export const ROOM_TYPES = ['video', 'audio'] as const;
 export type RoomType = (typeof ROOM_TYPES)[number];
@@ -126,7 +139,7 @@ export type EquippableCosmeticType = (typeof EQUIPPABLE_COSMETIC_TYPES)[number];
 
 /** Most decorations one bulk-create request may carry. Larger uploads are chunked. */
 export const MAX_COSMETICS_PER_BATCH = 100;
-/** Longest an admin may grant VIP or a decoration for, in days. */
+/** Longest an admin may grant a tier package or a decoration for, in days. */
 export const MAX_GRANT_DAYS = 3650;
 
 /**
@@ -168,9 +181,11 @@ const ANIMATIONS = ['application/octet-stream', 'application/json', 'video/mp4']
 export const ADMIN_UPLOAD_KINDS = {
   'gift-icon': { types: IMAGES, maxBytes: 2 * MB },
   'gift-animation': { types: ANIMATIONS, maxBytes: 20 * MB },
-  'vip-badge': { types: IMAGES, maxBytes: 2 * MB },
-  'vip-frame': { types: [...IMAGES, 'application/octet-stream'], maxBytes: 10 * MB },
-  'vip-entry': { types: [...IMAGES, ...ANIMATIONS], maxBytes: 20 * MB },
+  // A tier package badge: one slot each for the image, SVGA and MP4 renditions.
+  'tier-badge': {
+    types: [...IMAGES, 'application/octet-stream', 'video/mp4'],
+    maxBytes: 20 * MB,
+  },
   'cosmetic-asset': { types: [...IMAGES, ...ANIMATIONS], maxBytes: 20 * MB },
   'cosmetic-preview': { types: IMAGES, maxBytes: 2 * MB },
   'level-icon': { types: IMAGES, maxBytes: 2 * MB },

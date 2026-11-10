@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { AdminUserCosmetic, AnimationFormat } from '@bigboss/shared';
 import { get, send } from '../../lib/api';
 import { dateTime } from '../../lib/format';
-import { ActionButton, VipTag } from '../../components/common';
+import { ActionButton } from '../../components/common';
 import { AssignDecorationModal } from '../../components/AssignDecorationModal';
 import { cosmeticTypeLabel } from '../../lib/decorations';
 import { DecorationThumb } from '../../components/CosmeticPicker';
@@ -19,25 +19,14 @@ interface Wardrobe {
 }
 
 const sourceTag = (r: AdminUserCosmetic) => {
-  if (r.source === 'vip') return <Tag color="gold">VIP perk</Tag>;
+  if (r.source === 'vip') return <Tag color="gold">Tier perk</Tag>;
   if (r.grantSource === 'admin') return <Tag color="purple">Granted</Tag>;
   if (r.grantSource === 'purchase') return <Tag color="blue">Purchased</Tag>;
   return <Tag>Owned</Tag>;
 };
 
 /** A user's frames, entrance effects and other decorations, with grant and revoke. */
-export function UserDecorations({
-  uid,
-  vipTier,
-  vipExpiresAt,
-  onSetVip,
-}: {
-  uid: string;
-  /** Active tier (0 when none or expired). */
-  vipTier: number;
-  vipExpiresAt: string | null;
-  onSetVip: () => void;
-}) {
+export function UserDecorations({ uid }: { uid: string }) {
   const { can } = useAuth();
   const [assigning, setAssigning] = useState(false);
   const key = ['user-cosmetics', uid];
@@ -77,30 +66,11 @@ export function UserDecorations({
               <Typography.Text strong>{frame?.frameUrl ? 'Showing' : 'None'}</Typography.Text>
             </div>
           </Space>
-          <div>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              VIP
-            </Typography.Text>
-            <br />
-            {vipTier > 0 ? (
-              <Space size={4}>
-                <VipTag tier={vipTier} />
-                <Typography.Text type="secondary">
-                  {vipExpiresAt ? `until ${dateTime(vipExpiresAt)}` : 'no expiry'}
-                </Typography.Text>
-              </Space>
-            ) : (
-              <Typography.Text strong>None</Typography.Text>
-            )}
-          </div>
         </Space>
         {can('users.edit') && (
-          <Space wrap>
-            <Button onClick={onSetVip}>Set VIP</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setAssigning(true)}>
-              Assign decoration
-            </Button>
-          </Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAssigning(true)}>
+            Assign decoration
+          </Button>
         )}
       </Space>
 
@@ -140,7 +110,7 @@ export function UserDecorations({
             title: 'Expires',
             dataIndex: 'expiresAt',
             render: (e: string | null, r) =>
-              e ? dateTime(e) : r.source === 'vip' ? 'With VIP' : '—',
+              e ? dateTime(e) : r.source === 'vip' ? 'With tier' : '—',
           },
           {
             title: 'Acquired',

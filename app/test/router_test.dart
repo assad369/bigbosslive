@@ -226,6 +226,7 @@ void main() {
 
   test('bigboss:// links open only known screens', () {
     expect(routeForLink({'url': 'bigboss://vip'}), '/vip');
+    expect(routeForLink({'url': 'bigboss://vip/crown'}), '/vip/crown');
     expect(routeForLink({'url': 'bigboss://post/p1'}), '/post/p1');
     expect(routeForLink({'link': 'bigboss://user/u1'}), '/user/u1');
     expect(

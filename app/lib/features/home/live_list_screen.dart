@@ -10,6 +10,7 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/carousel.dart';
+import '../../core/widgets/tier_badge.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../agency/agency_providers.dart';
@@ -364,6 +365,10 @@ class LiveCard extends ConsumerWidget {
                         ),
                       ),
                     ),
+                    if (room.host.badge != null) ...[
+                      InlineTierBadge(badge: room.host.badge!, size: 18),
+                      const SizedBox(width: 3),
+                    ],
                     if (room.host.vipTier > 0) ...[
                       VipTag(room.host.vipTier),
                       const SizedBox(width: 3),

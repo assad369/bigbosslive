@@ -21,10 +21,13 @@ export function MediaUpload({
   onUploaded,
   compact = false,
   disabled = false,
+  only,
 }: {
   value?: string | null;
   onChange?: (url: string | null) => void;
   kind: AdminUploadKind;
+  /** Narrow the kind's accepted types, for a field that holds one rendition. */
+  only?: readonly MediaType[];
   /** Called with the detected type, e.g. to set the matching animation format. */
   onUploaded?: (info: { url: string; type: MediaType }) => void;
   /** Single-line variant for tables. */
@@ -66,7 +69,7 @@ export function MediaUpload({
   };
 
   const beforeUpload = (file: File) => {
-    const problem = checkFile(kind, file);
+    const problem = checkFile(kind, file, only);
     if (problem) message.error(problem);
     else void start(file);
     // Never let antd upload on its own; `start` handles it.
@@ -75,7 +78,7 @@ export function MediaUpload({
 
   const picker = (child: ReactNode) => (
     <Upload
-      accept={acceptAttr(kind)}
+      accept={acceptAttr(kind, only)}
       showUploadList={false}
       beforeUpload={beforeUpload}
       disabled={disabled || progress !== null}
@@ -164,7 +167,7 @@ export function MediaUpload({
       <div>
         {uploading || (
           <Upload.Dragger
-            accept={acceptAttr(kind)}
+            accept={acceptAttr(kind, only)}
             showUploadList={false}
             beforeUpload={beforeUpload}
             disabled={disabled}
@@ -177,7 +180,7 @@ export function MediaUpload({
             <Typography.Text>Click or drop a file to upload</Typography.Text>
             <br />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {describeAccepted(kind)}
+              {describeAccepted(kind, only)}
             </Typography.Text>
           </Upload.Dragger>
         )}

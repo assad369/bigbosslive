@@ -3,6 +3,7 @@ import type {
   AgencyAuditAction,
   AgencyRole,
   AnimationFormat,
+  BadgeBlendMode,
   CosmeticType,
   Currency,
   GameKey,
@@ -56,7 +57,9 @@ export interface PublicUser {
   country: string | null;
   level: number;
   vipTier: number;
-  /** Resolved avatar frame: an equipped store frame, else the active VIP tier's frame. */
+  /** The worn tier package's badge (bottom-right of the avatar); null without an active tier. */
+  badge: TierBadge | null;
+  /** Equipped avatar frame (the ring); null when none. */
   frameUrl: string | null;
   frameFormat: AnimationFormat;
   followers: number;
@@ -75,10 +78,56 @@ export interface UserBrief {
   avatarUrl: string | null;
   level: number;
   vipTier: number;
+  /** The worn tier package's badge; null without an active tier. */
+  badge: TierBadge | null;
   country: string | null;
   frameUrl: string | null;
   /** How `frameUrl` plays: `none` is a still or GIF/WebP image. */
   frameFormat: AnimationFormat;
+}
+
+/**
+ * Artwork of a tier package, drawn as a badge at the bottom-right of the avatar. Up to three
+ * renditions of the same picture; clients play MP4, else SVGA, else the image.
+ */
+export interface TierBadge {
+  imageUrl: string | null;
+  svgaUrl: string | null;
+  mp4Url: string | null;
+  blendMode: BadgeBlendMode;
+}
+
+/** A tier package as the shop lists it. */
+export interface TierPackage {
+  id: string;
+  /** 1 VIP, 2 VVIP, 3 Crown, 4 King (`VIP_TIERS`). Never changes after creation. */
+  tier: number;
+  name: string;
+  priceDiamonds: number;
+  durationDays: number;
+  badge: TierBadge;
+  active: boolean;
+  sortOrder: number;
+}
+
+/** A tier package as the admin catalog lists it. */
+export interface AdminTierPackage extends TierPackage {
+  /** Users holding it now (unexpired rows). */
+  ownerCount: number;
+  createdAt: IsoDate;
+}
+
+/** One package in a user's inventory. */
+export interface OwnedTierPackage {
+  package: TierPackage;
+  acquiredAt: IsoDate;
+  expiresAt: IsoDate;
+  expired: boolean;
+  /** The one the user is wearing now. */
+  worn: boolean;
+  source: 'purchase' | 'admin';
+  /** The admin uid behind the latest admin grant. */
+  grantedBy: string | null;
 }
 
 /** Full-screen entrance effect played when someone joins a live room. */
@@ -130,6 +179,7 @@ export interface LiveRoom {
     | 'avatarUrl'
     | 'level'
     | 'vipTier'
+    | 'badge'
     | 'country'
     | 'frameUrl'
     | 'frameFormat'
@@ -224,6 +274,7 @@ export interface PkBattle {
     avatarUrl: string | null;
     level: number;
     vipTier: number;
+    badge: TierBadge | null;
     frameUrl: string | null;
     frameFormat: AnimationFormat;
   }[];
@@ -285,7 +336,7 @@ export interface Cosmetic {
 
 /**
  * A decoration a user may wear: one they own (`source: 'owned'`, until `expiresAt`) or one
- * their VIP tier includes (`source: 'vip'`, until the membership's expiry).
+ * their tier includes (`source: 'vip'`, until the worn tier package's expiry).
  */
 export interface OwnedCosmetic {
   item: Cosmetic;

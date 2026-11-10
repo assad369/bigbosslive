@@ -392,13 +392,30 @@ class EconomyRepository {
   Future<AgentSummary> agentSummary() async =>
       AgentSummary.fromJson(await _api.get('/agent/summary'));
 
-  Future<List<VipPackage>> vipPackages() async =>
-      (await _api.get('/store/vip')).list('items', VipPackage.fromJson);
-  Future<Json> buyVip(String id, {String? idempotencyKey}) => _api.post(
-    '/store/vip/$id/purchase',
-    idempotent: true,
-    idempotencyKey: idempotencyKey,
-  );
+  /// The shop for one tier (1 VIP, 2 VVIP, 3 Crown, 4 King).
+  Future<List<TierPackage>> tierPackages(int tier) async => (await _api.get(
+    '/store/tier-packages',
+    query: {'tier': '$tier'},
+  )).list('items', TierPackage.fromJson);
+
+  /// The user's packages of one tier, newest first, with the worn one marked.
+  Future<List<OwnedTierPackage>> myTierPackages(int tier) async =>
+      (await _api.get(
+        '/store/tier-packages/mine',
+        query: {'tier': '$tier'},
+      )).list('items', OwnedTierPackage.fromJson);
+
+  /// Buy (or renew) a package and wear it. Returns the new diamond balance.
+  Future<int> buyTierPackage(String id, {String? idempotencyKey}) async =>
+      (await _api.post(
+        '/store/tier-packages/$id/purchase',
+        idempotent: true,
+        idempotencyKey: idempotencyKey,
+      )).integer('diamonds');
+
+  /// Wear an owned package; null takes the current one off.
+  Future<void> wearTierPackage(String? id) =>
+      _api.post('/store/tier-packages/wear', body: {'packageId': id});
   Future<List<StoreItem>> storeItems({String? type}) async => (await _api.get(
     '/store/items',
     query: {'type': type},
@@ -409,8 +426,8 @@ class EconomyRepository {
     idempotencyKey: idempotencyKey,
   );
 
-  /// What the user may wear: items they own, then items their VIP tier includes
-  /// (`viaVip`, available until the membership ends).
+  /// What the user may wear: items they own, then items their tier includes
+  /// (`viaVip`, available until the worn tier package ends).
   Future<
     List<({StoreItem item, DateTime? expiresAt, bool equipped, bool viaVip})>
   >

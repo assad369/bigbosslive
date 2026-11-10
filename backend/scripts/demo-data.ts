@@ -85,17 +85,13 @@ await withDb(async (db) => {
         level: Math.min(100, Math.floor((recharged + received) / 6000)),
         points: recharged + received,
       },
-      vip:
-        i % 4 === 0
-          ? { tier: 1 + (i % 3), expiresAt: new Date(now.getTime() + 20 * 86_400_000) }
-          : { tier: 0, expiresAt: null },
+      // Tier packages are bought or granted (they need a package to wear); demo users have none.
+      vip: { tier: 0, expiresAt: null, packageId: null, badge: null },
       equipped: {
         frameId: null,
         entryAnimationId: null,
         frameUrl: null,
         frameFormat: 'none',
-        vipFrameUrl: null,
-        vipFrameFormat: 'none',
       },
       agencyId: null,
       liveRoomId: null,
