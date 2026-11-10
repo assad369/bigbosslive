@@ -296,6 +296,7 @@ export class LiveService {
       giftCount: 0,
       moderatorIds: [],
       seats,
+      swappedUid: null,
       pkBattleId: null,
       hostVipTier: activeVipTier(host.vip, now),
       backgroundUrl: null,
@@ -905,7 +906,11 @@ export class LiveService {
   private async broadcastSeats(roomId: ObjectId): Promise<void> {
     const detail = await this.detail(roomId);
     await this.ctx.livekit
-      .sendData(detail.livekitRoom, LIVEKIT_TOPICS.seats, { kind: 'seats', seats: detail.seats })
+      .sendData(detail.livekitRoom, LIVEKIT_TOPICS.seats, {
+        kind: 'seats',
+        seats: detail.seats,
+        swappedUid: detail.swappedUid,
+      })
       .catch(() => undefined);
   }
 
@@ -970,9 +975,51 @@ export class LiveService {
       { returnDocument: 'after' },
     );
     if (!updated) return false;
+    // A guest who leaves the stage gives the host their spot back.
+    if (updated.swappedUid === uid)
+      await this.ctx.col.liveRooms.updateOne(
+        { _id: room._id, swappedUid: uid },
+        { $set: { swappedUid: null } },
+      );
     await this.syncParticipant(updated, uid, this.roleOf(updated, uid));
     await this.broadcastSeats(room._id);
     return true;
+  }
+
+  /**
+   * Show a seated guest in the host's stage spot (and the host in theirs), or restore the
+   * normal layout with `targetUid` null. Host, room admins and staff only. Server state, so
+   * everyone in the room (late joiners too) sees the same layout.
+   */
+  async swapStage(
+    roomId: ObjectId,
+    actor: { uid: string; isAdmin: boolean },
+    targetUid: string | null,
+  ): Promise<{ swappedUid: string | null; staffAction: boolean }> {
+    const room = await this.getLive(roomId);
+    await this.assertCanModerate(room, actor.uid, actor.isAdmin);
+    const staffAction = room.hostId !== actor.uid && !room.moderatorIds.includes(actor.uid);
+    if ((room.swappedUid ?? null) === targetUid)
+      return { swappedUid: targetUid, staffAction: false };
+    if (targetUid === null) {
+      await this.ctx.col.liveRooms.updateOne(
+        { _id: roomId, status: 'live' },
+        { $set: { swappedUid: null } },
+      );
+    } else {
+      const res = await this.ctx.col.liveRooms.updateOne(
+        {
+          _id: roomId,
+          status: 'live',
+          seats: { $elemMatch: { userId: targetUid, index: { $gt: 0 } } },
+        },
+        { $set: { swappedUid: targetUid } },
+      );
+      if (!res.matchedCount)
+        throw new AppError(409, 'not_on_stage', 'Only a guest on a seat can take the host spot');
+    }
+    await this.broadcastSeats(roomId);
+    return { swappedUid: targetUid, staffAction };
   }
 
   async requestSeat(roomId: ObjectId, uid: string) {

@@ -297,7 +297,6 @@ class _TierPackagesScreenState extends ConsumerState<TierPackagesScreen>
                             onPressed: () => _buy(p, owned: false),
                             child: DiamondAmount(
                               p.priceDiamonds,
-                              compact: true,
                               style: const TextStyle(color: BBColors.onAccent),
                             ),
                           ),

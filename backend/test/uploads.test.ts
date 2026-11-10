@@ -141,6 +141,22 @@ describe('user uploads', () => {
     expect(big.status).toBe(400);
     expect(big.body.error.message).toMatch(/too large/);
   });
+
+  it('an uploaded GIF becomes the profile picture everywhere the avatar is shown', async () => {
+    const gif = await h.api
+      .post('/v1/uploads/presign')
+      .set(h.as('plain'))
+      .send({ kind: 'avatar', contentType: 'image/gif', size: 1_000_000 });
+    const url: string = gif.body.publicUrl;
+    expect(url).toMatch(/\.gif$/);
+    const patched = await h.api.patch('/v1/me').set(h.as('plain')).send({ avatarUrl: url });
+    expect(patched.status).toBe(200);
+    expect((await h.api.get('/v1/me').set(h.as('plain'))).body.user.avatarUrl).toBe(url);
+    // The home card falls back to it as the live cover, and the room's host brief carries it.
+    const live = await h.api.post('/v1/live').set(h.as('plain')).send({ type: 'video' });
+    expect(live.body.room.coverUrl).toBe(url);
+    expect(live.body.room.host.avatarUrl).toBe(url);
+  });
 });
 
 describe('S3 presigning', () => {

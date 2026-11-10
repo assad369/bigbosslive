@@ -129,6 +129,28 @@ class AgentRecharge {
   );
 }
 
+/// Diamonds the platform added to an agent's own stock.
+class AgentStockTopup {
+  const AgentStockTopup({
+    required this.id,
+    required this.diamonds,
+    required this.stockAfter,
+    this.createdAt,
+  });
+  final String id;
+  final int diamonds;
+
+  /// The agent's stock right after this top-up.
+  final int stockAfter;
+  final DateTime? createdAt;
+  factory AgentStockTopup.fromJson(Json j) => AgentStockTopup(
+    id: j.str('id'),
+    diamonds: j.integer('diamonds'),
+    stockAfter: j.integer('stockAfter'),
+    createdAt: j.date('createdAt'),
+  );
+}
+
 class AgentSummary {
   const AgentSummary({
     this.count = 0,
@@ -426,9 +448,14 @@ class RoomDetail {
     this.backgroundUrl,
     this.clockOffset = Duration.zero,
     this.youtube,
+    this.swappedUid,
   });
   final LiveRoom room;
   final String livekitRoom;
+
+  /// A seated guest shown in the host's (largest) stage spot, the host taking theirs; set by
+  /// the host, a room admin or staff. Null = normal layout.
+  final String? swappedUid;
 
   /// Room admins appointed by the host.
   final List<String> moderatorIds;
@@ -448,6 +475,7 @@ class RoomDetail {
     List<UserBrief>? moderators,
     List<Seat>? seats,
     String? Function()? backgroundUrl,
+    String? Function()? swappedUid,
   }) => RoomDetail(
     room: room ?? this.room,
     livekitRoom: livekitRoom,
@@ -457,6 +485,7 @@ class RoomDetail {
     backgroundUrl: backgroundUrl == null ? this.backgroundUrl : backgroundUrl(),
     clockOffset: clockOffset,
     youtube: youtube,
+    swappedUid: swappedUid == null ? this.swappedUid : swappedUid(),
   );
 
   factory RoomDetail.fromJson(Json j) {
@@ -472,6 +501,7 @@ class RoomDetail {
           ? Duration.zero
           : serverTime.difference(DateTime.now()),
       youtube: YouTubeState.tryParse(j['youtube']),
+      swappedUid: j.strOrNull('swappedUid'),
     );
   }
 }

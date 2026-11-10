@@ -347,3 +347,90 @@ describe('room gifts', () => {
     expect(h.livekit.topics('bb.gift')).toHaveLength(0);
   });
 });
+
+describe('platform-wide gift announcement', () => {
+  type Emit = [namespace: string, event: string, payload: Record<string, unknown>];
+  let emits: Emit[] = [];
+  let restore: () => void;
+
+  beforeAll(() => {
+    const original = h.ctx.realtime.broadcast.bind(h.ctx.realtime);
+    h.ctx.realtime.broadcast = (ns, event, payload) => {
+      emits.push([ns, event, payload as Record<string, unknown>]);
+      original(ns, event, payload);
+    };
+    restore = () => {
+      h.ctx.realtime.broadcast = original;
+    };
+  });
+  afterAll(async () => {
+    restore();
+    await h.ctx.services.config.set('live', { giftBannerMinDiamonds: 0 }, 'test');
+  });
+  beforeEach(() => {
+    emits = [];
+  });
+  const announcements = () => emits.filter(([, event]) => event === 'gift:announcement');
+
+  const send = (sender: string, receiver: string, quantity: number, roomId: string | null) =>
+    h.api
+      .post('/v1/gifts/send')
+      .set(h.as(sender))
+      .set('Idempotency-Key', key())
+      .send({ giftId, quantity, receiverIds: [receiver], roomId });
+
+  it('announces a committed room gift to every app socket, once', async () => {
+    const { sender, receiver: host } = await pair(5000);
+    const { room } = await h.ctx.services.live.start(host, {
+      type: 'video',
+      title: 'Banner',
+      coverUrl: null,
+      tags: [],
+    });
+    const res = await send(sender, host, 3, room.id).expect(200);
+    expect(announcements()).toHaveLength(1);
+    const [ns, , payload] = announcements()[0]!;
+    expect(ns).toBe('/');
+    expect(payload).toEqual({
+      id: res.body.transactionId,
+      roomId: room.id,
+      sender: expect.objectContaining({ id: sender }),
+      receivers: [{ id: host, displayName: expect.any(String) }],
+      gift: { id: giftId, name: 'Crown', iconUrl: 'https://cdn.test/crown.png' },
+      quantity: 3,
+      totalCost: 1500,
+      at: expect.any(String),
+    });
+  });
+
+  it('announces profile gifts too, with no room', async () => {
+    const { sender, receiver } = await pair(5000);
+    await send(sender, receiver, 1, null).expect(200);
+    expect(announcements()[0]![2]).toMatchObject({ roomId: null, totalCost: 500 });
+  });
+
+  it('skips gifts below live.giftBannerMinDiamonds', async () => {
+    await h.ctx.services.config.set('live', { giftBannerMinDiamonds: 1000 }, 'test');
+    const { sender, receiver } = await pair(5000);
+    await send(sender, receiver, 1, null).expect(200);
+    expect(announcements()).toHaveLength(0);
+    await send(sender, receiver, 2, null).expect(200);
+    expect(announcements()).toHaveLength(1);
+    await h.ctx.services.config.set('live', { giftBannerMinDiamonds: 0 }, 'test');
+  });
+
+  it('a failing broadcast never fails the gift', async () => {
+    const working = h.ctx.realtime.broadcast;
+    h.ctx.realtime.broadcast = () => {
+      throw new Error('socket down');
+    };
+    try {
+      const { sender, receiver } = await pair(5000);
+      const res = await send(sender, receiver, 1, null);
+      expect(res.status).toBe(200);
+      expect((await h.ctx.col.users.findOne({ _id: sender }))!.wallet.diamonds).toBe(4500);
+    } finally {
+      h.ctx.realtime.broadcast = working;
+    }
+  });
+});

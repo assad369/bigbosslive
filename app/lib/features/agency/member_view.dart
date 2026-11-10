@@ -51,6 +51,15 @@ class _InvitationCardState extends ConsumerState<_InvitationCard> {
   bool _busy = false;
 
   Future<void> _respond(bool accept) async {
+    if (accept &&
+        !await confirmAgencyJoin(
+          context,
+          agencyName: widget.inv.agency.name,
+          action: 'Join',
+        )) {
+      return;
+    }
+    if (!mounted) return;
     setState(() => _busy = true);
     try {
       await ref
@@ -194,8 +203,8 @@ class _Membership extends ConsumerWidget {
             leading: Icon(Icons.lock, color: BBColors.danger),
             title: Text('Your membership is locked'),
             subtitle: Text(
-              'Your agency locked your membership. Contact BigBoss support '
-              'if you need to leave.',
+              'Agency memberships are locked. Contact BigBoss support if you '
+              'need to leave. Agency hosts receive gifts but can’t send them.',
             ),
           ),
         )

@@ -23,6 +23,7 @@ import {
 } from 'recharts';
 import { get } from '../lib/api';
 import { num, short } from '../lib/format';
+import { useIsMobile } from '../lib/responsive';
 import { PageHeader, StatCard } from '../components/common';
 import { brand } from '../theme';
 
@@ -46,6 +47,8 @@ const axis = { fontSize: 12, fill: brand.palette.inkMuted };
 
 export function DashboardPage() {
   const [days, setDays] = useState(30);
+  const mobile = useIsMobile();
+  const chartHeight = mobile ? 220 : 300;
   const overview = useQuery({
     queryKey: ['stats', 'overview'],
     queryFn: () => get<Overview>('/admin/stats/overview'),
@@ -96,7 +99,7 @@ export function DashboardPage() {
           <Col xs={12} xl={6}>
             <StatCard
               title="Recharged today"
-              value={short(o.economy.rechargedToday)}
+              value={num(o.economy.rechargedToday)}
               suffix="💎"
               icon={<WalletOutlined />}
               hint="UTC day"
@@ -105,7 +108,7 @@ export function DashboardPage() {
           <Col xs={12} xl={6}>
             <StatCard
               title="Gifted today"
-              value={short(o.economy.giftsToday)}
+              value={num(o.economy.giftsToday)}
               suffix="💎"
               icon={<GiftOutlined />}
             />
@@ -141,7 +144,7 @@ export function DashboardPage() {
               />
             }
           >
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={chartHeight}>
               <AreaChart data={data} margin={{ left: 0, right: 8, top: 8 }}>
                 <defs>
                   <linearGradient id="gRecharge" x1="0" y1="0" x2="0" y2="1">
@@ -154,7 +157,14 @@ export function DashboardPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke={brand.palette.border} vertical={false} />
-                <XAxis dataKey="label" tick={axis} tickLine={false} axisLine={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={axis}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                  minTickGap={16}
+                />
                 <YAxis
                   tick={axis}
                   tickLine={false}
@@ -185,10 +195,17 @@ export function DashboardPage() {
         </Col>
         <Col xs={24} xl={10}>
           <Card variant="borderless" title="Signups & live sessions">
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={chartHeight}>
               <BarChart data={data} margin={{ left: 0, right: 8, top: 8 }}>
                 <CartesianGrid stroke={brand.palette.border} vertical={false} />
-                <XAxis dataKey="label" tick={axis} tickLine={false} axisLine={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={axis}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                  minTickGap={16}
+                />
                 <YAxis tick={axis} tickLine={false} axisLine={false} width={36} />
                 <Tooltip />
                 <Bar

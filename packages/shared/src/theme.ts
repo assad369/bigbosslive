@@ -60,6 +60,9 @@ export const palette = {
   filterSkin: '#F2C6A0',
   filterSkinShade: '#D9956B',
   filterFoliage: '#4F8A3C',
+  /** The platform-wide gift banner in live rooms: a burgundy pill. */
+  giftBanner: '#5A1230',
+  giftBannerGlow: '#7A1232',
 } as const;
 
 export const gradients = {
@@ -73,6 +76,8 @@ export const gradients = {
   bronze: `linear-gradient(135deg, #B07D4F 0%, ${palette.bronze} 60%, ${palette.bronzeDeep} 100%)`,
   /** Sample scene behind camera filter thumbnails (the app's filter picker). */
   filterSample: `linear-gradient(180deg, ${palette.filterSky} 0%, ${palette.filterSkin} 45%, ${palette.filterSkinShade} 70%, ${palette.filterFoliage} 100%)`,
+  /** The gift banner pill (app live rooms). */
+  giftBanner: `linear-gradient(90deg, ${palette.giftBanner} 0%, ${palette.giftBannerGlow} 50%, ${palette.giftBanner} 100%)`,
 } as const;
 
 /** Per-tier gradients, indexed by `vipTier`. */

@@ -95,6 +95,12 @@ cd app && flutter analyze && flutter test && dart format lib test
 - The home ranking (`/agencies/top`) sorts by this month's agency diamonds. It is cached for 15 s
   and dropped on create, update and monthly reset.
 - Every agency action writes `agency_audit`.
+- Members join **locked** (`addMemberIn`, audited as a `system` `host_locked`). Migration
+  `2026-11-10-agency-members-locked` locked the members who joined before.
+- Agency members (hosts and agency admins, anyone with `users.agencyId`) can't send gifts:
+  `GiftsService.send` answers 403 `agency_member_gift_blocked` before anything is charged.
+  The owner has no `agencyId` and still gifts. The app's gift panel shows the block, and the
+  join flows say both rules first (`confirmAgencyJoin`).
 
 ## Tier packages (VIP / VVIP / Crown / King) & cosmetics
 
@@ -161,6 +167,12 @@ cd app && flutter analyze && flutter test && dart format lib test
 - Video stage size is `live.videoSeatCount` (host included, max `MAX_VIDEO_SEATS` = 13). Seat
   mutes (`muted`, `videoMuted`) are enforced on the SFU with `livekit.muteTracks`; unmuting is
   left to the guest's client.
+- Host-spot swap: `live_rooms.swappedUid` puts a seated guest in the host's (largest) stage
+  spot and the host in theirs (`POST /live/:id/stage/swap`, null restores). Host, room admins
+  and staff with `live.moderate` (staff audited as `live.stage_swap`). It rides in
+  `bb.seats { kind: 'seats', swappedUid }` and room detail, and `vacateSeatOf` clears it when
+  that guest leaves the seat. The app orders `stage`/`displaySeats` by it (`activeSwap`, only
+  while the guest is present) and swaps on long-press; PK ignores it.
 - Room admins = `moderatorIds`, appointed by the host only. They manage seats and requests and
   can remove people, but can't act on the host or other admins, lock the room or appoint admins.
   Kicking an admin revokes the role.
@@ -180,6 +192,10 @@ cd app && flutter analyze && flutter test && dart format lib test
   twice) and rides inside the `bb.gift` packet as `message`, not as a `bb.chat` packet. Older
   apps would show it twice. The app falls back to a local line when `message` is missing.
 - Rooms with no heartbeat for `live.staleAfterSec` are ended by the `live.sweep` job.
+- Mic, camera and flip are in the bottom bar (`LiveBottomBar`) for the host and seated guests;
+  on a narrow phone the chat field becomes a button and the heart goes. The rail keeps the
+  rest. Speaking shows as `SpeakingBars` on tiles and `SpeakingGlow` on camera-off avatars
+  (`speaking_indicator.dart`), driven by `c.speakers`; they animate only while active.
 - Gift and entrance effects keep the clip's own sound (`EffectView(sound: true)`), mixed with
   LiveKit (`mixWithOthers`, never taking the audio session). Everything else (frames, looping
   cosmetics) is silent: `SvgaMovieCache` drops audio unless retained `withAudio`. The room's
@@ -271,7 +287,11 @@ cd app && flutter analyze && flutter test && dart format lib test
 
 ## Realtime & jobs
 
-- Socket.IO namespaces: `/` (personal events and the live directory) and `/games`. Sockets join
+- Socket.IO namespaces: `/` (personal events and the live directory) and `/games`.
+- Gift banner: after commit, `GiftsService.announce` broadcasts `gift:announcement` to every
+  app socket for gifts worth at least `live.giftBannerMinDiamonds` (0 = all). It never fails
+  the gift. The app shows it only in a live room (`GiftBannerOverlay`: dedupes by id, keeps
+  the newest 20 waiting). Sockets join
   `user:<uid>`. Emit through `ctx.realtime`, which uses the Redis adapter in production.
 - One-off jobs (`jobs/queue.ts`) and repeatable ticks (`jobs/scheduler.ts`) run on BullMQ, so
   they are leader-free across replicas. Without Redis they run in-process (dev only).

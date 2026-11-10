@@ -41,3 +41,111 @@ body {
   font-size: 12px;
   letter-spacing: 0.04em;
 }
+
+/* Tables never push the page sideways: wide ones scroll inside their own box. */
+.ant-table-wrapper .ant-table-content {
+  overflow-x: auto;
+}
+
+/* Filter row that ServerTable shows above the table on phones. */
+.bb-table-toolbar {
+  padding: 12px;
+  border-bottom: 1px solid rgba(43, 33, 24, 0.06);
+}
+
+/* ── Phones and small tablets (below antd `md`) ─────────────────────────────── */
+@media (max-width: 767px) {
+  /* Filters stack, one per row, at full width (overrides the inline desktop widths). */
+  .bb-filter-bar,
+  .bb-table-toolbar > .ant-space {
+    display: flex;
+    width: 100%;
+  }
+  .bb-filter-bar > .ant-space-item,
+  .bb-table-toolbar > .ant-space > .ant-space-item {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .bb-filter-bar .ant-select,
+  .bb-filter-bar .ant-input-affix-wrapper,
+  .bb-filter-bar .ant-input-search,
+  .bb-filter-bar .ant-input-number,
+  .bb-filter-bar .ant-picker,
+  .bb-table-toolbar .ant-select,
+  .bb-table-toolbar .ant-input-affix-wrapper,
+  .bb-table-toolbar .ant-input-search,
+  .bb-table-toolbar .ant-input-number,
+  .bb-table-toolbar .ant-picker {
+    width: 100% !important;
+  }
+  .bb-filter-bar .ant-segmented,
+  .bb-table-toolbar .ant-segmented {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .bb-filter-bar .ant-picker-range .ant-picker-input,
+  .bb-table-toolbar .ant-picker-range .ant-picker-input {
+    min-width: 0;
+  }
+
+  /* Card headers wrap their extra (buttons, filters) under the title. */
+  .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ant-card-head-title {
+    white-space: normal;
+  }
+  .ant-card-extra {
+    margin-inline-start: 0 !important;
+    max-width: 100%;
+  }
+  .ant-card .ant-card-head {
+    padding-block: 8px;
+  }
+
+  /* Form rows inside modals and drawers: fields wrap instead of overflowing the dialog. */
+  .ant-modal .ant-space-horizontal,
+  .ant-drawer .ant-space-horizontal,
+  .bb-form-row {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+  .ant-modal .ant-space-item,
+  .ant-drawer .ant-space-item {
+    max-width: 100%;
+  }
+  .ant-modal .ant-input-number,
+  .ant-modal .ant-select,
+  .ant-drawer .ant-input-number,
+  .ant-drawer .ant-select {
+    max-width: 100%;
+  }
+  .ant-modal .ant-modal-content {
+    padding: 16px;
+  }
+
+  /* Bordered descriptions: labels wrap rather than squeeze the values. */
+  .ant-descriptions-bordered .ant-descriptions-item-label {
+    white-space: normal;
+    width: 38%;
+  }
+  .ant-descriptions-item-content {
+    word-break: break-word;
+  }
+
+  .bb-page-title.ant-typography {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 767px) {
+  /* A card whose title is a filter row: the filters take the whole first line. */
+  .ant-card-head-title:has(.bb-filter-bar) {
+    flex-basis: 100%;
+    overflow: visible;
+  }
+  .ant-card-head-title .bb-filter-bar {
+    padding-block: 4px !important;
+  }
+}

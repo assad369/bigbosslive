@@ -122,7 +122,7 @@ class _Board extends ConsumerWidget {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      DiamondAmount(e.diamonds, compact: true),
+                      DiamondAmount(e.diamonds),
                       const SizedBox(width: 12),
                       Text(
                         '#${e.rank}',
@@ -169,10 +169,12 @@ class _Podium extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           if (u.vipTier > 0) VipBadge(u.vipTier, dense: true),
-          DiamondAmount(
-            entry.diamonds,
-            compact: true,
-            style: const TextStyle(fontSize: 12),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: DiamondAmount(
+              entry.diamonds,
+              style: const TextStyle(fontSize: 12),
+            ),
           ),
           const SizedBox(height: 6),
           Container(

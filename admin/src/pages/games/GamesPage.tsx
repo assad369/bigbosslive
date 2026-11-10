@@ -33,6 +33,7 @@ import {
 import type { GameKey } from '@bigboss/shared';
 import { get, send } from '../../lib/api';
 import { dateTime, num, pct, short } from '../../lib/format';
+import { useIsMobile } from '../../lib/responsive';
 import {
   ActionButton,
   PageHeader,
@@ -142,6 +143,7 @@ function ConfigEditor({ game, canEdit }: { game: GameRow; canEdit: boolean }) {
       <Table
         size="small"
         rowKey="o"
+        scroll={{ x: 'max-content' }}
         pagination={false}
         dataSource={options.map((o) => ({ o }))}
         columns={[
@@ -223,6 +225,7 @@ function ConfigEditor({ game, canEdit }: { game: GameRow; canEdit: boolean }) {
 
 function AnalyticsPanel({ game }: { game: GameKey }) {
   const [days, setDays] = useState(14);
+  const mobile = useIsMobile();
   const q = useQuery({
     queryKey: ['game-analytics', game, days],
     queryFn: () => get<Analytics>(`/admin/games/${game}/analytics`, { days }),
@@ -244,20 +247,20 @@ function AnalyticsPanel({ game }: { game: GameKey }) {
       />
       <Row gutter={[16, 16]}>
         <Col xs={12} md={6}>
-          <StatCard title="Staked" value={short(t?.staked ?? 0)} suffix="💎" />
+          <StatCard title="Staked" value={num(t?.staked ?? 0)} suffix="💎" />
         </Col>
         <Col xs={12} md={6}>
-          <StatCard title="Paid out" value={short(t?.paid ?? 0)} suffix="💎" />
+          <StatCard title="Paid out" value={num(t?.paid ?? 0)} suffix="💎" />
         </Col>
         <Col xs={12} md={6}>
-          <StatCard gold title="House profit" value={short(t?.houseProfit ?? 0)} suffix="💎" />
+          <StatCard gold title="House profit" value={num(t?.houseProfit ?? 0)} suffix="💎" />
         </Col>
         <Col xs={12} md={6}>
           <StatCard title="Actual RTP" value={pct(t?.rtp ?? 0, 2)} />
         </Col>
       </Row>
       <Card variant="borderless" style={{ marginTop: 16 }}>
-        <ResponsiveContainer width="100%" height={280}>
+        <ResponsiveContainer width="100%" height={mobile ? 220 : 280}>
           <ComposedChart data={q.data?.daily ?? []}>
             <CartesianGrid stroke={brand.palette.border} vertical={false} />
             <XAxis dataKey="date" tick={axis} tickFormatter={(d: string) => d.slice(5)} />
@@ -265,6 +268,7 @@ function AnalyticsPanel({ game }: { game: GameKey }) {
             <YAxis
               yAxisId="r"
               orientation="right"
+              hide={mobile}
               tick={axis}
               tickFormatter={(v) => pct(Number(v), 0)}
               domain={[0, 1.2]}
@@ -301,6 +305,7 @@ function AnalyticsPanel({ game }: { game: GameKey }) {
 
 export function GamesPage() {
   const { can } = useAuth();
+  const mobile = useIsMobile();
   const [openKey, setOpenKey] = useState<GameKey | null>(null);
   const q = useQuery({
     queryKey: ['games'],
@@ -337,7 +342,7 @@ export function GamesPage() {
                 </Space>
                 <Typography.Text type="secondary">
                   {Object.keys(g.config.payouts).length} options · {g.config.bettingSeconds}s
-                  betting · bets {num(g.config.minBet)}–{short(g.config.maxBet)}
+                  betting · bets {num(g.config.minBet)}–{num(g.config.maxBet)}
                 </Typography.Text>
                 <Typography.Text code ellipsis style={{ maxWidth: '100%' }}>
                   {g.url}
@@ -350,7 +355,7 @@ export function GamesPage() {
       <Drawer
         open={Boolean(open)}
         onClose={() => setOpenKey(null)}
-        size={Math.min(900, window.innerWidth)}
+        size={mobile ? '100%' : 900}
         title={open?.name}
       >
         {open && (
@@ -361,7 +366,13 @@ export function GamesPage() {
                 label: 'Settings',
                 children: (
                   <>
-                    <Descriptions size="small" column={1} bordered style={{ marginBottom: 16 }}>
+                    <Descriptions
+                      size="small"
+                      column={1}
+                      bordered
+                      layout={mobile ? 'vertical' : 'horizontal'}
+                      style={{ marginBottom: 16 }}
+                    >
                       <Descriptions.Item label="Enabled">
                         <ToggleSwitch
                           disabled={!can('games.manage')}
@@ -381,7 +392,7 @@ export function GamesPage() {
                       </Descriptions.Item>
                       <Descriptions.Item label="Hosted URL">
                         <Form
-                          layout="inline"
+                          layout={mobile ? 'vertical' : 'inline'}
                           initialValues={{ url: open.url }}
                           onFinish={(v: { url: string }) =>
                             send('patch', `/admin/games/${open._id}`, v).then(() => q.refetch())
@@ -390,7 +401,7 @@ export function GamesPage() {
                           <Form.Item
                             name="url"
                             rules={[{ type: 'url', required: true }]}
-                            style={{ flex: 1, minWidth: 260 }}
+                            style={mobile ? { marginBottom: 8 } : { flex: 1, minWidth: 260 }}
                           >
                             <Input disabled={!can('games.manage')} />
                           </Form.Item>

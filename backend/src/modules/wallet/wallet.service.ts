@@ -3,6 +3,7 @@ import {
   SOCKET,
   type AgentRechargeRow,
   type AgentRechargeSummary,
+  type AgentStockTopupRow,
   type Currency,
   type LedgerReason,
 } from '@bigboss/shared';
@@ -345,6 +346,38 @@ export class WalletService {
         id: String(r._id),
         user: briefs.get(r.userId) ?? null,
         diamonds: r.diamonds,
+        createdAt: r.createdAt.toISOString(),
+      })),
+      nextCursor:
+        rows.length > opts.limit && last ? encodeCursor(last.createdAt, String(last._id)) : null,
+    };
+  }
+
+  /**
+   * Diamonds the platform added to an agent's stock, newest first. Read from the ledger,
+   * where `adjust()` books each top-up; the admin's note is internal and stays out.
+   */
+  async agentStockHistory(
+    agentId: string,
+    opts: { cursor?: string; limit: number },
+  ): Promise<{ items: AgentStockTopupRow[]; nextCursor: string | null }> {
+    const rows = await this.ctx.col.ledger
+      .find({
+        userId: agentId,
+        reason: 'agent_stock_topup',
+        currency: 'agent_stock',
+        ...afterCursor(opts.cursor),
+      })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(opts.limit + 1)
+      .toArray();
+    const page = rows.slice(0, opts.limit);
+    const last = page.at(-1);
+    return {
+      items: page.map((r) => ({
+        id: String(r._id),
+        diamonds: r.delta,
+        stockAfter: r.balanceAfter,
         createdAt: r.createdAt.toISOString(),
       })),
       nextCursor:

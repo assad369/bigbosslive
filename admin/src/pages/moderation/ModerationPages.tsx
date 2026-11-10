@@ -4,7 +4,14 @@ import { PlusOutlined } from '@ant-design/icons';
 import type { PkBattle } from '@bigboss/shared';
 import { send } from '../../lib/api';
 import { ago, dateTime, num } from '../../lib/format';
-import { ActionButton, PageHeader, StatusTag, UserCell, type Brief } from '../../components/common';
+import {
+  ActionButton,
+  FilterBar,
+  PageHeader,
+  StatusTag,
+  UserCell,
+  type Brief,
+} from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
 import { FormModal } from '../../components/FormModal';
 import { useAuth } from '../../auth/useAuth';
@@ -42,7 +49,7 @@ export function ReportsPage() {
         filters={{ status, targetType }}
         rowKey="_id"
         toolbar={
-          <Space wrap>
+          <FilterBar>
             <Select
               allowClear
               placeholder="Status"
@@ -62,7 +69,7 @@ export function ReportsPage() {
                 label: s,
               }))}
             />
-          </Space>
+          </FilterBar>
         }
         expandable={{
           expandedRowRender: (r) => (
@@ -198,7 +205,7 @@ export function FeedModerationPage() {
             title: 'Post',
             key: 'post',
             render: (_, p) => (
-              <Space orientation="vertical" size={4} style={{ maxWidth: 420 }}>
+              <Space orientation="vertical" size={4} style={{ maxWidth: 'min(420px, 70vw)' }}>
                 <Typography.Paragraph
                   ellipsis={{ rows: 3, expandable: true }}
                   style={{ margin: 0 }}

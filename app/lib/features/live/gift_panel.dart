@@ -150,7 +150,12 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
     } on ApiException catch (e) {
       if (e.isNetwork) _unanswered = (intent: intent, key: key);
       if (!mounted) return;
-      if (e.code == 'receiver_not_in_room') {
+      if (e.code == agencyMemberGiftBlocked) {
+        // Joined an agency since this session loaded: pick up the membership so the panel
+        // shows why, and say it.
+        showError(context, e);
+        unawaited(ref.read(sessionProvider.notifier).refresh());
+      } else if (e.code == 'receiver_not_in_room') {
         _dropReceiver(receiver);
         showError(context, e);
       } else if (e.insufficientBalance) {
@@ -185,7 +190,10 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
   @override
   Widget build(BuildContext context) {
     final gifts = ref.watch(giftsProvider);
-    final diamonds = ref.watch(sessionProvider).value?.wallet.diamonds ?? 0;
+    final me = ref.watch(sessionProvider).value;
+    final diamonds = me?.wallet.diamonds ?? 0;
+    // Agency hosts and agency admins earn gifts but can't send them (the server refuses).
+    final blocked = me?.profile.agencyId != null;
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.5,
@@ -336,34 +344,46 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                       ),
                     ),
                   ),
-                  const Spacer(),
-                  DropdownButton<int>(
-                    value: _qty,
-                    dropdownColor: BBColors.espresso,
-                    underline: const SizedBox(),
-                    style: const TextStyle(
-                      color: BBColors.ivory,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    items: const [1, 10, 66, 99, 188, 520, 999]
-                        .map(
-                          (q) => DropdownMenuItem(value: q, child: Text('×$q')),
-                        )
-                        .toList(),
-                    onChanged: (q) => setState(() => _qty = q ?? 1),
-                  ),
                   const SizedBox(width: 12),
-                  SizedBox(
-                    width: 110,
-                    child: GoldButton(
-                      label: 'Send',
-                      height: 44,
-                      loading: _sending,
-                      onPressed: _selected == null || _receiver == null
-                          ? null
-                          : _send,
+                  // No quantity to pick when nothing can be sent.
+                  if (blocked)
+                    const Expanded(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: _GiftingBlocked(),
+                      ),
+                    )
+                  else ...[
+                    const Spacer(),
+                    DropdownButton<int>(
+                      value: _qty,
+                      dropdownColor: BBColors.espresso,
+                      underline: const SizedBox(),
+                      style: const TextStyle(
+                        color: BBColors.ivory,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      items: const [1, 10, 66, 99, 188, 520, 999]
+                          .map(
+                            (q) =>
+                                DropdownMenuItem(value: q, child: Text('×$q')),
+                          )
+                          .toList(),
+                      onChanged: (q) => setState(() => _qty = q ?? 1),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 110,
+                      child: GoldButton(
+                        label: 'Send',
+                        height: 44,
+                        loading: _sending,
+                        onPressed: _selected == null || _receiver == null
+                            ? null
+                            : _send,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -372,6 +392,47 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
       ),
     );
   }
+}
+
+/// The server's refusal code for an agency member sending a gift.
+const agencyMemberGiftBlocked = 'agency_member_gift_blocked';
+
+/// In place of Send for agency members: why they can't gift.
+class _GiftingBlocked extends StatelessWidget {
+  const _GiftingBlocked();
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: 'Agency hosts receive gifts but can’t send them',
+    child: Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: BBColors.scrim,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: BBColors.champagneVeil),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.lock_rounded, size: 16, color: BBColors.champagne),
+          SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              'Agency hosts can’t gift',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: BBColors.champagne,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _ReceiverLabel extends StatelessWidget {

@@ -7,6 +7,7 @@ import type { Database } from '../src/db/mongo.js';
 import { monthKey } from '../src/lib/time.js';
 import { newAgencyCode } from '../src/modules/agencies/agencies.service.js';
 import { withDb } from './_db.js';
+import { lockAgencyMembers } from './lock-agency-members.js';
 import { migrateToSingleCurrency } from './single-currency.js';
 
 interface Migration {
@@ -194,6 +195,14 @@ const MIGRATIONS: Migration[] = [
         { 'equipped.entryAnimationVipTier': 3 },
         { $set: { 'equipped.entryAnimationVipTier': 4 } },
       );
+    },
+  },
+  {
+    id: '2026-11-10-agency-members-locked',
+    async up(db) {
+      // Members now join locked and can't send gifts; lock the ones who joined before.
+      const { locked } = await lockAgencyMembers(db);
+      console.log(`  locked ${locked} agency member(s)`);
     },
   },
 ];

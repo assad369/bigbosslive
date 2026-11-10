@@ -103,6 +103,40 @@ describe('wallet & recharges', () => {
     expect((await h.api.get('/v1/agent/history').set(h.as('buyer'))).status).toBe(403);
   });
 
+  it('agent stock history lists only platform top-ups, newest first', async () => {
+    await h.user('agent2', { isAgent: true, wallet: { agentStock: 0 } });
+    await h.user('buyer3', { shortId: '55555557' });
+    const adjust = (delta: number) =>
+      h.api
+        .post('/v1/admin/users/agent2/wallet/adjust')
+        .set(h.as('fin', 'finance'))
+        .send({ currency: 'agent_stock', delta, note: 'internal note' })
+        .expect(200);
+    await adjust(500);
+    await adjust(300);
+    await adjust(-100); // a correction, not a top-up
+    await h.api
+      .post('/v1/agent/recharge')
+      .set(h.as('agent2'))
+      .set('Idempotency-Key', key())
+      .send({ target: '55555557', diamonds: 50 })
+      .expect(200);
+
+    const first = await h.api.get('/v1/agent/stock-history?limit=1').set(h.as('agent2'));
+    expect(first.status).toBe(200);
+    expect(first.body.items).toHaveLength(1);
+    expect(first.body.items[0]).toMatchObject({ diamonds: 300, stockAfter: 800 });
+    expect(first.body.items[0]).not.toHaveProperty('note');
+    expect(first.body.nextCursor).toBeTruthy();
+    const rest = await h.api
+      .get(`/v1/agent/stock-history?limit=1&cursor=${first.body.nextCursor}`)
+      .set(h.as('agent2'));
+    expect(rest.body.items).toEqual([expect.objectContaining({ diamonds: 500, stockAfter: 500 })]);
+    expect(rest.body.nextCursor).toBeNull();
+
+    expect((await h.api.get('/v1/agent/stock-history').set(h.as('buyer'))).status).toBe(403);
+  });
+
   it('admin balance corrections do not move level', async () => {
     await h.api
       .post('/v1/admin/users/buyer/wallet/adjust')

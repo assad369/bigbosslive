@@ -120,7 +120,7 @@ class HostDetailScreen extends ConsumerWidget {
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       Text(
-                        '💎 ${Fmt.compact(s.giftDiamonds)}',
+                        '💎 ${Fmt.full(s.giftDiamonds)}',
                         style: const TextStyle(
                           color: BBColors.inkSubtle,
                           fontSize: 11,
@@ -203,8 +203,8 @@ class _TargetCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             progress == null
-                ? '$minutes min live · 💎 ${Fmt.compact(m.todayDiamonds)} · no daily target'
-                : '$minutes / ${m.dailyTargetMinutes} min live · 💎 ${Fmt.compact(m.todayDiamonds)}',
+                ? '$minutes min live · 💎 ${Fmt.full(m.todayDiamonds)} · no daily target'
+                : '$minutes / ${m.dailyTargetMinutes} min live · 💎 ${Fmt.full(m.todayDiamonds)}',
             style: const TextStyle(color: BBColors.inkMuted),
           ),
           if (progress != null) ...[
@@ -253,7 +253,7 @@ class _Summary extends StatelessWidget {
           children: [
             AgencyStat(
               label: 'Diamonds',
-              value: '💎 ${Fmt.compact(a.totals.diamonds)}',
+              value: '💎 ${Fmt.full(a.totals.diamonds)}',
             ),
             AgencyStat(label: 'Gifts', value: Fmt.compact(a.totals.gifts)),
             AgencyStat(
@@ -263,11 +263,11 @@ class _Summary extends StatelessWidget {
             AgencyStat(label: 'Sessions', value: '${a.sessions ?? 0}'),
             AgencyStat(
               label: 'This month',
-              value: '💎 ${Fmt.compact(m.periodDiamonds)}',
+              value: '💎 ${Fmt.full(m.periodDiamonds)}',
             ),
             AgencyStat(
               label: 'Since joining',
-              value: '💎 ${Fmt.compact(m.lifetimeDiamonds)}',
+              value: '💎 ${Fmt.full(m.lifetimeDiamonds)}',
             ),
           ],
         ),

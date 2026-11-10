@@ -58,6 +58,8 @@ export function toRoomDetail(
       user: s.userId ? (users.get(s.userId) ?? null) : null,
       diamonds: s.userId ? (balances.get(s.userId) ?? 0) : 0,
     })),
+    /** The guest shown in the host's spot (and the host in theirs), or null. */
+    swappedUid: r.swappedUid ?? null,
     /** YouTube music; clients keep the snapshot with the highest `rev`. */
     youtube: youtubeView(r.youtube),
     /** Lets clients correct their clock for the elapsed-time display. */

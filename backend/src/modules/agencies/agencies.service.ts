@@ -58,6 +58,8 @@ export const AGENCY_LOGO_FOLDER = 'agency-logos';
 const INVITATION_TTL_DAYS = 7;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const RANKING_TTL_MS = 15_000;
+/** `agency_audit.actorId` for actions the platform takes on its own (the lock on joining). */
+export const SYSTEM_ACTOR = 'system';
 const MAX_ANALYTICS_DAYS = 90;
 
 const zeroPeriod = (key: string): AgencyDoc['period'] => ({
@@ -301,7 +303,8 @@ export class AgenciesService {
 
   /**
    * Add a host inside `session`. Cancels the user's other pending applications and
-   * invitations, so they never linger once the user has an agency.
+   * invitations, so they never linger once the user has an agency. The membership starts
+   * locked (audited as a `system` lock), and members can't send gifts (`GiftsService.send`).
    */
   private async addMemberIn(
     session: ClientSession,
@@ -320,7 +323,8 @@ export class AgenciesService {
         agencyId: agency._id,
         userId,
         role: 'host',
-        locked: false,
+        // Members join locked: only platform staff can release them (`unlock`).
+        locked: true,
         dailyTargetMinutes: null,
         joinedAt: now,
         periodKey: this.currentPeriodKey(),
@@ -352,6 +356,7 @@ export class AgenciesService {
       { session },
     );
     await this.audit(agency._id, actorId, 'host_added', userId, { via }, session);
+    await this.audit(agency._id, SYSTEM_ACTOR, 'host_locked', userId, { auto: true }, session);
   }
 
   private async withMembershipTx(fn: (session: ClientSession) => Promise<void>): Promise<void> {

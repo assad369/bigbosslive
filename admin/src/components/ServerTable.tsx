@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, Card, Table, type TableProps } from 'antd';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { get, type Paged } from '../lib/api';
+import { useIsMobile } from '../lib/responsive';
 
 export interface ServerTableProps<T> {
   queryKey: string;
@@ -38,6 +39,7 @@ export function ServerTable<T extends object>({
   const page = paging.filterKey === filterKey ? paging.page : 1;
   const setPage = (p: number) => setPaging({ filterKey, page: p });
   const [pageSize, setPageSize] = useState(initialSize);
+  const mobile = useIsMobile();
   const q = useQuery({
     queryKey: [queryKey, url, filters, page, pageSize],
     queryFn: () => get<Paged<T> & Record<string, unknown>>(url, { ...filters, page, pageSize }),
@@ -51,10 +53,12 @@ export function ServerTable<T extends object>({
     <Card
       variant="borderless"
       title={title}
-      extra={toolbar}
+      // A card header is one line: on a phone the filters get their own row above the table.
+      extra={mobile ? undefined : toolbar}
       styles={{ body: { padding: 0 } }}
       style={{ boxShadow: '0 1px 2px rgba(43,33,24,0.06), 0 4px 16px rgba(43,33,24,0.04)' }}
     >
+      {mobile && toolbar && <div className="bb-table-toolbar">{toolbar}</div>}
       {q.error && (
         <Alert type="error" showIcon message={(q.error as Error).message} style={{ margin: 16 }} />
       )}
@@ -65,12 +69,14 @@ export function ServerTable<T extends object>({
         loading={q.isFetching}
         expandable={expandable}
         scroll={{ x: 'max-content' }}
+        size={mobile ? 'small' : undefined}
         pagination={{
           current: page,
           pageSize,
           total: q.data?.total ?? 0,
-          showSizeChanger: true,
-          showTotal: (t) => `${t.toLocaleString()} total`,
+          simple: mobile,
+          showSizeChanger: !mobile,
+          showTotal: mobile ? undefined : (t) => `${t.toLocaleString()} total`,
           onChange: (p, s) => {
             setPage(s !== pageSize ? 1 : p);
             setPageSize(s);

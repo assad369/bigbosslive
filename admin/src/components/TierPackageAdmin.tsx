@@ -111,7 +111,7 @@ export function AssignTierPackageModal({
                 {list.data.items.map((p) => {
                   const selected = picked?.id === p.id;
                   return (
-                    <Col span={12} key={p.id}>
+                    <Col xs={24} sm={12} key={p.id}>
                       <Card
                         size="small"
                         hoverable

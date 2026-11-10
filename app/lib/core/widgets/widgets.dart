@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/models.dart';
@@ -170,6 +171,11 @@ class BBAvatar extends StatelessWidget {
   /// How far a frame reaches past the avatar on each side, as a fraction of [size].
   static const frameOverhang = 0.18;
 
+  /// Where avatar images come from; tests serve files without a network (and check that
+  /// an animated GIF or WebP keeps playing).
+  @visibleForTesting
+  static BaseCacheManager? debugCacheManager;
+
   @override
   Widget build(BuildContext context) {
     final initial = name.isNotEmpty ? name.characters.first.toUpperCase() : '?';
@@ -200,6 +206,7 @@ class BBAvatar extends StatelessWidget {
               )
             : CachedNetworkImage(
                 imageUrl: url!,
+                cacheManager: debugCacheManager,
                 fit: BoxFit.cover,
                 placeholder: (_, _) =>
                     const ColoredBox(color: BBColors.champagne),
@@ -394,15 +401,9 @@ class VipTag extends StatelessWidget {
 }
 
 class DiamondAmount extends StatelessWidget {
-  const DiamondAmount(
-    this.amount, {
-    super.key,
-    this.style,
-    this.compact = false,
-  });
+  const DiamondAmount(this.amount, {super.key, this.style});
   final int amount;
   final TextStyle? style;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -411,7 +412,7 @@ class DiamondAmount extends StatelessWidget {
       Text('💎', style: TextStyle(fontSize: (style?.fontSize ?? 14) * 0.95)),
       const SizedBox(width: 4),
       Text(
-        compact ? Fmt.compact(amount) : Fmt.full(amount),
+        Fmt.full(amount),
         style: (style ?? const TextStyle()).copyWith(
           fontWeight: FontWeight.w700,
           fontFeatures: const [FontFeature.tabularFigures()],

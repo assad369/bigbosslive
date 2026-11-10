@@ -89,8 +89,8 @@ export function MediaUpload({
   );
 
   const uploading = progress !== null && (
-    <Space style={{ width: '100%' }}>
-      <Progress percent={progress} size="small" style={{ minWidth: 140 }} />
+    <Space wrap style={{ width: '100%' }}>
+      <Progress percent={progress} size="small" style={{ minWidth: 'min(140px, 40vw)' }} />
       <Button size="small" onClick={() => abort.current?.abort()}>
         Cancel
       </Button>
@@ -111,7 +111,7 @@ export function MediaUpload({
 
   if (compact) {
     return (
-      <Space>
+      <Space wrap>
         {value && <DecorationPreview url={value} size={32} />}
         {uploading ||
           picker(
@@ -213,7 +213,7 @@ export function MediaUpload({
           </Typography.Link>
           <div style={{ marginTop: 6 }}>
             {uploading || (
-              <Space>
+              <Space wrap>
                 {picker(
                   <Button size="small" icon={<UploadOutlined />} disabled={disabled}>
                     Replace

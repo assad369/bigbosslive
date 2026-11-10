@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -435,7 +436,7 @@ class _StatsCard extends StatelessWidget {
                   children: [
                     stat(
                       const Text('💎', style: TextStyle(fontSize: 15)),
-                      Fmt.compact(room.giftDiamonds),
+                      Fmt.full(room.giftDiamonds),
                       'Diamonds this live',
                     ),
                     stat(
@@ -680,10 +681,10 @@ class _PkButton extends StatelessWidget {
 }
 
 /// The right-hand column of controls, top to bottom: Games, PK, Share, Chat, Lock, Stage
-/// requests, Mic, Camera, Flip, Beauty & filters, More, and the chevron that folds the rest
-/// away. Each shows by role: the host gets most of them, a guest on stage their mic/camera
-/// tools, a viewer
-/// Games, Share, Chat and More. It scrolls, anchored at the bottom, on a short screen.
+/// requests, Beauty & filters, YouTube, More, and the chevron that folds the rest away. Each
+/// shows by role: the host gets most of them, a viewer Games, Share, Chat and More. Mic,
+/// camera and flip are in the [LiveBottomBar]. It scrolls, anchored at the bottom, on a
+/// short screen.
 class LiveSideRail extends ConsumerStatefulWidget {
   const LiveSideRail({
     super.key,
@@ -775,32 +776,8 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
           badge: c.seatRequests.length,
           onTap: widget.onRequests,
         ),
-      if (staged)
-        LiveRoundButton(
-          icon: c.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-          tooltip: c.micOn ? 'Mute' : 'Unmute',
-          danger: !c.micOn,
-          toggled: !c.micOn,
-          onTap: c.toggleMic,
-        ),
+      // Mic, camera and flip live in the bottom bar (`LiveBottomBar`).
       if (camTools) ...[
-        LiveRoundButton(
-          icon: c.cameraOn
-              ? Icons.videocam_rounded
-              : Icons.videocam_off_rounded,
-          tooltip: c.cameraOn ? 'Camera off' : 'Camera on',
-          danger: !c.cameraOn,
-          toggled: !c.cameraOn,
-          onTap: c.toggleCamera,
-        ),
-        LiveRoundButton(
-          icon: Icons.cameraswitch_rounded,
-          tooltip: 'Flip camera',
-          // There's nothing to flip while the camera is off.
-          onTap: c.cameraOn
-              ? c.flipCamera
-              : () => showMessage(context, 'Turn your camera on to flip it'),
-        ),
         // Works with the camera off too: the look applies when it comes back on.
         if (CameraFilterChannel.isSupported)
           LiveRoundButton(
@@ -854,9 +831,15 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
   }
 }
 
-/// The bottom row: the chat field, then Gift, the stage phone and the heart. The phone
-/// depends on the role: the host invites guests, a viewer asks for a seat (or cancels the
-/// request), a guest on stage leaves it.
+/// The bottom row: the chat field, then (for the host and guests on stage) Mic, Camera and
+/// Flip, then Gift, the stage phone and the heart. The phone depends on the role: the host
+/// invites guests, a viewer asks for a seat (or cancels the request), a guest on stage
+/// leaves it.
+///
+/// With the media controls the row gets tight on a phone: their discs shrink to
+/// [stagedButton], the chat field becomes a round chat button when it would be narrower than
+/// [minFieldWidth], and on the narrowest screens the heart goes (double-tapping the stage
+/// still sends hearts).
 class LiveBottomBar extends StatelessWidget {
   const LiveBottomBar({
     super.key,
@@ -878,19 +861,26 @@ class LiveBottomBar extends StatelessWidget {
   final VoidCallback onStageAction;
   final VoidCallback onHeart;
 
-  /// The gift, phone and heart discs.
+  /// The gift, phone and heart discs for viewers.
   static const button = 48.0;
+
+  /// Every disc while the media controls are in the row.
+  static const stagedButton = 40.0;
+
+  /// The narrowest the "Say something…" field may get before it turns into a button.
+  static const minFieldWidth = 110.0;
   static const _gap = 6.0;
+  static const _padding = EdgeInsets.fromLTRB(12, 4, 8, 10);
 
   /// The row with its padding.
   static const height = button + 14;
 
-  Widget _phone() {
+  Widget _phone(double size) {
     if (c.isHost) {
       return LiveRoundButton(
         icon: Icons.call_rounded,
         tooltip: 'Invite guests',
-        size: button,
+        size: size,
         onTap: onInvite,
       );
     }
@@ -899,7 +889,7 @@ class LiveBottomBar extends StatelessWidget {
         icon: Icons.call_end_rounded,
         tooltip: 'Leave the stage',
         danger: true,
-        size: button,
+        size: size,
         onTap: onStageAction,
       );
     }
@@ -911,35 +901,93 @@ class LiveBottomBar extends StatelessWidget {
           ? 'Cancel request'
           : 'Ask to join the stage',
       toggled: c.seatRequestPending,
-      size: button,
+      size: size,
       onTap: onStageAction,
     );
   }
 
+  /// My mic, and in video rooms my camera and the flip, while I'm on stage.
+  List<Widget> _media(BuildContext context, double size) => [
+    LiveRoundButton(
+      icon: c.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+      tooltip: c.micOn ? 'Mute' : 'Unmute',
+      danger: !c.micOn,
+      toggled: !c.micOn,
+      size: size,
+      onTap: c.toggleMic,
+    ),
+    if (c.isVideoRoom) ...[
+      LiveRoundButton(
+        icon: c.cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+        tooltip: c.cameraOn ? 'Camera off' : 'Camera on',
+        danger: !c.cameraOn,
+        toggled: !c.cameraOn,
+        size: size,
+        onTap: c.toggleCamera,
+      ),
+      LiveRoundButton(
+        icon: Icons.cameraswitch_rounded,
+        tooltip: 'Flip camera',
+        size: size,
+        // There's nothing to flip while the camera is off.
+        onTap: c.cameraOn
+            ? c.flipCamera
+            : () => showMessage(context, 'Turn your camera on to flip it'),
+      ),
+    ],
+  ];
+
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(12, 4, 8, 10),
-    child: Row(
-      children: [
-        Expanded(child: _ChatField(onTap: onCompose)),
-        const SizedBox(width: _gap),
-        LiveRoundButton(
-          icon: Icons.card_giftcard_rounded,
-          tooltip: 'Send a gift',
-          gold: true,
-          size: button,
-          onTap: onGift,
-        ),
-        const SizedBox(width: _gap),
-        _phone(),
-        const SizedBox(width: _gap),
-        LiveRoundButton(
+    padding: _padding,
+    child: LayoutBuilder(
+      builder: (context, box) {
+        final staged = c.isHost || c.onSeat;
+        final size = staged ? stagedButton : button;
+        final slot = math.max(size, LiveRoundButton.minWidth) + _gap;
+        final media = staged ? _media(context, size) : const <Widget>[];
+        final heart = LiveRoundButton(
           icon: Icons.favorite_rounded,
           tooltip: 'Send hearts',
-          size: button,
+          size: size,
           onTap: onHeart,
-        ),
-      ],
+        );
+        final trailing = [
+          ...media,
+          LiveRoundButton(
+            icon: Icons.card_giftcard_rounded,
+            tooltip: 'Send a gift',
+            gold: true,
+            size: size,
+            onTap: onGift,
+          ),
+          _phone(size),
+          heart,
+        ];
+        final width = box.maxWidth;
+        final Widget chat;
+        if (width - trailing.length * slot >= minFieldWidth) {
+          chat = Expanded(child: _ChatField(onTap: onCompose));
+        } else {
+          chat = LiveRoundButton(
+            icon: Icons.chat_bubble_outline_rounded,
+            tooltip: 'Write a message',
+            size: size,
+            onTap: onCompose,
+          );
+          // Still too wide: the heart goes (double-tap the stage instead).
+          if ((trailing.length + 1) * slot - _gap > width) {
+            trailing.remove(heart);
+          }
+        }
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            chat,
+            for (final b in trailing) ...[const SizedBox(width: _gap), b],
+          ],
+        );
+      },
     ),
   );
 }

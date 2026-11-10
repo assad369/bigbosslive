@@ -242,3 +242,166 @@ describe('single-currency migration', () => {
     ).toBe(75);
   });
 });
+
+describe('host spot swap', () => {
+  let roomId: string;
+  const swap = (as: Record<string, string>, userId: string | null) =>
+    h.api.post(`/v1/live/${roomId}/stage/swap`).set(as).send({ userId });
+  const seatsPackets = () =>
+    h.livekit
+      .topics('bb.seats')
+      .map((d) => d.payload as { kind: string; swappedUid?: string | null })
+      .filter((p) => p.kind === 'seats');
+  const swappedInDb = async () =>
+    (await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) }))!.swappedUid ?? null;
+  async function seat(uid: string) {
+    await h.api.post(`/v1/live/${roomId}/seats/request`).set(h.as(uid)).expect(202);
+    await h.api
+      .post(`/v1/live/${roomId}/seats/requests/${uid}`)
+      .set(h.as('sw-host'))
+      .send({ accept: true })
+      .expect(200);
+  }
+
+  beforeAll(async () => {
+    for (const uid of ['sw-host', 'sw-guest', 'sw-guest2', 'sw-mod', 'sw-viewer'])
+      await h.user(uid);
+    await h.user('sw-staff', { adminRole: 'moderator' });
+    await h.user('sw-support', { adminRole: 'support' });
+    const res = await h.api.post('/v1/live').set(h.as('sw-host')).send({ type: 'video' });
+    roomId = res.body.room.id;
+    expect(res.body.room.swappedUid).toBeNull();
+    await h.api
+      .post(`/v1/live/${roomId}/moderators`)
+      .set(h.as('sw-host'))
+      .send({ userId: 'sw-mod', enabled: true })
+      .expect(204);
+    await seat('sw-guest');
+    await seat('sw-guest2');
+    await h.ctx.col.auditLogs.deleteMany({});
+  });
+
+  it('the host swaps a seated guest in; everyone gets it in the seats packet and detail', async () => {
+    const before = seatsPackets().length;
+    const res = await swap(h.as('sw-host'), 'sw-guest').expect(200);
+    expect(res.body).toEqual({ swappedUid: 'sw-guest' });
+    const sent = seatsPackets().slice(before);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.swappedUid).toBe('sw-guest');
+    const detail = await h.api.get(`/v1/live/${roomId}`).set(h.as('sw-viewer'));
+    expect(detail.body.room.swappedUid).toBe('sw-guest');
+    // Repeating it changes nothing and sends nothing.
+    await swap(h.as('sw-host'), 'sw-guest').expect(200);
+    expect(seatsPackets().length).toBe(before + 1);
+  });
+
+  it('room admins and live.moderate staff can swap; staff swaps are audited', async () => {
+    await swap(h.as('sw-mod'), 'sw-guest2').expect(200);
+    expect(await swappedInDb()).toBe('sw-guest2');
+    await swap(h.as('sw-staff', 'moderator'), null).expect(200);
+    expect(await swappedInDb()).toBeNull();
+    const audits = await h.ctx.col.auditLogs.find({ action: 'live.stage_swap' }).toArray();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      adminId: 'sw-staff',
+      targetType: 'live_room',
+      targetId: roomId,
+      payload: { userId: null },
+    });
+  });
+
+  it('viewers, guests and staff without live.moderate are refused', async () => {
+    for (const as of [h.as('sw-viewer'), h.as('sw-guest'), h.as('sw-support', 'support')]) {
+      const res = await swap(as, 'sw-guest');
+      expect(res.status).toBe(403);
+    }
+    expect(await swappedInDb()).toBeNull();
+  });
+
+  it('only a guest on a seat can take the host spot', async () => {
+    for (const target of ['sw-viewer', 'sw-host', 'nobody']) {
+      const res = await swap(h.as('sw-host'), target);
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('not_on_stage');
+    }
+    expect((await swap(h.as('sw-host'), '')).status).toBe(422);
+  });
+
+  it('the host gets the spot back when the swapped guest leaves the seat', async () => {
+    await swap(h.as('sw-host'), 'sw-guest').expect(200);
+    const before = seatsPackets().length;
+    await h.api.post(`/v1/live/${roomId}/seats/leave`).set(h.as('sw-guest')).expect(204);
+    expect(await swappedInDb()).toBeNull();
+    expect(seatsPackets().at(-1)!.swappedUid).toBeNull();
+    expect(seatsPackets().length).toBe(before + 1);
+  });
+
+  it('and when they are removed from the seat or kicked', async () => {
+    await swap(h.as('sw-host'), 'sw-guest2').expect(200);
+    const index = (await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) }))!.seats.find(
+      (s) => s.userId === 'sw-guest2',
+    )!.index;
+    await h.api
+      .post(`/v1/live/${roomId}/seats/${index}`)
+      .set(h.as('sw-mod'))
+      .send({ action: 'remove' })
+      .expect(204);
+    expect(await swappedInDb()).toBeNull();
+
+    await seat('sw-guest');
+    await swap(h.as('sw-host'), 'sw-guest').expect(200);
+    await h.api
+      .post(`/v1/live/${roomId}/kick`)
+      .set(h.as('sw-host'))
+      .send({ userId: 'sw-guest' })
+      .expect(204);
+    expect(await swappedInDb()).toBeNull();
+  });
+
+  it('another guest leaving keeps the swap', async () => {
+    await h.ctx.col.roomBans.deleteMany({});
+    await seat('sw-guest2');
+    await seat('sw-viewer');
+    await swap(h.as('sw-host'), 'sw-guest2').expect(200);
+    await h.api.post(`/v1/live/${roomId}/seats/leave`).set(h.as('sw-viewer')).expect(204);
+    expect(await swappedInDb()).toBe('sw-guest2');
+  });
+});
+
+describe('seat balances follow the seated user’s own spending', () => {
+  it('a seated guest who sends a gift sees their own balance drop', async () => {
+    await h.user('bal-host');
+    await h.user('bal-guest', { wallet: { diamonds: 300 } });
+    const res = await h.api.post('/v1/live').set(h.as('bal-host')).send({ type: 'video' });
+    const roomId: string = res.body.room.id;
+    await h.api.post(`/v1/live/${roomId}/seats/request`).set(h.as('bal-guest')).expect(202);
+    await h.api
+      .post(`/v1/live/${roomId}/seats/requests/bal-guest`)
+      .set(h.as('bal-host'))
+      .send({ accept: true })
+      .expect(200);
+    const gift = await h.ctx.services.gifts.create({
+      name: 'Tulip',
+      price: 50,
+      iconUrl: 'https://cdn.test/tulip.png',
+      animationUrl: null,
+      animationFormat: 'none',
+      category: 'basic',
+      sortOrder: 0,
+      active: true,
+      vipTierRequired: 0,
+    });
+    const before = balancePackets().length;
+    await h.api
+      .post('/v1/gifts/send')
+      .set(h.as('bal-guest'))
+      .set('Idempotency-Key', 'bal-gift-1')
+      .send({ giftId: gift.id, receiverIds: ['bal-host'], quantity: 2, roomId })
+      .expect(200);
+    const users = balancePackets()
+      .slice(before)
+      .flatMap((p) => p.users);
+    expect(users).toContainEqual({ uid: 'bal-guest', diamonds: 200, level: expect.any(Number) });
+    expect(users.find((u) => u.uid === 'bal-host')!.diamonds).toBe(70);
+  });
+});

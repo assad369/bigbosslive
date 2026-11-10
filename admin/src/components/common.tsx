@@ -40,13 +40,29 @@ export function PageHeader({
       }}
     >
       <div>
-        <Typography.Title level={3} style={{ margin: 0, fontFamily: brand.typography.display }}>
+        <Typography.Title
+          level={3}
+          className="bb-page-title"
+          style={{ margin: 0, fontFamily: brand.typography.display }}
+        >
           {title}
         </Typography.Title>
         {subtitle && <Typography.Text type="secondary">{subtitle}</Typography.Text>}
       </div>
       {extra && <Space wrap>{extra}</Space>}
     </div>
+  );
+}
+
+/**
+ * A row of table filters. It wraps on desktop; on phones every control takes the full width
+ * (inline desktop widths are overridden in `styles.css`).
+ */
+export function FilterBar({ children }: { children: ReactNode }) {
+  return (
+    <Space wrap className="bb-filter-bar">
+      {children}
+    </Space>
   );
 }
 
@@ -74,8 +90,9 @@ export function StatCard({
         ...(gold ? { background: brand.gradients.gold, color: brand.palette.ink } : {}),
       }}
     >
-      <Space align="start" style={{ width: '100%', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <Statistic
+          style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}
           title={
             <span style={gold ? { color: brand.palette.bronzeDeep } : undefined}>{title}</span>
           }
@@ -86,8 +103,9 @@ export function StatCard({
         {icon && (
           <div
             style={{
-              width: 40,
-              height: 40,
+              width: 'clamp(28px, 8vw, 40px)',
+              height: 'clamp(28px, 8vw, 40px)',
+              flex: 'none',
               borderRadius: 12,
               display: 'grid',
               placeItems: 'center',
@@ -99,7 +117,7 @@ export function StatCard({
             {icon}
           </div>
         )}
-      </Space>
+      </div>
       {hint && (
         <div
           style={{

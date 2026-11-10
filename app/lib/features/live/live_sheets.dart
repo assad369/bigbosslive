@@ -92,8 +92,23 @@ class LiveUserSheet extends ConsumerWidget {
             (myRole == RoomRole.admin && role != RoomRole.admin));
     final profile = ref.watch(userProvider(user.id));
     final following = profile.value?.isFollowing ?? false;
+    final stageSeat = c.detail?.seats
+        .where((s) => s.user?.id == user.id)
+        .firstOrNull;
+    final swap = stageSeat == null ? null : c.swapActionFor(stageSeat);
 
     final actions = <Widget>[
+      if (swap != null)
+        ListTile(
+          leading: const Icon(Icons.swap_horiz_rounded),
+          title: Text(
+            swap.uid == null ? 'Restore host spot' : 'Move to host spot',
+          ),
+          subtitle: swap.uid == null
+              ? null
+              : const Text('Shows them in the host’s place on the stage'),
+          onTap: () => _run(context, () => c.swapStage(swap.uid)),
+        ),
       if (canModerate && seat != null) ...[
         ListTile(
           leading: Icon(seat.muted ? Icons.mic_rounded : Icons.mic_off_rounded),

@@ -18,6 +18,14 @@ class _FakeRepo implements LiveRepository {
   @override
   Future<RoomDetail> detail(String roomId) => polling!.future;
 
+  final swaps = <String?>[];
+
+  @override
+  Future<String?> swapStage(String roomId, String? uid) async {
+    swaps.add(uid);
+    return uid;
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName}');
@@ -343,6 +351,130 @@ void main() {
     expect(shown[2].user!.id, 'me');
     // Role checks still see the server's seat list.
     expect(c.roleOf('gone'), RoomRole.guest);
+  });
+
+  group('host spot swap', () {
+    Map<String, dynamic> seats(String? swapped) => {
+      'kind': 'seats',
+      'seats': [
+        {..._seat(0, 'host'), 'diamonds': 500},
+        _seat(1, 'gone'),
+        {..._seat(2, 'me'), 'diamonds': 40},
+      ],
+      'swappedUid': swapped,
+    };
+
+    test('the swapped guest takes the host tile and the host takes theirs', () {
+      final c = _controller(me: 'me');
+      c.handleServerPacket('bb.seats', seats('me'));
+      expect(c.activeSwap, 'me');
+      expect(c.stage.map((s) => s.user!.id), ['me', 'host']);
+      expect(c.isSwapped('me'), isTrue);
+      expect(c.isSwapped('host'), isTrue);
+      // Audio seats: the host seat and the guest's seat exchange places.
+      expect(c.displaySeats.map((s) => s.index), [2, 1, 0]);
+      // Tiles keep their own balances, which still update in place.
+      c.handleServerPacket('bb.seats', {
+        'kind': 'balances',
+        'users': [
+          {'uid': 'me', 'diamonds': 90, 'level': 3},
+        ],
+      });
+      expect(c.stage.first.diamonds, 90);
+      expect(c.stage.last.diamonds, 500);
+      // A seats event without a swap restores the layout (older servers send none).
+      c.handleServerPacket('bb.seats', {
+        'kind': 'seats',
+        'seats': [_seat(0, 'host'), _seat(2, 'me')],
+      });
+      expect(c.activeSwap, isNull);
+      expect(c.stage.map((s) => s.user!.id), ['host', 'me']);
+    });
+
+    test('a swap naming a guest who left (or no guest) changes nothing', () {
+      final c = _controller(me: 'me');
+      c.handleServerPacket('bb.seats', seats('gone')); // not connected
+      expect(c.activeSwap, isNull);
+      expect(c.stage.map((s) => s.user!.id), ['host', 'me']);
+      expect(c.isSwapped('host'), isFalse);
+      c.handleServerPacket('bb.seats', seats('host'));
+      expect(c.activeSwap, isNull);
+    });
+
+    test('room detail carries the swap for late joiners', () {
+      final detail = RoomDetail.fromJson({
+        ..._roomJson(guest: 'me'),
+        'swappedUid': 'me',
+      });
+      final c = _controller(me: 'me')..detail = detail;
+      expect(c.stage.map((s) => s.user!.id), ['me', 'host']);
+    });
+
+    test('long-press: swap a guest in, restore from either tile', () {
+      final mod = _controller(me: 'me', mods: ['me']);
+      final viewer = _controller(me: 'viewer');
+      mod.handleServerPacket('bb.seats', seats(null));
+      viewer.handleServerPacket('bb.seats', seats(null));
+      final host = mod.detail!.seats[0];
+      final mine = mod.detail!.seats[2];
+      expect(mod.canSwap, isTrue);
+      expect(mod.swapActionFor(mine), (uid: 'me'));
+      expect(mod.swapActionFor(host), isNull); // nothing to restore
+      expect(viewer.canSwap, isFalse);
+      expect(viewer.swapActionFor(mine), isNull);
+
+      mod.handleServerPacket('bb.seats', seats('me'));
+      expect(mod.swapActionFor(mine), (uid: null));
+      expect(mod.swapActionFor(host), (uid: null));
+      // Another guest replaces the swap.
+      expect(mod.swapActionFor(mod.detail!.seats[1]), (uid: 'gone'));
+      // An empty seat does nothing.
+      expect(mod.swapActionFor(Seat.fromJson(_seat(3, null))), isNull);
+    });
+
+    test('only live.moderate staff swap; other staff roles cannot', () {
+      final staff = LiveRoomController(
+        roomId: 'r1',
+        myUid: 'staff',
+        repo: _FakeRepo(),
+        isStaff: true,
+        isLiveModerator: true,
+      )..detail = RoomDetail.fromJson(_roomJson());
+      final support = LiveRoomController(
+        roomId: 'r1',
+        myUid: 'support',
+        repo: _FakeRepo(),
+        isStaff: true,
+      )..detail = RoomDetail.fromJson(_roomJson());
+      expect(staff.canSwap, isTrue);
+      expect(support.canSwap, isFalse);
+    });
+
+    test(
+      'swapStage applies the reply at once and survives a stale poll',
+      () async {
+        final repo = _FakeRepo();
+        final c = _controller(me: 'me', mods: ['me'], repo: repo);
+        c.handleServerPacket('bb.seats', seats(null));
+        var notified = 0;
+        c.addListener(() => notified++);
+
+        repo.polling = Completer();
+        final poll = c.refreshDetail();
+        await c.swapStage('me');
+        expect(repo.swaps, ['me']);
+        expect(c.activeSwap, 'me');
+        expect(notified, greaterThan(0));
+        // The poll was read before the swap: it must not undo it.
+        repo.polling!.complete(RoomDetail.fromJson(_roomJson(guest: 'me')));
+        await poll;
+        expect(c.detail!.swappedUid, 'me');
+
+        await c.swapStage(null);
+        expect(repo.swaps, ['me', null]);
+        expect(c.activeSwap, isNull);
+      },
+    );
   });
 
   test('a gift sets the room total the server committed', () {

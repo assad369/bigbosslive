@@ -15,6 +15,9 @@ typedef LiveControllerFactory = LiveRoomController Function({
   String? password,
 });
 
+/// Staff roles holding the server's `live.moderate` permission (`middleware/rbac.ts`).
+const liveModeratorRoles = {'moderator', 'admin', 'superadmin'};
+
 /// Overridable in tests, where a real LiveKit [Room] can't connect.
 final liveControllerFactoryProvider = Provider<LiveControllerFactory>(
   (ref) =>
@@ -22,6 +25,9 @@ final liveControllerFactoryProvider = Provider<LiveControllerFactory>(
         roomId: roomId,
         myUid: ref.read(meProvider).id,
         isStaff: ref.read(meProvider).adminRole != null,
+        isLiveModerator: liveModeratorRoles.contains(
+          ref.read(meProvider).adminRole,
+        ),
         repo: ref.read(liveRepo),
         hostSession: hostSession,
         password: password,

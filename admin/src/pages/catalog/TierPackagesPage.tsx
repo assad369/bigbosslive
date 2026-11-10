@@ -106,7 +106,7 @@ export function TierPackagesPage() {
         rowKey="id"
         pageSize={25}
         title={
-          <Space wrap style={{ padding: '12px 0' }}>
+          <Space wrap className="bb-filter-bar" style={{ padding: '12px 0' }}>
             <Segmented
               value={tier ?? 0}
               onChange={(v) => setTier(Number(v) || undefined)}

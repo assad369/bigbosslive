@@ -148,6 +148,12 @@ export interface LiveRoomDoc {
   giftCount: number;
   moderatorIds: string[];
   seats: SeatDoc[];
+  /**
+   * A seated guest shown in the host's (largest) stage spot, the host taking theirs. Set by
+   * the host, a room admin or staff; cleared in `vacateSeatOf` when that guest leaves the
+   * seat. Null/absent = normal layout.
+   */
+  swappedUid?: string | null;
   pkBattleId: ObjectId | null;
   /** Host's VIP tier when the session started or resumed; orders the Popular tab. */
   hostVipTier?: number;
@@ -464,7 +470,7 @@ export interface AgencyDailyStatDoc {
 export interface AgencyAuditDoc {
   _id: ObjectId;
   agencyId: ObjectId;
-  /** uid of the owner, agency admin, host or platform admin who acted. */
+  /** uid of the owner, agency admin, host or platform admin who acted, or `system`. */
   actorId: string;
   action: AgencyAuditAction;
   targetUserId: string | null;

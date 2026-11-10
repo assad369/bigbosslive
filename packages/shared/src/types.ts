@@ -144,6 +144,15 @@ export interface AgentRechargeRow {
   createdAt: IsoDate;
 }
 
+/** Diamonds added to an agent's own stock by the platform, as shown in the agent's history. */
+export interface AgentStockTopupRow {
+  id: string;
+  diamonds: number;
+  /** The agent's stock right after this top-up. */
+  stockAfter: number;
+  createdAt: IsoDate;
+}
+
 export interface AgentRechargeSummary {
   count: number;
   totalDiamonds: number;

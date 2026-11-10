@@ -295,7 +295,7 @@ function DecorationsTab() {
         rowKey="id"
         pageSize={25}
         title={
-          <Space wrap style={{ padding: '12px 0' }}>
+          <Space wrap className="bb-filter-bar" style={{ padding: '12px 0' }}>
             <Segmented
               value={filters.type ?? 'all'}
               onChange={(v) => set({ type: v === 'all' ? undefined : (v as CosmeticType) })}
@@ -340,7 +340,7 @@ function DecorationsTab() {
           </Space>
         }
         toolbar={
-          <Space>
+          <Space wrap>
             <Button icon={<CloudUploadOutlined />} onClick={() => setBulk(true)}>
               Bulk upload
             </Button>
@@ -662,6 +662,7 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
         <Card {...card}>
           <Table<LevelRow>
             rowKey="level"
+            scroll={{ x: 'max-content' }}
             loading={loading}
             dataSource={rows}
             pagination={{ pageSize: 25 }}
@@ -776,6 +777,7 @@ export function PackagesPage() {
       <Card {...card}>
         <Table<PackageRow>
           rowKey="_id"
+          scroll={{ x: 'max-content' }}
           loading={q.isLoading}
           dataSource={q.data?.items ?? []}
           pagination={false}

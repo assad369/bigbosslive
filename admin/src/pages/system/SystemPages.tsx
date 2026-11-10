@@ -23,7 +23,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ADMIN_ROLES, type StorageSettingsInput, type StorageSettingsView } from '@bigboss/shared';
 import { ApiError, get, send } from '../../lib/api';
 import { ago, dateTime } from '../../lib/format';
-import { ActionButton, PageHeader, UserCell, type Brief } from '../../components/common';
+import { ActionButton, FilterBar, PageHeader, UserCell, type Brief } from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
 import { FormModal } from '../../components/FormModal';
 
@@ -43,6 +43,7 @@ const LABELS: Record<string, string> = {
   videoSeatCount: 'People on a video stage, host included (2–13)',
   seatRequestTtlSec: 'Seat request expiry (s)',
   followerPushOnGoLive: 'Push followers when a host goes live',
+  giftBannerMinDiamonds: 'Announce gifts worth at least (diamonds) in every live; 0 = all',
   inviteTtlSec: 'PK invitation expiry (s)',
   durationsSec: 'PK round lengths (seconds)',
   maxRounds: 'PK rounds (best of N)',
@@ -420,6 +421,7 @@ function MaintenanceAccess() {
       {list.error && <Alert type="error" message={(list.error as Error).message} />}
       <Table<Brief>
         rowKey="id"
+        scroll={{ x: 'max-content' }}
         size="small"
         loading={list.isLoading}
         dataSource={list.data?.items ?? []}
@@ -552,6 +554,7 @@ export function AdminsPage() {
       <Card variant="borderless" styles={{ body: { padding: 0 } }}>
         <Table<AdminRow>
           rowKey="_id"
+          scroll={{ x: 'max-content' }}
           loading={q.isLoading}
           dataSource={q.data?.items ?? []}
           pagination={false}
@@ -664,7 +667,7 @@ export function AuditPage() {
         filters={{ action: action || undefined, adminId: adminId || undefined }}
         rowKey="_id"
         toolbar={
-          <Space wrap>
+          <FilterBar>
             <Input.Search
               allowClear
               placeholder="Action (e.g. wallet.adjust)"
@@ -677,7 +680,7 @@ export function AuditPage() {
               onSearch={setAdminId}
               style={{ width: 200 }}
             />
-          </Space>
+          </FilterBar>
         }
         expandable={{
           expandedRowRender: (r) => (

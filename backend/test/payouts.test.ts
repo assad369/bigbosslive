@@ -137,7 +137,10 @@ describe('host agencies', () => {
     expect(after.body.totals.periodDiamonds).toBe(0);
   });
 
-  it('a member removed from the agency decrements the count', async () => {
+  it('a member released by staff can leave, which decrements the count', async () => {
+    // Members join locked: leaving needs a platform unlock first.
+    expect((await h.api.post('/v1/agencies/leave').set(h.as('member'))).status).toBe(403);
+    await h.ctx.services.agencies.unlock('staff', 'member');
     await h.api.post('/v1/agencies/leave').set(h.as('member')).expect(204);
     const agency = await h.ctx.col.agencies.findOne({ ownerId: 'owner' });
     expect(agency!.memberCount).toBe(0);

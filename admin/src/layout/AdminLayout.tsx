@@ -280,6 +280,7 @@ export function AdminLayout() {
             alignItems: 'center',
             justifyContent: 'space-between',
             borderBottom: `1px solid ${brand.palette.border}`,
+            ...(mobile ? { paddingInline: 12 } : {}),
             position: 'sticky',
             top: 0,
             zIndex: 10,
@@ -338,7 +339,13 @@ export function AdminLayout() {
           </Space>
         </Header>
         <Content
-          style={{ padding: mobile ? 16 : 24, maxWidth: 1480, width: '100%', margin: '0 auto' }}
+          style={{
+            padding: mobile ? 12 : 24,
+            maxWidth: 1480,
+            width: '100%',
+            minWidth: 0,
+            margin: '0 auto',
+          }}
         >
           <Outlet />
         </Content>

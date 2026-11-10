@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ObjectId } from 'mongodb';
+import { lockAgencyMembers } from '../scripts/lock-agency-members.js';
 import { createHarness, type Harness } from './helpers/harness.js';
 
 let h: Harness;
@@ -110,7 +111,15 @@ describe('invitations need the host to accept', () => {
       .expect(204);
 
     const membership = await h.api.get('/v1/agencies/membership').set(h.as('host-a'));
-    expect(membership.body.membership).toMatchObject({ role: 'host', locked: false });
+    // Joining locks the membership, recorded as a system action.
+    expect(membership.body.membership).toMatchObject({ role: 'host', locked: true });
+    expect(
+      await h.ctx.col.agencyAudit.findOne({
+        action: 'host_locked',
+        targetUserId: 'host-a',
+        actorId: 'system',
+      }),
+    ).toMatchObject({ meta: { auto: true } });
     expect(
       await h.ctx.col.agencyRequests.countDocuments({ userId: 'host-a', status: 'pending' }),
     ).toBe(0);
@@ -195,11 +204,18 @@ describe('roles, lock and targets', () => {
   });
 
   it('a locked host cannot leave until a platform admin unlocks them', async () => {
-    await h.api.post('/v1/agencies/mine/members/host-c/lock').set(h.as('boss')).expect(204);
+    // host-c was added by an admin, so they joined locked.
     const leave = await h.api.post('/v1/agencies/leave').set(h.as('host-c'));
     expect(leave.status).toBe(403);
     expect(leave.body.error.code).toBe('agency_locked');
 
+    await h.api
+      .post(`/v1/admin/agencies/${agencyId}/members/host-c/unlock`)
+      .set(admin())
+      .expect(204);
+    // The owner can lock them in again; only staff release.
+    await h.api.post('/v1/agencies/mine/members/host-c/lock').set(h.as('boss')).expect(204);
+    expect((await h.api.post('/v1/agencies/leave').set(h.as('host-c'))).status).toBe(403);
     await h.api
       .post(`/v1/admin/agencies/${agencyId}/members/host-c/unlock`)
       .set(admin())
@@ -292,5 +308,88 @@ describe('daily stats, analytics and the activity log', () => {
     ])
       expect(actions).toContain(a);
     expect((await h.api.get('/v1/agencies/mine/audit').set(h.as('host-b'))).status).toBe(403);
+  });
+});
+
+describe('agency members join locked and cannot send gifts', () => {
+  let giftId: string;
+  const sendGift = (from: string, key: string) =>
+    h.api
+      .post('/v1/gifts/send')
+      .set(h.as(from))
+      .set('Idempotency-Key', key)
+      .send({ giftId, receiverIds: ['fan-z'], quantity: 1, roomId: null });
+
+  beforeAll(async () => {
+    await h.user('host-d', { shortId: '206', wallet: { diamonds: 1000 } });
+    await h.user('fan-z', { shortId: '207' });
+    await h.ctx.col.users.updateOne({ _id: 'boss' }, { $set: { 'wallet.diamonds': 1000 } });
+    await h.ctx.col.users.updateOne({ _id: 'host-a' }, { $set: { 'wallet.diamonds': 1000 } });
+    giftId = (
+      await h.ctx.services.gifts.create({
+        name: 'Rose',
+        price: 10,
+        iconUrl: 'https://cdn.test/rose.png',
+        animationUrl: null,
+        animationFormat: 'none',
+        category: 'basic',
+        sortOrder: 0,
+        active: true,
+        vipTierRequired: 0,
+      })
+    ).id;
+  });
+
+  it('an approved application joins locked', async () => {
+    await h.api.post(`/v1/agencies/${agencyId}/join`).set(h.as('host-d')).expect(202);
+    const reqs = await h.api.get('/v1/agencies/mine/requests').set(h.as('boss'));
+    const request = reqs.body.items.find((r: { user: { id: string } }) => r.user.id === 'host-d');
+    await h.api
+      .post(`/v1/agencies/mine/requests/${request.id}`)
+      .set(h.as('boss'))
+      .send({ approve: true })
+      .expect(204);
+    const membership = await h.api.get('/v1/agencies/membership').set(h.as('host-d'));
+    expect(membership.body.membership).toMatchObject({ role: 'host', locked: true });
+  });
+
+  it('hosts and agency admins are refused before anything is charged', async () => {
+    for (const [uid, key] of [
+      ['host-d', 'agency-gift-1'],
+      ['host-a', 'agency-gift-2'], // an agency admin
+    ] as const) {
+      const res = await sendGift(uid, key);
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('agency_member_gift_blocked');
+      expect((await h.ctx.col.users.findOne({ _id: uid }))!.wallet.diamonds).toBe(1000);
+      expect(await h.ctx.col.giftTransactions.countDocuments({ senderId: uid })).toBe(0);
+      expect(await h.ctx.col.ledger.countDocuments({ userId: uid })).toBe(0);
+    }
+  });
+
+  it('the owner still gifts, and a member who left can gift again', async () => {
+    await sendGift('boss', 'agency-gift-3').expect(200);
+    // Unlocking alone doesn't allow gifting: membership does.
+    await h.ctx.services.agencies.unlock('staff', 'host-d');
+    expect((await sendGift('host-d', 'agency-gift-4')).status).toBe(403);
+    await h.api.post('/v1/agencies/leave').set(h.as('host-d')).expect(204);
+    await sendGift('host-d', 'agency-gift-5').expect(200);
+  });
+
+  it('the migration locks members who joined unlocked, once', async () => {
+    await h.ctx.col.agencyMembers.updateMany({}, { $set: { locked: false } });
+    const members = await h.ctx.col.agencyMembers.countDocuments({});
+    expect(members).toBeGreaterThan(0);
+    const auditBefore = await h.ctx.col.agencyAudit.countDocuments({ action: 'host_locked' });
+
+    expect(await lockAgencyMembers(h.ctx.db, () => h.clock.now())).toEqual({ locked: members });
+    expect(await h.ctx.col.agencyMembers.countDocuments({ locked: false })).toBe(0);
+    expect(await h.ctx.col.agencyAudit.countDocuments({ action: 'host_locked' })).toBe(
+      auditBefore + members,
+    );
+    expect(await lockAgencyMembers(h.ctx.db, () => h.clock.now())).toEqual({ locked: 0 });
+    expect(await h.ctx.col.agencyAudit.countDocuments({ action: 'host_locked' })).toBe(
+      auditBefore + members,
+    );
   });
 });

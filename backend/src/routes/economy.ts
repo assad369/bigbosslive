@@ -138,6 +138,13 @@ export function economyRoutes(ctx: Ctx): Router {
     res.json(await wallet.agentHistory(me.uid, { targetUid, cursor: q.cursor, limit: q.limit }));
   });
 
+  r.get('/agent/stock-history', async (req, res) => {
+    const me = currentUser(req);
+    if (!me.user.isAgent) throw forbidden();
+    const q = parseQuery(req, cursorQuery);
+    res.json(await wallet.agentStockHistory(me.uid, q));
+  });
+
   r.get('/agent/summary', async (req, res) => {
     const me = currentUser(req);
     if (!me.user.isAgent) throw forbidden();

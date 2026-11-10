@@ -377,7 +377,7 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
                     ),
                   ),
                   Text(
-                    'bal ${Fmt.compact(e.balanceAfter)}',
+                    'bal ${Fmt.full(e.balanceAfter)}',
                     style: const TextStyle(
                       color: BBColors.inkSubtle,
                       fontSize: 11,
@@ -863,7 +863,7 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
           children: [
             for (final a in _quickAmounts)
               ChoiceChip(
-                label: Text('💎 ${Fmt.compact(a)}'),
+                label: Text('💎 ${Fmt.full(a)}'),
                 selected: _amount.text == '$a',
                 onSelected: (_) => setState(() => _amount.text = '$a'),
               ),
@@ -880,6 +880,9 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
   }
 }
 
+/// The two lists under the agent's History tab.
+enum _AgentHistoryView { sent, received }
+
 class _AgentHistory extends ConsumerStatefulWidget {
   const _AgentHistory({required this.controller});
   final PagedListController<AgentRecharge> controller;
@@ -891,6 +894,7 @@ class _AgentHistoryState extends ConsumerState<_AgentHistory>
     with AutomaticKeepAliveClientMixin {
   final _search = TextEditingController();
   String? _shortId;
+  var _view = _AgentHistoryView.sent;
 
   @override
   bool get wantKeepAlive => true;
@@ -911,11 +915,42 @@ class _AgentHistoryState extends ConsumerState<_AgentHistory>
     super.build(context);
     final summaryAsync = ref.watch(_agentSummaryProvider);
     final summary = summaryAsync.value;
-    String cell(int? v, {bool diamonds = true}) => summary == null
-        ? '—'
-        : '${diamonds ? '💎 ' : ''}${Fmt.compact(v ?? 0)}';
+    String cell(int? v, {bool diamonds = true}) =>
+        summary == null ? '—' : '${diamonds ? '💎 ' : ''}${Fmt.full(v ?? 0)}';
+    final segments = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: SizedBox(
+        width: double.infinity,
+        child: SegmentedButton<_AgentHistoryView>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(
+              value: _AgentHistoryView.sent,
+              icon: Icon(Icons.north_east_rounded, size: 18),
+              label: Text('Sent to users'),
+            ),
+            ButtonSegment(
+              value: _AgentHistoryView.received,
+              icon: Icon(Icons.south_west_rounded, size: 18),
+              label: Text('Stock received'),
+            ),
+          ],
+          selected: {_view},
+          onSelectionChanged: (v) => setState(() => _view = v.first),
+        ),
+      ),
+    );
+    if (_view == _AgentHistoryView.received) {
+      return Column(
+        children: [
+          segments,
+          const Expanded(child: _AgentStockHistory()),
+        ],
+      );
+    }
     return Column(
       children: [
+        segments,
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
@@ -1006,6 +1041,47 @@ class _AgentHistoryState extends ConsumerState<_AgentHistory>
   }
 }
 
+/// Diamonds the platform added to the agent's own stock.
+class _AgentStockHistory extends ConsumerWidget {
+  const _AgentStockHistory();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) =>
+      PagedList<AgentStockTopup>(
+        separator: true,
+        load: (cursor) =>
+            ref.read(economyRepo).agentStockHistory(cursor: cursor),
+        empty: const EmptyState(
+          icon: Icons.inventory_2_outlined,
+          title: 'No stock top-ups yet',
+        ),
+        itemBuilder: (_, t) => ListTile(
+          leading: const CircleAvatar(
+            backgroundColor: BBColors.goldOutline,
+            child: Icon(Icons.inventory_2_rounded, color: BBColors.goldDeep),
+          ),
+          title: const Text(
+            'Stock top-up',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            [
+              if (t.createdAt != null) Fmt.dateTime(t.createdAt!),
+              'Stock after 💎 ${Fmt.full(t.stockAfter)}',
+            ].join(' · '),
+            style: const TextStyle(color: BBColors.inkSubtle),
+          ),
+          trailing: Text(
+            '+💎 ${Fmt.full(t.diamonds)}',
+            style: const TextStyle(
+              color: BBColors.success,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      );
+}
+
 class _SummaryCell extends StatelessWidget {
   const _SummaryCell({required this.label, required this.value});
   final String label;
@@ -1015,11 +1091,13 @@ class _SummaryCell extends StatelessWidget {
   Widget build(BuildContext context) => Expanded(
     child: Column(
       children: [
-        Text(
-          value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            value,
+            maxLines: 1,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+          ),
         ),
         Text(
           label,

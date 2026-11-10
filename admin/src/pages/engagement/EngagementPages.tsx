@@ -60,7 +60,7 @@ export function AnnouncementsPage() {
             title: 'Message',
             key: 'm',
             render: (_, a) => (
-              <div style={{ maxWidth: 420 }}>
+              <div style={{ maxWidth: 'min(420px, 70vw)' }}>
                 <Typography.Text strong>{a.title}</Typography.Text>
                 <br />
                 <Typography.Text type="secondary">{a.body}</Typography.Text>

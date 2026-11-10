@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/api_exception.dart';
@@ -74,4 +76,6 @@ void refreshAgency(WidgetRef ref) {
     ..invalidate(agencyAnalyticsProvider)
     ..invalidate(agencyHostAnalyticsProvider)
     ..invalidate(agencyLeaderboardProvider);
+  // Membership changes who may send gifts (`MeUser.profile.agencyId`).
+  unawaited(ref.read(sessionProvider.notifier).refresh());
 }

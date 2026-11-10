@@ -26,6 +26,7 @@ import { get, send } from '../../lib/api';
 import { ago, dateTime, downloadCsv, duration, money, num, pct } from '../../lib/format';
 import {
   ActionButton,
+  FilterBar,
   Money,
   PageHeader,
   StatCard,
@@ -73,7 +74,7 @@ export function RechargesPage() {
         filters={{ source, uid: uid || undefined, ...rangeParams(range) }}
         rowKey="_id"
         toolbar={
-          <Space wrap>
+          <FilterBar>
             <Input.Search
               allowClear
               placeholder="User uid"
@@ -91,7 +92,7 @@ export function RechargesPage() {
             <DatePicker.RangePicker
               onChange={(r) => setRange(r as [Dayjs | null, Dayjs | null] | null)}
             />
-          </Space>
+          </FilterBar>
         }
         footer={(d) => (
           <Typography.Text strong>
@@ -176,7 +177,7 @@ export function GiftTransactionsPage() {
         }}
         rowKey="_id"
         toolbar={
-          <Space wrap>
+          <FilterBar>
             <Input.Search
               allowClear
               placeholder="Sender uid"
@@ -192,13 +193,14 @@ export function GiftTransactionsPage() {
             <DatePicker.RangePicker
               onChange={(r) => setRange(r as [Dayjs | null, Dayjs | null] | null)}
             />
-          </Space>
+          </FilterBar>
         }
         expandable={{
           expandedRowRender: (t) => (
             <Table
               size="small"
               rowKey="userId"
+              scroll={{ x: 'max-content' }}
               pagination={false}
               dataSource={t.receivers}
               columns={[
@@ -729,6 +731,7 @@ export function AgencyDetailPage() {
         <Table
           size="small"
           rowKey={(h) => `${h.periodKey}-${h.userId}`}
+          scroll={{ x: 'max-content' }}
           dataSource={history}
           pagination={{ pageSize: 20 }}
           columns={[
@@ -747,6 +750,7 @@ export function AgencyDetailPage() {
         <Table
           size="small"
           rowKey="id"
+          scroll={{ x: 'max-content' }}
           loading={log.isLoading}
           dataSource={log.data?.items ?? []}
           pagination={{ pageSize: 20 }}

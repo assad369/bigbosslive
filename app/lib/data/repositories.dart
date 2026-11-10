@@ -270,6 +270,14 @@ class LiveRepository {
   Future<void> manageSeat(String roomId, int index, String action) =>
       _api.post('/live/$roomId/seats/$index', body: {'action': action});
 
+  /// Shows seated guest [uid] in the host's stage spot, or restores the layout (null).
+  /// Returns the room's swap as the server now has it.
+  Future<String?> swapStage(String roomId, String? uid) async =>
+      (await _api.post(
+        '/live/$roomId/stage/swap',
+        body: {'userId': uid},
+      )).strOrNull('swappedUid');
+
   Future<Json?> pkForRoom(String roomId) async {
     final j = await _api.get('/live/$roomId/pk');
     return j.isEmpty ? null : j;
@@ -389,6 +397,13 @@ class EconomyRepository {
     await _api.get('/agent/history', query: {'cursor': cursor, 'q': shortId}),
     AgentRecharge.fromJson,
   );
+
+  /// Diamonds the platform added to the agent's own stock, newest first.
+  Future<Paged<AgentStockTopup>> agentStockHistory({String? cursor}) async =>
+      Paged.fromJson(
+        await _api.get('/agent/stock-history', query: {'cursor': cursor}),
+        AgentStockTopup.fromJson,
+      );
   Future<AgentSummary> agentSummary() async =>
       AgentSummary.fromJson(await _api.get('/agent/summary'));
 

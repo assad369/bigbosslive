@@ -97,29 +97,118 @@ void main() {
     foldHost = _controller('host');
   });
 
-  testWidgets('every role gets the chat field, gift, phone and heart', (
+  Future<void> width(WidgetTester tester, double w) async {
+    tester.view.physicalSize = Size(w, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+  }
+
+  bool shown(String tooltip) => find.byTooltip(tooltip).evaluate().isNotEmpty;
+
+  testWidgets('a viewer keeps the chat field, gift, phone and heart only', (
     tester,
   ) async {
     await _narrow(tester);
-    for (final c in [host, guest, viewer]) {
-      await tester.pumpWidget(_wrap(_bottomBar(c)));
-      expect(find.text('Say something…'), findsOneWidget);
-      expect(find.byTooltip('Send a gift'), findsOneWidget);
-      expect(find.byTooltip('Send hearts'), findsOneWidget);
-      // Media controls live on the side rail now.
-      expect(find.byTooltip('Flip camera'), findsNothing);
-      expect(find.byTooltip('Mute'), findsNothing);
-      expect(tester.takeException(), isNull);
-    }
-    await tester.pumpWidget(_wrap(_bottomBar(host)));
-    expect(find.byTooltip('Invite guests'), findsOneWidget);
-    await tester.pumpWidget(_wrap(_bottomBar(guest)));
-    expect(find.byTooltip('Leave the stage'), findsOneWidget);
     await tester.pumpWidget(_wrap(_bottomBar(viewer)));
+    expect(tester.takeException(), isNull);
+    expect(find.text('Say something…'), findsOneWidget);
+    expect(find.byTooltip('Send a gift'), findsOneWidget);
+    expect(find.byTooltip('Send hearts'), findsOneWidget);
     expect(find.byTooltip('Ask to join the stage'), findsOneWidget);
+    for (final media in ['Mute', 'Unmute', 'Camera off', 'Camera on']) {
+      expect(find.byTooltip(media), findsNothing);
+    }
+    expect(find.byTooltip('Flip camera'), findsNothing);
   });
 
-  testWidgets('the side rail gives the host the camera tools and folds away', (
+  testWidgets('the host and video guests get mic, camera and flip in the bar', (
+    tester,
+  ) async {
+    for (final w in [320.0, 360.0, 390.0, 430.0]) {
+      await width(tester, w);
+      for (final (c, phone) in [
+        (host, 'Invite guests'),
+        (guest, 'Leave the stage'),
+        (coHost, 'Leave the stage'),
+      ]) {
+        await tester.pumpWidget(_wrap(_bottomBar(c)));
+        expect(tester.takeException(), isNull, reason: 'overflow at $w');
+        expect(shown('Mute') || shown('Unmute'), isTrue);
+        expect(shown('Camera off') || shown('Camera on'), isTrue);
+        expect(find.byTooltip('Flip camera'), findsOneWidget);
+        expect(find.byTooltip('Send a gift'), findsOneWidget);
+        expect(find.byTooltip(phone), findsOneWidget);
+        // The chat is always reachable: the field, or a round button when it's tight.
+        expect(
+          shown('Write a message') ||
+              find.text('Say something…').evaluate().isNotEmpty,
+          isTrue,
+        );
+      }
+    }
+    // Wide enough, the field stays a field and the heart stays.
+    await width(tester, 430);
+    await tester.pumpWidget(_wrap(_bottomBar(host)));
+    expect(find.text('Say something…'), findsOneWidget);
+    expect(find.byTooltip('Send hearts'), findsOneWidget);
+    // On the narrowest phone the field becomes a button and the heart gives way.
+    await width(tester, 320);
+    await tester.pumpWidget(_wrap(_bottomBar(host)));
+    expect(find.text('Say something…'), findsNothing);
+    expect(find.byTooltip('Write a message'), findsOneWidget);
+    expect(find.byTooltip('Send hearts'), findsNothing);
+  });
+
+  testWidgets('the bar\'s media buttons act, and flip explains itself', (
+    tester,
+  ) async {
+    await width(tester, 390);
+    var composed = 0;
+    await tester.pumpWidget(
+      _wrap(
+        LiveBottomBar(
+          c: coHost,
+          onCompose: () => composed++,
+          onGift: () {},
+          onInvite: () {},
+          onStageAction: () {},
+          onHeart: () {},
+        ),
+      ),
+    );
+    // Not connected: the camera is off, so flipping explains instead of acting.
+    expect(find.byTooltip('Camera on'), findsOneWidget);
+    await tester.tap(find.byTooltip('Flip camera'));
+    await tester.pump();
+    expect(find.text('Turn your camera on to flip it'), findsOneWidget);
+    await tester.tap(
+      shown('Write a message')
+          ? find.byTooltip('Write a message')
+          : find.text('Say something…'),
+    );
+    expect(composed, 1);
+  });
+
+  testWidgets('a guest in an audio live gets the mic but no camera tools', (
+    tester,
+  ) async {
+    await _narrow(tester);
+    await tester.pumpWidget(_wrap(_bottomBar(audioGuest)));
+    expect(tester.takeException(), isNull);
+    expect(shown('Mute') || shown('Unmute'), isTrue);
+    expect(find.byTooltip('Camera on'), findsNothing);
+    expect(find.byTooltip('Flip camera'), findsNothing);
+    // Fewer buttons: the heart stays even on the narrowest phone, and the field is back
+    // on a common one.
+    expect(find.byTooltip('Send hearts'), findsOneWidget);
+    await width(tester, 360);
+    await tester.pumpWidget(_wrap(_bottomBar(audioGuest)));
+    expect(find.text('Say something…'), findsOneWidget);
+    await tester.pumpWidget(_rail(audioGuest));
+    expect(find.byTooltip('Beauty & filters'), findsNothing);
+  });
+
+  testWidgets('the side rail keeps the host tools but no mic, camera or flip', (
     tester,
   ) async {
     final c = railHost;
@@ -127,13 +216,12 @@ void main() {
     expect(find.byTooltip('Share'), findsOneWidget);
     expect(find.byTooltip('More'), findsOneWidget);
     expect(find.byTooltip('Lock live'), findsOneWidget);
-    // Flip stays put with the camera off, and explains itself instead.
-    expect(find.byTooltip('Flip camera'), findsOneWidget);
-    await tester.tap(find.byTooltip('Flip camera'));
-    await tester.pump();
-    expect(find.text('Turn your camera on to flip it'), findsOneWidget);
     // Beauty & filters can be set with the camera off; it applies when it comes on.
     expect(find.byTooltip('Beauty & filters'), findsOneWidget);
+    for (final media in ['Mute', 'Unmute', 'Camera on', 'Camera off']) {
+      expect(find.byTooltip(media), findsNothing);
+    }
+    expect(find.byTooltip('Flip camera'), findsNothing);
 
     await tester.tap(find.byTooltip('Hide chat'));
     expect(c.chatVisible, isFalse);
@@ -151,30 +239,13 @@ void main() {
     expect(find.byTooltip('Share'), findsOneWidget);
   });
 
-  testWidgets('a guest on stage in another host\'s live gets the camera tools', (
-    tester,
-  ) async {
+  testWidgets('a guest on stage keeps filters on the rail', (tester) async {
     await tester.pumpWidget(_rail(coHost));
-    expect(find.byTooltip('Unmute'), findsOneWidget); // not connected: mic off
-    expect(find.byTooltip('Camera on'), findsOneWidget);
-    expect(find.byTooltip('Flip camera'), findsOneWidget);
     // Filters apply to the guest's own camera, so they work in any host's room.
     expect(find.byTooltip('Beauty & filters'), findsOneWidget);
+    expect(find.byTooltip('Flip camera'), findsNothing);
     // Host-only controls stay hidden.
     expect(find.byTooltip('Lock live'), findsNothing);
-  });
-
-  testWidgets('a guest in an audio live gets the mic but no camera tools', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_rail(audioGuest));
-    expect(find.byTooltip('Camera on'), findsNothing);
-    expect(find.byTooltip('Beauty & filters'), findsNothing);
-    expect(
-      find.byTooltip('Mute').evaluate().length +
-          find.byTooltip('Unmute').evaluate().length,
-      1,
-    );
   });
 
   testWidgets('a viewer gets no stage tools on the rail', (tester) async {

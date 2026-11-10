@@ -162,7 +162,7 @@ class AgencyRankCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '💎 ${Fmt.compact(top.periodDiamonds)} this month',
+                      '💎 ${Fmt.full(top.periodDiamonds)} this month',
                       style: TextStyle(
                         color: accent,
                         fontWeight: FontWeight.w700,
@@ -292,11 +292,15 @@ class AgencyStat extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 4),
-        Text(
-          value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+        // Full numbers can be long: shrink to fit rather than cut the value off.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            maxLines: 1,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+          ),
         ),
       ],
     ),
@@ -371,6 +375,36 @@ Future<void> showAgencySheet(BuildContext context, AgencySummary agency) =>
       builder: (_) => _AgencySheet(agency: agency),
     );
 
+/// What joining an agency means, asked before an application or accepting an invitation:
+/// members are locked to the agency and can't send gifts (the server enforces both).
+Future<bool> confirmAgencyJoin(
+  BuildContext context, {
+  required String agencyName,
+  required String action,
+}) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Join $agencyName?'),
+        content: const Text(agencyJoinTerms),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(action),
+          ),
+        ],
+      ),
+    ) ??
+    false;
+
+const agencyJoinTerms =
+    'As an agency host your membership is locked to this agency: only BigBoss '
+    'support can release it. Agency hosts receive gifts but can’t send them.';
+
 class _AgencySheet extends ConsumerStatefulWidget {
   const _AgencySheet({required this.agency});
   final AgencySummary agency;
@@ -382,6 +416,14 @@ class _AgencySheetState extends ConsumerState<_AgencySheet> {
   bool _busy = false;
 
   Future<void> _apply() async {
+    if (!await confirmAgencyJoin(
+      context,
+      agencyName: widget.agency.name,
+      action: 'Apply',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     setState(() => _busy = true);
     try {
       await ref.read(agencyRepo).apply(widget.agency.id);

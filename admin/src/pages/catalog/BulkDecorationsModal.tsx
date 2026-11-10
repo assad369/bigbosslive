@@ -326,7 +326,7 @@ export function BulkDecorationsModal({ open, onClose }: { open: boolean; onClose
           size="small"
           dataSource={rows}
           pagination={rows.length > 50 ? { pageSize: 50 } : false}
-          scroll={{ y: 360 }}
+          scroll={{ x: 'max-content', y: 360 }}
           columns={[
             {
               title: '',

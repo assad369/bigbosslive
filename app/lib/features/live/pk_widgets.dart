@@ -11,6 +11,7 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import 'live_room_controller.dart';
+import 'speaking_indicator.dart';
 
 /// Rebuilds every [period] while mounted, for countdowns.
 class _Ticker extends StatefulWidget {
@@ -333,8 +334,25 @@ class _PkPanel extends StatelessWidget {
           else
             ColoredBox(
               color: BBColors.espresso,
-              child: Center(child: BBAvatar.user(host.brief, size: 64)),
+              child: Center(
+                child: ListenableBuilder(
+                  listenable: c.speakers,
+                  child: BBAvatar.user(host.brief, size: 64),
+                  builder: (_, avatar) => SpeakingGlow(
+                    active: c.isSpeaking(host.uid),
+                    child: avatar!,
+                  ),
+                ),
+              ),
             ),
+          Positioned(
+            top: 6,
+            right: 6,
+            child: ListenableBuilder(
+              listenable: c.speakers,
+              builder: (_, _) => SpeakingBars(active: c.isSpeaking(host.uid)),
+            ),
+          ),
           if (ended && !won && !battle.isDraw)
             const ColoredBox(color: BBColors.scrim),
           Positioned(

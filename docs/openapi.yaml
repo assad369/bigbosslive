@@ -875,6 +875,39 @@ paths:
           ],
         responses: { '204': { $ref: '#/components/responses/NoContent' } },
       }
+  /v1/live/{id}/stage/swap:
+    post:
+      {
+        tags: [Live],
+        summary: "Show a seated guest in the host's stage spot (host in theirs), or restore with userId null — host, room admin or staff with live.moderate (audited). Broadcast as bb.seats { kind: seats, swappedUid }; cleared when that guest leaves the seat.",
+        parameters: [{ $ref: '#/components/parameters/Id' }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        type: object,
+                        required: [userId],
+                        properties: { userId: { type: string, nullable: true } },
+                      },
+                  },
+              },
+          },
+        responses:
+          {
+            '200': { description: '{ swappedUid }' },
+            '403': { $ref: '#/components/responses/Error' },
+            '409':
+              {
+                description: 'not_on_stage: the user is not a guest on a seat',
+                $ref: '#/components/responses/Error',
+              },
+          },
+      }
   /v1/live/{id}/pk:
     get:
       {
@@ -1076,6 +1109,11 @@ paths:
               $ref: '#/components/responses/Error',
             },
           '402': { $ref: '#/components/responses/Error' },
+          '403':
+            {
+              description: 'agency_member_gift_blocked: agency members (hosts and agency admins) cannot send gifts; forbidden: tier-only gift',
+              $ref: '#/components/responses/Error',
+            },
         }
   /v1/wallet:
     get:
@@ -1183,6 +1221,22 @@ paths:
             { name: q, in: query, description: Recipient short id, schema: { type: string } },
           ],
         responses: { '200': { description: '{ items: AgentRechargeRow[], nextCursor }' } },
+      }
+  /v1/agent/stock-history:
+    get:
+      {
+        tags: [Economy],
+        summary: "Diamonds the platform added to the agent's own stock, newest first (cursor paged)",
+        parameters:
+          [
+            { name: cursor, in: query, schema: { type: string } },
+            { name: limit, in: query, schema: { type: integer, maximum: 100 } },
+          ],
+        responses:
+          {
+            '200': { description: '{ items: AgentStockTopupRow[], nextCursor }' },
+            '403': { $ref: '#/components/responses/Error' },
+          },
       }
   /v1/agent/summary:
     get:

@@ -190,7 +190,7 @@ class MeScreen extends ConsumerWidget {
                   _MenuItem(
                     icon: Icons.storefront_rounded,
                     label:
-                        'Agent recharge · ${Fmt.compact(me.wallet.agentStock)} stock',
+                        'Agent recharge · ${Fmt.full(me.wallet.agentStock)} stock',
                     onTap: () => context.push('/agent'),
                   ),
                 _MenuItem(
@@ -595,10 +595,7 @@ class _Contributors extends ConsumerWidget {
           : Column(
               children: [
                 for (final c in items.where((c) => c.user != null).take(10))
-                  UserTile(
-                    user: c.user!,
-                    trailing: DiamondAmount(c.diamonds, compact: true),
-                  ),
+                  UserTile(user: c.user!, trailing: DiamondAmount(c.diamonds)),
               ],
             ),
     );
@@ -1196,10 +1193,12 @@ class _LiveHistoryScreenState extends ConsumerState<LiveHistoryScreen> {
                       Expanded(
                         child: Column(
                           children: [
-                            DiamondAmount(
-                              totals.integer('diamonds'),
-                              compact: true,
-                              style: const TextStyle(fontSize: 18),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: DiamondAmount(
+                                totals.integer('diamonds'),
+                                style: const TextStyle(fontSize: 18),
+                              ),
                             ),
                             const Text(
                               'Diamonds earned',
@@ -1232,7 +1231,7 @@ class _LiveHistoryScreenState extends ConsumerState<LiveHistoryScreen> {
           subtitle: Text(
             '${Fmt.ago(s.date('startedAt'))} · ${Fmt.duration(s.integer('durationSec'))} · peak ${s.integer('peakViewers')}',
           ),
-          trailing: DiamondAmount(s.integer('giftDiamonds'), compact: true),
+          trailing: DiamondAmount(s.integer('giftDiamonds')),
         ),
       ),
     );

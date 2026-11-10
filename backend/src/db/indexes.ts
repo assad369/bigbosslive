@@ -105,6 +105,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   ],
   ledger: [
     { key: { userId: 1, createdAt: -1 } },
+    // An agent's stock top-ups (`/agent/stock-history`).
+    { key: { userId: 1, reason: 1, createdAt: -1, _id: -1 } },
     { key: { reason: 1, createdAt: -1 } },
     { key: { refId: 1 } },
   ],

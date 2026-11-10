@@ -30,6 +30,9 @@ export const insufficientBalance = (currency = 'diamonds') =>
 /** A room gift named someone who isn't the host, on stage, or watching. */
 export const receiverNotInRoom = (name: string) =>
   new AppError(400, 'receiver_not_in_room', `${name} is no longer in this live`);
+/** Agency members (hosts and agency admins) earn gifts; they can't send them. */
+export const agencyMemberGiftBlocked = () =>
+  new AppError(403, 'agency_member_gift_blocked', "Agency hosts can't send gifts");
 export const tooManyRequests = (message = 'Too many requests') =>
   new AppError(429, 'rate_limited', message);
 export const serviceUnavailable = (message: string) =>

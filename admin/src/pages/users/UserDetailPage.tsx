@@ -361,6 +361,7 @@ export function UserDetailPage() {
                     <Table
                       size="small"
                       rowKey="deviceId"
+                      scroll={{ x: 'max-content' }}
                       dataSource={devices}
                       pagination={false}
                       columns={[

@@ -14,6 +14,7 @@ import {
   toObjectId,
 } from '../lib/http.js';
 import { unauthorized } from '../lib/errors.js';
+import { hasPermission } from '../middleware/rbac.js';
 import { liveChatInput, roomPassword, startLiveInput } from '../modules/live/live.service.js';
 import {
   youtubeCommandInput,
@@ -252,6 +253,26 @@ export function liveRoutes(ctx: Ctx): Router {
     );
     await live.manageSeat(rid(req), actor(req), index, action);
     res.status(204).end();
+  });
+
+  // Swap a seated guest into the host's stage spot (null restores). Staff need live.moderate.
+  r.post('/:id/stage/swap', async (req, res) => {
+    const { userId } = parseBody(req, z.object({ userId: z.string().min(1).max(128).nullable() }));
+    const me = currentUser(req);
+    const roomId = rid(req);
+    const { staffAction, swappedUid } = await live.swapStage(
+      roomId,
+      { uid: me.uid, isAdmin: hasPermission(me.adminRole, 'live.moderate') },
+      userId,
+    );
+    if (staffAction)
+      await ctx.services.audit.record(
+        req,
+        'live.stage_swap',
+        { type: 'live_room', id: String(roomId) },
+        { userId },
+      );
+    res.json({ swappedUid });
   });
 
   // YouTube music (host, room admins and staff; `ended` from anyone in the live)

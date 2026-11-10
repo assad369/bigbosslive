@@ -52,6 +52,8 @@ dependencies:
   webview_flutter_wkwebview: ^3.27.2
 
 dev_dependencies:
+  # LocalFileSystem for cache-manager fakes (already resolved via flutter_cache_manager).
+  file: ^7.0.1
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0

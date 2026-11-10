@@ -90,7 +90,7 @@ class AgencyDashboardView extends ConsumerWidget {
               AgencyStat(
                 icon: Icons.calendar_month,
                 label: 'Diamonds this month',
-                value: '💎 ${Fmt.compact(dash.total('periodDiamonds'))}',
+                value: '💎 ${Fmt.full(dash.total('periodDiamonds'))}',
               ),
               AgencyStat(
                 icon: Icons.timer,
@@ -100,7 +100,7 @@ class AgencyDashboardView extends ConsumerWidget {
               AgencyStat(
                 icon: Icons.today,
                 label: 'Diamonds today',
-                value: '💎 ${Fmt.compact(dash.total('todayDiamonds'))}',
+                value: '💎 ${Fmt.full(dash.total('todayDiamonds'))}',
               ),
               AgencyStat(
                 icon: Icons.av_timer,
@@ -110,12 +110,12 @@ class AgencyDashboardView extends ConsumerWidget {
               AgencyStat(
                 icon: Icons.payments,
                 label: 'Commission this month',
-                value: '💎 ${Fmt.compact(dash.total('periodCommission'))}',
+                value: '💎 ${Fmt.full(dash.total('periodCommission'))}',
               ),
               AgencyStat(
                 icon: Icons.savings,
                 label: 'Commission all time',
-                value: '💎 ${Fmt.compact(dash.total('lifetimeCommission'))}',
+                value: '💎 ${Fmt.full(dash.total('lifetimeCommission'))}',
               ),
             ],
           ),
@@ -436,8 +436,8 @@ class _HostRow extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'ID ${u.shortId} · Month 💎 ${Fmt.compact(m.periodDiamonds)} · '
-            'Total 💎 ${Fmt.compact(m.lifetimeDiamonds)}',
+            'ID ${u.shortId} · Month 💎 ${Fmt.full(m.periodDiamonds)} · '
+            'Total 💎 ${Fmt.full(m.lifetimeDiamonds)}',
             style: const TextStyle(color: BBColors.inkSubtle, fontSize: 12),
           ),
           if (progress != null) ...[
@@ -932,11 +932,11 @@ class _AgencyAnalyticsScreenState extends ConsumerState<AgencyAnalyticsScreen> {
                     children: [
                       AgencyStat(
                         label: 'Diamonds',
-                        value: '💎 ${Fmt.compact(a.totals.diamonds)}',
+                        value: '💎 ${Fmt.full(a.totals.diamonds)}',
                       ),
                       AgencyStat(
                         label: 'Commission',
-                        value: '💎 ${Fmt.compact(a.totals.commission)}',
+                        value: '💎 ${Fmt.full(a.totals.commission)}',
                       ),
                       AgencyStat(
                         label: 'Gifts',
@@ -1053,7 +1053,7 @@ class _AgencyTopHostsScreenState extends ConsumerState<AgencyTopHostsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        '💎 ${Fmt.compact(r.diamonds)}',
+                        '💎 ${Fmt.full(r.diamonds)}',
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(width: 10),

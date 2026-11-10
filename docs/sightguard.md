@@ -9,6 +9,10 @@ Uploads go from the app straight to R2, so the API never sees the bytes. Images 
 **by URL** when the URL is saved, and SightGuard fetches them from the public bucket URL.
 Profile and room fields are only checked when they change.
 
+Avatars may be animated GIFs (`UPLOAD_KINDS.avatar`). The URL is sent as is, so the
+SightGuard `avatar` policy must accept `image/gif`: because avatars fail closed, a GIF the
+service can't read is refused instead of published.
+
 | Where | Channel (SightGuard policy) | When rejected | When SightGuard is down |
 |---|---|---|---|
 | Avatar (`PATCH /v1/me`) | `avatar` | 422 `content_rejected` | **refused**: 503 `moderation_unavailable` (fail closed) |

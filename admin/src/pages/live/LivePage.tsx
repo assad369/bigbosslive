@@ -17,6 +17,7 @@ import { get, send } from '../../lib/api';
 import { ago, dateTime, duration, num } from '../../lib/format';
 import {
   ActionButton,
+  FilterBar,
   Money,
   PageHeader,
   StatusTag,
@@ -24,6 +25,7 @@ import {
   type Brief,
 } from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
+import { useIsMobile } from '../../lib/responsive';
 import { useAuth } from '../../auth/useAuth';
 
 type AdminRoom = LiveRoom & { endReason: string | null; giftCount: number; durationSec: number };
@@ -52,6 +54,7 @@ interface RoomDetail {
 
 export function LivePage() {
   const { can } = useAuth();
+  const mobile = useIsMobile();
   const [status, setStatus] = useState<'live' | 'ended'>('live');
   const [type, setType] = useState<string | undefined>();
   const [open, setOpen] = useState<string | null>(null);
@@ -79,7 +82,7 @@ export function LivePage() {
         filters={{ status, type }}
         rowKey="id"
         toolbar={
-          <Space wrap>
+          <FilterBar>
             <Segmented
               value={status}
               onChange={(v) => setStatus(v as 'live' | 'ended')}
@@ -99,7 +102,7 @@ export function LivePage() {
                 { value: 'audio', label: 'Audio' },
               ]}
             />
-          </Space>
+          </FilterBar>
         }
         columns={[
           {
@@ -174,12 +177,17 @@ export function LivePage() {
       <Drawer
         open={Boolean(open)}
         onClose={() => setOpen(null)}
-        size={520}
+        size={mobile ? '100%' : 520}
         title={detail.data?.room.title ?? 'Room'}
       >
         {detail.data && (
           <>
-            <Descriptions column={1} size="small" bordered>
+            <Descriptions
+              column={1}
+              size="small"
+              bordered
+              layout={mobile ? 'vertical' : 'horizontal'}
+            >
               <Descriptions.Item label="Status">
                 <StatusTag status={detail.data.room.status} />
               </Descriptions.Item>

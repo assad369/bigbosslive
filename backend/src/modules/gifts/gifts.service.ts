@@ -4,19 +4,34 @@ import {
   ANIMATION_FORMATS,
   LIVEKIT_TOPICS,
   MAX_VIP_TIER,
+  SOCKET,
   vipTierLabel,
   type Gift,
 } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { GiftDoc, GiftTransactionDoc, LiveRoomDoc } from '../../db/schema.js';
 import {
+  agencyMemberGiftBlocked,
   badRequest,
   forbidden,
   isDuplicateKeyError,
   notFound,
   receiverNotInRoom,
 } from '../../lib/errors.js';
-import { activeVipTier } from '../users/users.presenter.js';
+import { activeVipTier, type UserBrief } from '../users/users.presenter.js';
+
+/** Payload of `SOCKET.app.giftAnnouncement`. */
+export interface GiftAnnouncement {
+  /** The gift transaction id: clients drop repeats. */
+  id: string;
+  roomId: string | null;
+  sender: UserBrief;
+  receivers: { id: string; displayName: string }[];
+  gift: { id: string; name: string; iconUrl: string };
+  quantity: number;
+  totalCost: number;
+  at: string;
+}
 
 export const giftInput = z.object({
   name: z.string().trim().min(1).max(40),
@@ -141,6 +156,8 @@ export class GiftsService {
     if (!gift?.active) throw notFound('Gift');
 
     const sender = await this.ctx.services.users.get(senderId);
+    // Agency members (never the owner, who has no `agencyId`) receive gifts only.
+    if (sender.agencyId) throw agencyMemberGiftBlocked();
     if (gift.vipTierRequired > activeVipTier(sender.vip, this.ctx.clock.now())) {
       throw forbidden(
         `This gift requires ${vipTierLabel(gift.vipTierRequired) ?? `tier ${gift.vipTierRequired}`}`,
@@ -296,7 +313,10 @@ export class GiftsService {
     };
   }
 
-  /** Side effects that must not roll back a committed gift: PK scoring and the room broadcast. */
+  /**
+   * Side effects that must not roll back a committed gift: PK scoring, the room broadcast and
+   * the platform-wide announcement. None of them may fail the gift.
+   */
   private async afterSend(
     tx: GiftTransactionDoc,
     room: LiveRoomDoc | null,
@@ -307,12 +327,16 @@ export class GiftsService {
         await this.ctx.services.pk.addScore(tx.pkBattleId, r.userId, tx.senderId, r.cost);
       }
     }
+    const briefs = await this.ctx.services.users.briefs([
+      tx.senderId,
+      ...tx.receivers.map((r) => r.userId),
+    ]);
     if (room) {
-      const [briefs, after] = await Promise.all([
-        this.ctx.services.users.briefs([tx.senderId, ...tx.receivers.map((r) => r.userId)]),
-        // The committed total, so clients set (not add to) the "diamonds this live" counter.
-        this.ctx.col.liveRooms.findOne({ _id: room._id }, { projection: { giftDiamonds: 1 } }),
-      ]);
+      // The committed total, so clients set (not add to) the "diamonds this live" counter.
+      const after = await this.ctx.col.liveRooms.findOne(
+        { _id: room._id },
+        { projection: { giftDiamonds: 1 } },
+      );
       // The chat row. Without it the broadcast still goes out and clients write their own line.
       const message = await this.ctx.services.live
         .giftMessage(room, tx, gift, briefs)
@@ -333,6 +357,39 @@ export class GiftsService {
         })
         .catch((err: unknown) => this.ctx.log.warn({ err }, 'gift broadcast failed'));
     }
+    await this.announce(tx, gift, briefs).catch((err: unknown) =>
+      this.ctx.log.warn({ err, txId: String(tx._id) }, 'gift announcement failed'),
+    );
+  }
+
+  /**
+   * The platform-wide gift banner: every app socket gets `gift:announcement` (the app shows it
+   * in live rooms) when the gift is worth at least `live.giftBannerMinDiamonds`. Through the
+   * Redis adapter in production, so it reaches sockets on every replica.
+   */
+  private async announce(
+    tx: GiftTransactionDoc,
+    gift: GiftDoc,
+    briefs: Map<string, UserBrief>,
+  ): Promise<void> {
+    const { giftBannerMinDiamonds } = await this.ctx.services.config.get('live');
+    if (tx.totalCost < giftBannerMinDiamonds) return;
+    const sender = briefs.get(tx.senderId);
+    if (!sender) return;
+    const announcement: GiftAnnouncement = {
+      id: String(tx._id),
+      roomId: tx.roomId ? String(tx.roomId) : null,
+      sender,
+      receivers: tx.receivers.map((r) => ({
+        id: r.userId,
+        displayName: briefs.get(r.userId)?.displayName ?? 'User',
+      })),
+      gift: { id: String(gift._id), name: gift.name, iconUrl: gift.iconUrl },
+      quantity: tx.quantity,
+      totalCost: tx.totalCost,
+      at: tx.createdAt.toISOString(),
+    };
+    this.ctx.realtime.broadcast(SOCKET.namespaces.app, SOCKET.app.giftAnnouncement, announcement);
   }
 
   async history(

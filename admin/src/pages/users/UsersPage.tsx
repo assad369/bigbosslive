@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Input, Select, Space, Tag } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { VIP_TIERS } from '@bigboss/shared';
-import { Money, PageHeader, StatusTag, UserCell } from '../../components/common';
+import { FilterBar, Money, PageHeader, StatusTag, UserCell } from '../../components/common';
 import { activeTierOf } from '../../lib/tiers';
 import { ServerTable } from '../../components/ServerTable';
 import { ago } from '../../lib/format';
@@ -59,7 +59,7 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
         filters={{ q, status, tier, sort, agent: agentsOnly ? 'true' : undefined }}
         rowKey="_id"
         toolbar={
-          <Space wrap>
+          <FilterBar>
             <Input.Search
               allowClear
               placeholder="Search users"
@@ -96,7 +96,7 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
                 { value: 'diamonds', label: 'Most diamonds' },
               ]}
             />
-          </Space>
+          </FilterBar>
         }
         columns={[
           {

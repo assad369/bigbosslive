@@ -252,6 +252,11 @@ export const SOCKET = {
     chatTyping: 'chat:typing',
     notification: 'notification:new',
     walletUpdated: 'wallet:updated',
+    /**
+     * A gift worth at least `live.giftBannerMinDiamonds`, announced to every app socket
+     * (shown as a banner in live rooms): `GiftAnnouncement`.
+     */
+    giftAnnouncement: 'gift:announcement',
   },
   games: {
     subscribe: 'game:subscribe',

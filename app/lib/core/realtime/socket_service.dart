@@ -34,6 +34,8 @@ class SocketService {
     'wallet:updated',
     'rooms:upserted',
     'rooms:ended',
+    // Gifts announced to every live room (the banner).
+    'gift:announcement',
   ];
 
   void connect() {

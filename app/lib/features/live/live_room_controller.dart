@@ -197,6 +197,7 @@ class LiveRoomController extends ChangeNotifier {
     LiveSession? hostSession,
     this._password,
     this.isStaff = false,
+    this.isLiveModerator = false,
   }) : _initial = hostSession;
 
   final String roomId;
@@ -204,6 +205,10 @@ class LiveRoomController extends ChangeNotifier {
 
   /// Platform staff (an admin role): the server lets them run a room's music too.
   final bool isStaff;
+
+  /// Staff whose role holds `live.moderate` (moderator, admin, superadmin): the server lets
+  /// them swap a guest into the host spot.
+  final bool isLiveModerator;
   final LiveRepository _repo;
   final LiveSession? _initial;
   final String? _password;
@@ -332,16 +337,60 @@ class LiveRoomController extends ChangeNotifier {
 
   /// Everyone on stage (host first), for the participant grid. A guest who has left LiveKit
   /// drops out at once, before the server frees their seat (its webhook can lag, and a
-  /// killed app leaves no goodbye at all).
-  List<Seat> get stage =>
-      detail?.seats.where((s) => s.user != null && _present(s)).toList() ??
-      const [];
+  /// killed app leaves no goodbye at all). While a guest is swapped into the host spot they
+  /// come first and the host takes their place.
+  List<Seat> get stage => _swapped(
+    detail?.seats.where((s) => s.user != null && _present(s)).toList() ??
+        const [],
+  );
 
-  /// All seats as they should be drawn: a guest who has left shows as an empty seat.
-  List<Seat> get displaySeats => [
+  /// All seats as they should be drawn: a guest who has left shows as an empty seat. A
+  /// swap exchanges the host seat and the guest's seat.
+  List<Seat> get displaySeats => _swapped([
     for (final s in detail?.seats ?? const <Seat>[])
       s.user == null || _present(s) ? s : s.vacant,
-  ];
+  ]);
+
+  /// The guest in the host's spot, only while they are on a seat and still here.
+  String? get activeSwap {
+    final uid = detail?.swappedUid;
+    if (uid == null) return null;
+    final seat = detail!.seats
+        .where((s) => s.index > 0 && s.user?.id == uid)
+        .firstOrNull;
+    return seat != null && _present(seat) ? uid : null;
+  }
+
+  /// The host and room admins (and staff) move a guest into the host spot and back.
+  bool get canSwap => isModerator || isLiveModerator;
+
+  /// What long-pressing [seat] does for someone who [canSwap]: the guest to move into the
+  /// host spot, `(uid: null)` to restore the layout, or null when there is nothing to do.
+  ({String? uid})? swapActionFor(Seat seat) {
+    final uid = seat.user?.id;
+    if (!canSwap || uid == null) return null;
+    final active = activeSwap;
+    if (seat.index == 0) return active == null ? null : (uid: null);
+    return active == uid ? (uid: null) : (uid: uid);
+  }
+
+  /// [uid] is the host or the guest of an active swap: their tiles carry the swap marker.
+  bool isSwapped(String uid) {
+    final guest = activeSwap;
+    return guest != null && (uid == guest || uid == detail?.room.host.id);
+  }
+
+  List<Seat> _swapped(List<Seat> seats) {
+    final guest = activeSwap;
+    if (guest == null) return seats;
+    final host = seats.indexWhere((s) => s.index == 0);
+    final other = seats.indexWhere((s) => s.user?.id == guest);
+    if (host < 0 || other < 0) return seats;
+    final out = [...seats];
+    out[host] = seats[other];
+    out[other] = seats[host];
+    return out;
+  }
 
   /// The host and this user are always shown; anyone else only while connected.
   bool _present(Seat s) {
@@ -817,7 +866,10 @@ class LiveRoomController extends ChangeNotifier {
       case 'seats':
         if (d == null) return;
         _seatsVersion++;
-        detail = d.copyWith(seats: p.list('seats', Seat.fromJson));
+        detail = d.copyWith(
+          seats: p.list('seats', Seat.fromJson),
+          swappedUid: () => p.strOrNull('swappedUid'),
+        );
         if (onSeat) seatRequestPending = false;
         unawaited(_syncPublishing());
       case 'balances':
@@ -1108,7 +1160,10 @@ class LiveRoomController extends ChangeNotifier {
       // A seats event that arrived while this was in flight is newer than the poll.
       final current = detail;
       detail = version != _seatsVersion && current != null
-          ? next.copyWith(seats: current.seats)
+          ? next.copyWith(
+              seats: current.seats,
+              swappedUid: () => current.swappedUid,
+            )
           : next;
       _takeYouTube(next);
       await _syncPublishing();
@@ -1358,6 +1413,17 @@ class LiveRoomController extends ChangeNotifier {
       _repo.kick(roomId, uid, banMinutes: banMinutes);
   Future<void> setAdmin(String uid, bool enabled) =>
       _repo.setModerator(roomId, uid, enabled);
+
+  /// Moves seated guest [uid] into the host's stage spot, or restores the layout (null).
+  /// Applied at once from the reply; everyone else gets it in the next `seats` event.
+  Future<void> swapStage(String? uid) async {
+    final next = await _repo.swapStage(roomId, uid);
+    final d = detail;
+    if (_disposed || d == null) return;
+    _seatsVersion++;
+    detail = d.copyWith(swappedUid: () => next);
+    _notify();
+  }
 
   Future<void> setLock({required bool locked, String? password}) async {
     final next = await _repo.setLock(

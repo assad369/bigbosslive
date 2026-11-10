@@ -8,6 +8,7 @@ import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import 'live_room_controller.dart';
 import 'pk_widgets.dart';
+import 'speaking_indicator.dart';
 
 /// Space the stage leaves for the top bar and info row.
 const stageTopInset = 104.0;
@@ -21,10 +22,21 @@ class LiveStage extends StatelessWidget {
     required this.c,
     required this.onTapUser,
     required this.onTapEmptySeat,
+    this.onSwap,
   });
   final LiveRoomController c;
   final void Function(UserBrief user) onTapUser;
   final void Function(Seat seat) onTapEmptySeat;
+
+  /// Moves a guest into the host spot (or restores it, with null) on long-press. Null for
+  /// people who can't swap.
+  final void Function(String? uid)? onSwap;
+
+  VoidCallback? _swap(Seat seat) {
+    final swap = onSwap;
+    final action = swap == null ? null : c.swapActionFor(seat);
+    return action == null ? null : () => swap!(action.uid);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +65,7 @@ class LiveStage extends StatelessWidget {
               c: c,
               onTapUser: onTapUser,
               onTapEmpty: onTapEmptySeat,
+              onLongPress: _swap,
             ),
           ),
         ],
@@ -139,7 +152,14 @@ class LiveStage extends StatelessWidget {
           child: ParticipantGrid(
             tiles: [
               for (final s in stage)
-                StageTile(c: c, seat: s, onTap: () => onTapUser(s.user!)),
+                StageTile(
+                  // Keyed by person, so a swap moves their video instead of rebuilding it.
+                  key: ValueKey(s.user!.id),
+                  c: c,
+                  seat: s,
+                  onTap: () => onTapUser(s.user!),
+                  onLongPress: _swap(s),
+                ),
             ],
           ),
         ),
@@ -245,12 +265,16 @@ class StageTile extends StatelessWidget {
     required this.c,
     required this.seat,
     required this.onTap,
+    this.onLongPress,
     this.fullScreen = false,
     this.compact = false,
   });
   final LiveRoomController c;
   final Seat seat;
   final VoidCallback onTap;
+
+  /// Swaps this person with the host spot (host, room admins and staff only).
+  final VoidCallback? onLongPress;
   final bool fullScreen;
   final bool compact;
 
@@ -264,7 +288,7 @@ class StageTile extends StatelessWidget {
     final role = c.roleOf(user.id);
 
     final media = track == null
-        ? _AvatarFallback(user: user, compact: compact || !fullScreen)
+        ? _AvatarFallback(c: c, user: user, compact: compact || !fullScreen)
         : VideoTrackRenderer(
             track,
             fit: VideoViewFit.cover,
@@ -276,6 +300,7 @@ class StageTile extends StatelessWidget {
     if (fullScreen) return media;
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       // Only the speaking border follows the (frequent) speaker updates; the video and
       // overlays are built once and passed through.
       child: ListenableBuilder(
@@ -300,13 +325,24 @@ class StageTile extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             media,
+            if (c.isSwapped(user.id))
+              const Positioned(left: 4, top: 4, child: SwapMarker()),
             Positioned(
               right: 4,
               top: 4,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (micOff) const _StatusDot(Icons.mic_off_rounded),
+                  if (micOff)
+                    const _StatusDot(Icons.mic_off_rounded)
+                  else
+                    ListenableBuilder(
+                      listenable: c.speakers,
+                      builder: (_, _) => SpeakingBars(
+                        active: c.isSpeaking(user.id),
+                        size: compact ? 10 : 12,
+                      ),
+                    ),
                   if (seat.videoMuted)
                     const _StatusDot(Icons.videocam_off_rounded),
                 ],
@@ -331,7 +367,12 @@ class StageTile extends StatelessWidget {
 }
 
 class _AvatarFallback extends StatelessWidget {
-  const _AvatarFallback({required this.user, required this.compact});
+  const _AvatarFallback({
+    required this.c,
+    required this.user,
+    required this.compact,
+  });
+  final LiveRoomController c;
   final UserBrief user;
   final bool compact;
 
@@ -340,10 +381,40 @@ class _AvatarFallback extends StatelessWidget {
     color: BBColors.espresso,
     child: Center(
       child: LayoutBuilder(
-        builder: (_, box) => BBAvatar.user(
-          user,
-          size: compact ? (box.biggest.shortestSide * 0.5).clamp(28, 72) : 96,
+        builder: (_, box) => ListenableBuilder(
+          listenable: c.speakers,
+          child: BBAvatar.user(
+            user,
+            size: compact ? (box.biggest.shortestSide * 0.5).clamp(28, 72) : 96,
+          ),
+          // Camera off: the avatar itself pulses while they talk.
+          builder: (_, avatar) =>
+              SpeakingGlow(active: c.isSpeaking(user.id), child: avatar!),
         ),
+      ),
+    ),
+  );
+}
+
+/// On the two tiles of a host-spot swap: the guest now in the host's spot, and the host.
+class SwapMarker extends StatelessWidget {
+  const SwapMarker({super.key, this.size = 18});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: 'Swapped with the host spot',
+    child: Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        gradient: BBColors.goldGradient,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        Icons.swap_horiz_rounded,
+        size: size * 0.7,
+        color: BBColors.ink,
       ),
     ),
   );
@@ -425,7 +496,7 @@ class StageNamePlate extends StatelessWidget {
   );
 }
 
-/// "💎 12.3K" under a stage tile's name or an audio seat. [plain] drops the chip's own
+/// "💎 12,345" under a stage tile's name or an audio seat. [plain] drops the chip's own
 /// background, for use on a surface that already has one.
 class DiamondChip extends StatelessWidget {
   const DiamondChip(
@@ -445,16 +516,19 @@ class DiamondChip extends StatelessWidget {
       children: [
         Text('💎', style: TextStyle(fontSize: compact ? 8 : 10)),
         const SizedBox(width: 2),
+        // The full number, shrunk to fit a narrow seat rather than cut off.
         Flexible(
-          child: Text(
-            Fmt.compact(diamonds),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: BBColors.goldLight,
-              fontSize: compact ? 9 : 11,
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              Fmt.full(diamonds),
+              maxLines: 1,
+              style: TextStyle(
+                color: BBColors.goldLight,
+                fontSize: compact ? 9 : 11,
+                fontWeight: FontWeight.w700,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ),
@@ -548,10 +622,14 @@ class SeatGrid extends StatelessWidget {
     required this.c,
     required this.onTapUser,
     required this.onTapEmpty,
+    this.onLongPress,
   });
   final LiveRoomController c;
   final void Function(UserBrief user) onTapUser;
   final void Function(Seat seat) onTapEmpty;
+
+  /// The long-press action for a seat (the host-spot swap), or null for none.
+  final VoidCallback? Function(Seat seat)? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -567,45 +645,57 @@ class SeatGrid extends StatelessWidget {
           InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () => s.user != null ? onTapUser(s.user!) : onTapEmpty(s),
+            onLongPress: s.user == null ? null : onLongPress?.call(s),
             child: Column(
               children: [
-                ListenableBuilder(
-                  listenable: c.speakers,
-                  builder: (context, child) => AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: s.user != null && c.isSpeaking(s.user!.id)
-                          ? const [
-                              BoxShadow(
-                                color: BBColors.goldLight,
-                                blurRadius: 14,
-                                spreadRadius: 2,
-                              ),
-                            ]
-                          : null,
-                    ),
-                    child: child,
-                  ),
-                  child: s.user != null
-                      ? BBAvatar.user(s.user, size: 58, ring: s.index == 0)
-                      : Container(
-                          width: 58,
-                          height: 58,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: BBColors.champagneTint,
-                            border: Border.all(color: BBColors.goldOutline),
-                          ),
-                          child: Icon(
-                            s.locked
-                                ? Icons.lock_outline
-                                : Icons.event_seat_outlined,
-                            color: BBColors.champagne,
-                            size: 22,
-                          ),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    ListenableBuilder(
+                      listenable: c.speakers,
+                      builder: (context, child) => AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: s.user != null && c.isSpeaking(s.user!.id)
+                              ? const [
+                                  BoxShadow(
+                                    color: BBColors.goldLight,
+                                    blurRadius: 14,
+                                    spreadRadius: 2,
+                                  ),
+                                ]
+                              : null,
                         ),
+                        child: child,
+                      ),
+                      child: s.user != null
+                          ? BBAvatar.user(s.user, size: 58, ring: s.index == 0)
+                          : Container(
+                              width: 58,
+                              height: 58,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: BBColors.champagneTint,
+                                border: Border.all(color: BBColors.goldOutline),
+                              ),
+                              child: Icon(
+                                s.locked
+                                    ? Icons.lock_outline
+                                    : Icons.event_seat_outlined,
+                                color: BBColors.champagne,
+                                size: 22,
+                              ),
+                            ),
+                    ),
+                    if (s.user != null && c.isSwapped(s.user!.id))
+                      const Positioned(
+                        right: 0,
+                        top: 0,
+                        child: SwapMarker(size: 16),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Row(

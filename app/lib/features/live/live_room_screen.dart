@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,6 +15,7 @@ import '../../models/models.dart';
 import '../games/games_screens.dart';
 import 'active_live.dart';
 import 'filter_picker.dart';
+import 'gift_banner.dart';
 import 'gift_panel.dart';
 import 'live_chat.dart';
 import 'live_controls.dart';
@@ -65,6 +67,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
   bool _leaving = false;
   bool _popScheduled = false;
   bool _kickShown = false;
+
+  /// Gifts sent anywhere on the platform, for the banner. One stream for the screen's life.
+  late final Stream<GiftAnnouncement> _announcements = ref
+      .read(socketProvider)
+      .on(giftAnnouncementEvent)
+      .map(GiftAnnouncement.tryParse)
+      .where((a) => a != null)
+      .cast<GiftAnnouncement>();
 
   @override
   void initState() {
@@ -210,6 +220,16 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
   void _openParticipants([int tab = 0]) =>
       ParticipantsSheet.show(context, c, onTapUser: _openUser, initialTab: tab);
 
+  /// Long-press on a stage tile: move that guest into the host spot, or restore it.
+  Future<void> _swap(String? uid) async {
+    unawaited(HapticFeedback.selectionClick());
+    try {
+      await c.swapStage(uid);
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
   Future<void> _stageAction() async {
     try {
       if (c.onSeat) {
@@ -351,6 +371,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                     s,
                     onInvite: _openParticipants,
                   ),
+                  onSwap: c.canSwap ? _swap : null,
                 ),
               ),
               const Positioned(
@@ -475,6 +496,12 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                 child: EntryEffectOverlay(
                   entries: c.entries,
                   muted: !c.roomAudioOn,
+                ),
+              ),
+              Positioned.fill(
+                child: GiftBannerOverlay(
+                  announcements: _announcements,
+                  top: MediaQuery.paddingOf(context).top + stageTopInset + 4,
                 ),
               ),
               Positioned.fill(

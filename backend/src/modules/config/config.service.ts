@@ -53,6 +53,8 @@ export const CONFIG_SCHEMAS = {
     videoSeatCount: z.number().int().min(2).max(MAX_VIDEO_SEATS).default(9),
     seatRequestTtlSec: z.number().int().min(10).max(600).default(60),
     followerPushOnGoLive: z.boolean().default(true),
+    /** Gifts worth at least this many diamonds are announced in every live room (0 = all). */
+    giftBannerMinDiamonds: z.number().int().min(0).max(100_000_000).default(0),
   }),
   moderation: z.object({
     /** Extra words masked in chat, comments, posts and profile text (case-insensitive). */

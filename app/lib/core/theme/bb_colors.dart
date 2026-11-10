@@ -88,6 +88,13 @@ abstract final class BBColors {
   static const filterSkinShade = Color(0xFFD9956B);
   static const filterFoliage = Color(0xFF4F8A3C);
 
+  /// The platform-wide gift banner in live rooms: a burgundy pill.
+  static const giftBanner = Color(0xFF5A1230);
+  static const giftBannerGlow = Color(0xFF7A1232);
+  static const giftBannerGradient = LinearGradient(
+    colors: [giftBanner, giftBannerGlow, giftBanner],
+  );
+
   static const vipGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
