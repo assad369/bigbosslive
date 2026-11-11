@@ -440,16 +440,7 @@ class _StatsCard extends ConsumerWidget {
                   children: [
                     stat(
                       const Text('💎', style: TextStyle(fontSize: 15)),
-                      Fmt.full(room.giftDiamonds),
-                      'Diamonds this live',
-                    ),
-                    stat(
-                      const Icon(
-                        Icons.account_balance_wallet_rounded,
-                        size: 17,
-                        color: BBColors.goldLight,
-                      ),
-                      Fmt.compact(wallet),
+                      Fmt.full(wallet),
                       'Host wallet, diamonds',
                     ),
                     stat(
