@@ -62,15 +62,26 @@ describe('live rooms', () => {
 
   it('announces VIP entrances with the tier and any entrance effect', async () => {
     await h.user('vip-viewer', { vip: { tier: 1, expiresAt: new Date('2030-01-01') } });
-    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('vip-viewer')).send({}).expect(200);
+    const joined = await h.api
+      .post(`/v1/live/${roomId}/join`)
+      .set(h.as('vip-viewer'))
+      .send({})
+      .expect(200);
     const entry = h.livekit.data.filter((d) => d.topic === 'bb.entry').at(-1);
     expect(entry?.payload).toMatchObject({
       user: { uid: 'vip-viewer', vipTier: 1 },
       effect: null,
     });
+    // The joiner isn't connected yet when it goes out, so they get the same entrance back.
+    expect(joined.body.entry).toEqual(entry?.payload);
     const before = h.livekit.data.length;
-    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('viewer')).send({}).expect(200);
+    const plain = await h.api
+      .post(`/v1/live/${roomId}/join`)
+      .set(h.as('viewer'))
+      .send({})
+      .expect(200);
     expect(h.livekit.data.slice(before).some((d) => d.topic === 'bb.entry')).toBe(false);
+    expect(plain.body.entry).toBeNull();
   });
 
   it('resumes instead of creating a second live room', async () => {

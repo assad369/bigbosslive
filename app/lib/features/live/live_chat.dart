@@ -126,7 +126,9 @@ class _LiveChatListState extends State<LiveChatList> {
                 onTap: () => ctx.pop('report_user'),
               ),
             ],
-            if (mine || c.isModerator)
+            // The server refuses messages of staff and platform moderators to everyone but
+            // their author and staff; its message is shown then.
+            if (mine || c.isModerator || c.canModerateLive)
               ListTile(
                 leading: const Icon(
                   Icons.delete_outline,
@@ -266,6 +268,9 @@ class ChatBubble extends StatelessWidget {
             RoleBadge(line.role, dense: true),
             const SizedBox(width: 3),
           ],
+          // A hidden platform moderator: nobody can find them in the room, so their
+          // messages say who they are. Set by the server, never by the sender.
+          if (line.mod) ...[const ModChip(), const SizedBox(width: 3)],
           Flexible(
             child: Text(
               user?.displayName ?? '',
@@ -842,5 +847,28 @@ class _RoundIcon extends StatelessWidget {
             ),
           )
         : Icon(icon, color: active ? BBColors.ink : BBColors.ivory, size: 20),
+  );
+}
+
+/// Marks chat from a hidden platform moderator.
+class ModChip extends StatelessWidget {
+  const ModChip({super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+    decoration: BoxDecoration(
+      color: BBColors.info,
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: const Text(
+      'MOD',
+      style: TextStyle(
+        color: BBColors.onAccent,
+        fontSize: 9,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.4,
+      ),
+    ),
   );
 }

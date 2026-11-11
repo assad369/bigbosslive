@@ -22,6 +22,7 @@ import { CloudUploadOutlined, DeleteOutlined, GiftOutlined, PlusOutlined } from 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   COSMETIC_TYPES,
+  STORE_COSMETIC_TYPES,
   FRAME_FORMATS,
   MAX_GRANT_DAYS,
   MEDIA_TYPES,
@@ -253,6 +254,11 @@ const NEW_DECORATION: Partial<DecorationForm> = {
 };
 
 const typeOptions = COSMETIC_TYPES.map((t) => ({ value: t, label: cosmeticTypeLabel(t) }));
+/** New items: only types the app can show (chat bubbles have no design yet). */
+const newTypeOptions = STORE_COSMETIC_TYPES.map((t) => ({
+  value: t,
+  label: cosmeticTypeLabel(t),
+}));
 const frameFormatOptions = animationOptions.filter((o) =>
   (FRAME_FORMATS as readonly string[]).includes(o.value),
 );
@@ -464,7 +470,10 @@ function DecorationsTab() {
                 style={{ width: 190 }}
                 extra={editing !== 'new' ? "Type can't change once created." : undefined}
               >
-                <Select options={typeOptions} disabled={editing !== 'new'} />
+                <Select
+                  options={editing === 'new' ? newTypeOptions : typeOptions}
+                  disabled={editing !== 'new'}
+                />
               </Form.Item>
               <Form.Item noStyle dependencies={['type']}>
                 {({ getFieldValue }) => (

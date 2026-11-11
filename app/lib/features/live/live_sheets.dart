@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
+import '../../core/widgets/wallet_balance.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../moderation/ban_sheet.dart';
 import '../profile/profile_screens.dart';
 import 'live_room_controller.dart';
 import 'live_stage.dart';
@@ -85,13 +87,17 @@ class LiveUserSheet extends ConsumerWidget {
         .where((s) => s.index > 0 && s.user?.id == user.id)
         .firstOrNull;
     // Admins can't act on the host or on each other; the server enforces the same.
+    // Platform moderators and `live.moderate` staff manage anyone but the host, like on the
+    // tile's ✕; the server refuses them for staff and other platform moderators.
     final canModerate =
         !me &&
         role != RoomRole.host &&
         (myRole == RoomRole.host ||
+            c.isLiveModerator ||
             (myRole == RoomRole.admin && role != RoomRole.admin));
     final profile = ref.watch(userProvider(user.id));
     final following = profile.value?.isFollowing ?? false;
+    final myDiamonds = me ? ref.watch(meProvider).wallet.diamonds : null;
     final stageSeat = c.detail?.seats
         .where((s) => s.user?.id == user.id)
         .firstOrNull;
@@ -199,18 +205,20 @@ class LiveUserSheet extends ConsumerWidget {
             }
           },
         ),
-        if (c.isHost)
+        if (c.isHost || c.canModerateLive)
           ListTile(
             leading: const Icon(Icons.block_rounded, color: BBColors.danger),
-            title: const Text(
-              'Ban from my lives',
-              style: TextStyle(color: BBColors.danger),
+            title: Text(
+              c.isHost ? 'Ban from my lives' : 'Ban from this host’s lives',
+              style: const TextStyle(color: BBColors.danger),
             ),
             onTap: () async {
               if (await _confirm(
                 context,
                 'Ban ${user.displayName}?',
-                message: 'They won’t be able to join any of your lives until you unban them.',
+                message: c.isHost
+                    ? 'They won’t be able to join any of your lives until you unban them.'
+                    : 'They won’t be able to join any of ${c.detail?.room.host.displayName ?? 'this host'}’s lives until the ban is lifted.',
                 action: 'Ban',
               )) {
                 if (context.mounted) {
@@ -224,6 +232,23 @@ class LiveUserSheet extends ConsumerWidget {
             },
           ),
       ],
+      // Platform moderators ban the account itself, app-wide (the server refuses
+      // protected accounts with its own message).
+      if (!me && ref.watch(meProvider).isPlatformModerator)
+        ListTile(
+          leading: const Icon(Icons.gavel_rounded, color: BBColors.danger),
+          title: const Text(
+            'Ban account',
+            style: TextStyle(color: BBColors.danger),
+          ),
+          subtitle: const Text('Signs them out of the app'),
+          onTap: () async {
+            final banned = await BanSheet.show(context, user);
+            if (banned != null && context.mounted && context.canPop()) {
+              context.pop();
+            }
+          },
+        ),
     ];
 
     return SafeArea(
@@ -261,6 +286,22 @@ class LiveUserSheet extends ConsumerWidget {
                 const SizedBox(width: 6),
                 VipBadge(user.vipTier),
               ],
+            ),
+            const SizedBox(height: 8),
+            // Seated people's balances follow the room's `balances` events; my own follows
+            // `wallet:updated`; anyone else's is the profile's, as of opening the sheet.
+            ListenableBuilder(
+              listenable: c,
+              builder: (_, _) {
+                final live = c.detail?.seats
+                    .where((s) => s.user?.id == user.id)
+                    .firstOrNull
+                    ?.diamonds;
+                final diamonds = myDiamonds ?? live ?? profile.value?.diamonds;
+                return diamonds == null
+                    ? const SizedBox(height: 20)
+                    : WalletBalance(diamonds);
+              },
             ),
             const SizedBox(height: 16),
             Row(

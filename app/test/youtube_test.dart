@@ -114,6 +114,7 @@ void main() {
       myUid: me,
       repo: repo ?? _FakeRepo(),
       isStaff: staff,
+      isLiveModerator: staff,
     )..detail = RoomDetail.fromJson(_room(mods: mods));
 
     test('bb.youtube packets apply in rev order and set the clock', () {

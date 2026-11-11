@@ -146,8 +146,27 @@ cd app && flutter analyze && flutter test && dart format lib test
   - It is unlimited and paged in the admin.
   - A decoration with `vipIncluded` is a tier perk: holders of `vipTierRequired`+ wear it free
     without an ownership row, and it can't be bought.
-  - Equipping records `equipped.frameVipTier` / `entryAnimationVipTier` (0 = owned, else the
-    entitling tier), so `resolveFrame()` and `entryEffectFor()` drop it the moment the tier lapses.
+  - Equipping records `equipped.<slot>VipTier` (0 = owned, else the entitling tier) and
+    `equipped.<slot>ExpiresAt` (the ownership's expiry, null when worn through a tier).
+    Readers go through `slotWearable()` (`resolveFrame()`, `resolveRoomBackground()`,
+    `entryEffectFor()`), which drops an item the moment its tier lapses **or its ownership
+    expires**, before `store.sweep` clears the slot. Buying or granting more days re-syncs
+    the slot's expiry.
+- **Slots:** `frame`, `entry_animation` and `room_background` (`EQUIPPABLE_COSMETIC_TYPES`).
+  An equipped background is snapshotted onto the host's room as `decorBackgroundUrl` at
+  go-live and on every change; a background the host sets for one live (`backgroundUrl`)
+  still wins (`effectiveBackground`). `chat_bubble` has no design yet: it is left out of the
+  app's store and wardrobe (`STORE_COSMETIC_TYPES`) and the admin can't create new ones.
+- **Equip** (`StoreService.equip`) reads ownership and writes the slot in one transaction.
+  Every equip, unequip, grant, revoke, edit and sweep re-mints live identity
+  (`LiveService.refreshIdentities`, only for users live or watching now).
+- **`store.sweep`** queries the users' own slots (`*ExpiresAt`, `*VipTier`) in batches.
+  It never scans `user_cosmetics`, whose expired rows are kept: re-reading the same oldest
+  batch is how it used to stall.
+- **App store:** `GET /store/items` carries the caller's `owned` / `ownedUntil` / `equipped`.
+  Tiles show Equipped / Owned; an owned item opens Equip / Take off / Extend; a tier-locked
+  item sends to `/vip` instead of the buy dialog. Equip and unequip share one busy key per
+  slot (`equip:<type>`) across the store tabs and Mine.
 - **Editing a decoration:**
   - It re-syncs its wearers (`syncEquipped`).
   - Its type never changes.
@@ -173,6 +192,20 @@ cd app && flutter analyze && flutter test && dart format lib test
   `bb.seats { kind: 'seats', swappedUid }` and room detail, and `vacateSeatOf` clears it when
   that guest leaves the seat. The app orders `stage`/`displaySeats` by it (`activeSwap`, only
   while the guest is present) and swaps on long-press; PK ignores it.
+- Stage order is join order: `occupySeat` stamps `seats.$.seatedAt` (cleared on vacate) and
+  the app sorts guests by it (`LiveRoomController.stage`, falling back to the index for
+  rooms without it), because a newcomer gets the lowest free index. Guest tiles show their
+  spot (`spotOf`, 1-based among present guests) and no level. The tile ✕
+  (`canRemoveFromStage`) is for the host, room admins (not on another admin) and
+  `live.moderate` staff. Staff seat actions (`POST /live/:id/seats/:index`) need
+  `live.moderate` and are audited as `live.seat_manage`.
+- `/join` returns the joiner's own `entry` (the `bb.entry` payload, which goes out before
+  they connect), and the app adds the joiner's own "joined" line once on connect
+  (`_announceMyJoin`). The server echo for the same uid is then ignored. The controller's
+  `entries` stream replays that own entrance to subscribers for a few seconds, because
+  `EntryEffectOverlay` / `EntryBanner` mount only once the room has rendered.
+- No entrance twice: `/join` with `resume: true` (the app's `_recover()`), or by someone who
+  already has a `room_presence` row, broadcasts no `bb.entry` and returns `entry: null`.
 - Room admins = `moderatorIds`, appointed by the host only. They manage seats and requests and
   can remove people, but can't act on the host or other admins, lock the room or appoint admins.
   Kicking an admin revokes the role.
@@ -192,6 +225,18 @@ cd app && flutter analyze && flutter test && dart format lib test
   twice) and rides inside the `bb.gift` packet as `message`, not as a `bb.chat` packet. Older
   apps would show it twice. The app falls back to a local line when `message` is missing.
 - Rooms with no heartbeat for `live.staleAfterSec` are ended by the `live.sweep` job.
+- Broadcasting History and the post-live summary are in `LiveSummaryService`
+  (`modules/live/live-summary.service.ts`):
+  - `GET /users/:uid/live-history/monthly?month=YYYY-MM&tz=±HH:mm` groups ended lives by
+    local start day.
+  - `GET /live/:id/summary` is for the host, or staff with `live.read`, and answers 409
+    while the room is live. It aggregates `gift_transactions` and `follows`. The first read
+    after `endedAt + SUMMARY_SETTLE_MS` freezes it on `live_rooms.summary`; earlier reads
+    are `final: false`.
+  - Room counters `totalJoins`, `uniqueViewers` (deduped by `live_viewers`, 90-day TTL),
+    `chatMessages` and `reactions` are absent on older rooms and read as null.
+  - The app's `/history` is `BroadcastHistoryScreen`. Ending a live opens
+    `/live-summary/:id`.
 - Mic, camera and flip are in the bottom bar (`LiveBottomBar`) for the host and seated guests;
   on a narrow phone the chat field becomes a button and the heart goes. The rail keeps the
   rest. Speaking shows as `SpeakingBars` on tiles and `SpeakingGlow` on camera-off avatars
@@ -200,6 +245,47 @@ cd app && flutter analyze && flutter test && dart format lib test
   LiveKit (`mixWithOthers`, never taking the audio session). Everything else (frames, looping
   cosmetics) is silent: `SvgaMovieCache` drops audio unless retained `withAudio`. The room's
   speaker toggle (`roomAudioOn`) disables remote audio tracks and mutes effects on this device.
+
+## Platform moderators (`modules/moderation`)
+
+- **Who:** app users with `users.platformModerator` (`{since, by}`), granted and revoked by
+  admins with `moderators.manage` (user page, or Community → Platform moderators; audited as
+  `user.platform_moderator`). The flag never gives dashboard access. `requireAuth` reloads
+  the user on every request, so a revoke applies at once; it also calls
+  `LiveService.dropHidden` so a stealth session can't outlive the role.
+- **One rule, in `authority.ts`:** `canModerateLive` = platform moderator **or** staff with
+  `live.moderate` (the token claim, never the Mongo mirror); `canModerateUsers` likewise
+  with `users.moderate`. `routes/live.ts actor()` uses it for every in-room moderation route,
+  so support and finance staff no longer kick or delete chat. `/me.moderation` sends the
+  same answer to the app (`MeModeration`); the app never re-derives it from a role name.
+- **Protected accounts** (`isProtected`: staff or platform moderators): hosts, room admins
+  and platform moderators can't remove, mute or delete the messages of one, or ban one, and a
+  device cascade skips them. Only staff can (`target_protected`). Moderators and staff pass
+  host room bans, blocks and the lock at `/join`.
+- **Moderation panel** (`routes/moderator.ts`, `/v1/moderator/*`; app `/moderation`):
+  search (short id, uid, name prefix; cursor-paged), ban for 1/7/30 days or until lifted
+  with a 3–200 character reason (`assertClean`), unban, devices, a device-ban dry run and
+  cascade (never the actor's own `X-Device-Id`), the hosts' live bans with Lift, and ending
+  any live (`endReason: 'moderator'`). Bans are keyed by `Idempotency-Key` and capped per
+  moderator per hour (`platformModerators.banRateLimitPerHour`, counted from audit rows).
+  Every write is audited with `adminRole: 'platform_moderator'`. Only staff unban devices.
+- In a room, anything done by someone who neither hosts nor administers it (kick, ban, chat
+  delete, seat actions, swap, YouTube) is audited (`auditOutsider`).
+- **Stealth and self-stage** (both off by default, `platformModerators.stealthEnabled` /
+  `selfStageEnabled`; staff never get them):
+  - A platform moderator in the audience joins with a **hidden** LiveKit grant
+    (`stealth: true`): no `bb.entry`, no join line, no count.
+  - The hidden bit lives on the `room_presence` row, copied from the webhook's
+    `permission.hidden`, so it survives a redeploy. Viewer counts, `viewers()` and the join
+    announcement skip hidden rows.
+  - LiveKit replaces the whole permission, so `updateParticipant` always states `hidden`
+    (`syncParticipant` → `hiddenIn`): a role change elsewhere in the room never reveals a
+    watching moderator. Seated, they are visible; back in the audience, hidden again.
+  - `POST /live/:id/platform-moderator/stage {onStage}` takes the lowest free seat without
+    approval (the seat cap applies) or leaves it, and returns `hidden`. It never touches
+    `moderatorIds`.
+  - Chat from a hidden moderator carries `mod: true` (set by the server); the app draws a
+    MOD chip. Turning stealth off doesn't reveal someone already connected.
 
 ## YouTube music (`modules/youtube`)
 
@@ -288,6 +374,12 @@ cd app && flutter analyze && flutter test && dart format lib test
 ## Realtime & jobs
 
 - Socket.IO namespaces: `/` (personal events and the live directory) and `/games`.
+- `wallet:updated` (`{ reason, diamonds }`) goes to every user whose diamonds moved, once
+  per transaction after commit (`WalletService.track`). The app applies `diamonds` at once
+  and debounces a full `/me` refresh.
+- Wallets are public. The profile endpoint (`GET /users/:uid`) sends `diamonds`, and a
+  seated user's balance rides `bb.seats`. Stars are display-only: one per
+  `app.diamondsPerStar` (default 100,000), exposed through `/config/app`.
 - Gift banner: after commit, `GiftsService.announce` broadcasts `gift:announcement` to every
   app socket for gifts worth at least `live.giftBannerMinDiamonds` (0 = all). It never fails
   the gift. The app shows it only in a live room (`GiftBannerOverlay`: dedupes by id, keeps

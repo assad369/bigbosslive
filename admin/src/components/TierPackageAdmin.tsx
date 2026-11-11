@@ -73,6 +73,7 @@ export function AssignTierPackageModal({
       width={640}
       onClose={() => {
         setPicked(null);
+        setTier(0);
         onClose();
       }}
       initialValues={initialValues}

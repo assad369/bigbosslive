@@ -23,6 +23,7 @@ class LiveStage extends StatelessWidget {
     required this.onTapUser,
     required this.onTapEmptySeat,
     this.onSwap,
+    this.onRemoveFromStage,
   });
   final LiveRoomController c;
   final void Function(UserBrief user) onTapUser;
@@ -32,10 +33,21 @@ class LiveStage extends StatelessWidget {
   /// people who can't swap.
   final void Function(String? uid)? onSwap;
 
+  /// Takes a guest off the stage from the ✕ on their tile. Shown only where
+  /// [LiveRoomController.canRemoveFromStage] allows it.
+  final void Function(Seat seat)? onRemoveFromStage;
+
   VoidCallback? _swap(Seat seat) {
     final swap = onSwap;
     final action = swap == null ? null : c.swapActionFor(seat);
     return action == null ? null : () => swap!(action.uid);
+  }
+
+  VoidCallback? _remove(Seat seat) {
+    final remove = onRemoveFromStage;
+    return remove == null || !c.canRemoveFromStage(seat)
+        ? null
+        : () => remove(seat);
   }
 
   @override
@@ -103,6 +115,7 @@ class LiveStage extends StatelessWidget {
                                 seat: s,
                                 compact: true,
                                 onTap: () => onTapUser(s.user!),
+                                onRemove: _remove(s),
                               ),
                             ),
                           ),
@@ -159,6 +172,7 @@ class LiveStage extends StatelessWidget {
                   seat: s,
                   onTap: () => onTapUser(s.user!),
                   onLongPress: _swap(s),
+                  onRemove: _remove(s),
                 ),
             ],
           ),
@@ -257,8 +271,9 @@ class ParticipantGrid extends StatelessWidget {
 }
 
 /// One person on stage: their video (or avatar when the camera is off), a speaking ring,
-/// mute/camera-off markers and a [StageNamePlate] (avatar, level, name and diamond
-/// balance). Balance and level follow the room's `balances` events.
+/// mute/camera-off markers, a guest's spot number, a ✕ for those who may take them off the
+/// stage, and a [StageNamePlate] (avatar, name and diamond balance). The balance follows
+/// the room's `balances` events.
 class StageTile extends StatelessWidget {
   const StageTile({
     super.key,
@@ -266,6 +281,7 @@ class StageTile extends StatelessWidget {
     required this.seat,
     required this.onTap,
     this.onLongPress,
+    this.onRemove,
     this.fullScreen = false,
     this.compact = false,
   });
@@ -275,6 +291,10 @@ class StageTile extends StatelessWidget {
 
   /// Swaps this person with the host spot (host, room admins and staff only).
   final VoidCallback? onLongPress;
+
+  /// Takes this guest off the stage (host, room admins and `live.moderate` staff); the ✕
+  /// shows only when set.
+  final VoidCallback? onRemove;
   final bool fullScreen;
   final bool compact;
 
@@ -286,6 +306,8 @@ class StageTile extends StatelessWidget {
         seat.muted || (c.isConnected(user.id) && !c.isMicOn(user.id));
     final mirror = user.id == c.myUid && c.frontCamera;
     final role = c.roleOf(user.id);
+    final spot = seat.index > 0 ? c.spotOf(user.id) : null;
+    final remove = onRemove;
 
     final media = track == null
         ? _AvatarFallback(c: c, user: user, compact: compact || !fullScreen)
@@ -325,14 +347,34 @@ class StageTile extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             media,
-            if (c.isSwapped(user.id))
-              const Positioned(left: 4, top: 4, child: SwapMarker()),
+            if (remove != null || c.isSwapped(user.id))
+              Positioned(
+                left: 2,
+                top: 2,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (remove != null)
+                      StageCloseButton(
+                        name: user.displayName,
+                        compact: compact,
+                        onPressed: remove,
+                      ),
+                    if (c.isSwapped(user.id))
+                      const Padding(
+                        padding: EdgeInsets.all(2),
+                        child: SwapMarker(),
+                      ),
+                  ],
+                ),
+              ),
             Positioned(
               right: 4,
               top: 4,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (spot != null) SpotBadge(spot, compact: compact),
                   if (micOff)
                     const _StatusDot(Icons.mic_off_rounded)
                   else
@@ -396,6 +438,95 @@ class _AvatarFallback extends StatelessWidget {
   );
 }
 
+/// A guest's place on the stage (1 = first to sit down), at the top of their tile.
+class SpotBadge extends StatelessWidget {
+  const SpotBadge(this.spot, {super.key, this.compact = false});
+  final int spot;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = compact ? 16.0 : 18.0;
+    return Semantics(
+      label: 'Spot $spot',
+      excludeSemantics: true,
+      child: Container(
+        constraints: BoxConstraints(minWidth: size),
+        height: size,
+        margin: const EdgeInsets.only(right: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: BBColors.scrim,
+          borderRadius: BorderRadius.circular(size / 2),
+          border: Border.all(color: BBColors.goldOutline),
+        ),
+        child: Text(
+          '$spot',
+          style: TextStyle(
+            color: BBColors.goldLight,
+            fontSize: compact ? 9 : 10,
+            fontWeight: FontWeight.w800,
+            height: 1,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The ✕ in a guest tile's top-left corner that takes them off the stage. The visible
+/// circle is small; the tap target is 32 px (28 on compact tiles).
+class StageCloseButton extends StatelessWidget {
+  const StageCloseButton({
+    super.key,
+    required this.name,
+    required this.onPressed,
+    this.compact = false,
+  });
+  final String name;
+  final VoidCallback onPressed;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final circle = compact ? 16.0 : 20.0;
+    // Its own node: inside the tile's tap target it would otherwise merge into the tile.
+    return Semantics(
+      container: true,
+      button: true,
+      label: 'Remove $name from stage',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onPressed,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox.square(
+          dimension: compact ? 28 : 32,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Container(
+              width: circle,
+              height: circle,
+              margin: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: BBColors.scrim,
+                shape: BoxShape.circle,
+                border: Border.all(color: BBColors.champagneTint),
+              ),
+              child: Icon(
+                Icons.close_rounded,
+                size: circle * 0.7,
+                color: BBColors.ivory,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// On the two tiles of a host-spot swap: the guest now in the host's spot, and the host.
 class SwapMarker extends StatelessWidget {
   const SwapMarker({super.key, this.size = 18});
@@ -421,7 +552,8 @@ class SwapMarker extends StatelessWidget {
 }
 
 /// The plate along the bottom of a stage tile: the person's avatar on the left, beside
-/// two lines: level and name, then their diamond balance.
+/// two lines: name, then their diamond balance. (The level lives in their profile sheet,
+/// leaving the name the room to read on a small tile.)
 ///
 /// Public so it can be tested without a [LiveRoomController].
 class StageNamePlate extends StatelessWidget {
@@ -463,21 +595,8 @@ class StageNamePlate extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // One paragraph, so a narrow tile ellipsizes the line instead of
-              // overflowing it.
-              Text.rich(
-                TextSpan(
-                  children: [
-                    WidgetSpan(
-                      alignment: PlaceholderAlignment.middle,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 3),
-                        child: LevelBadge(user.level, dense: true),
-                      ),
-                    ),
-                    TextSpan(text: user.displayName),
-                  ],
-                ),
+              Text(
+                user.displayName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(

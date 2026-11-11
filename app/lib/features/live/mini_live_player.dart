@@ -108,9 +108,9 @@ class _LiveOverlayHostState extends ConsumerState<LiveOverlayHost> {
     if (!c.isHost) return notifier.close();
     final ctx = _navContext;
     if (ctx == null || !await confirmEndLive(ctx)) return;
-    final summary = await notifier.endHosting();
-    final after = _navContext;
-    if (after != null && after.mounted) await showLiveSummary(after, summary);
+    await notifier.endHosting();
+    if (!mounted) return;
+    unawaited(ref.read(routerProvider).push('/live-summary/${c.roomId}'));
   }
 }
 

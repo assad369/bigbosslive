@@ -96,6 +96,7 @@ export class FakeLiveKit implements LiveKitGateway {
     room: string;
     identity: string;
     canPublish: boolean;
+    hidden: boolean;
     metadata?: Record<string, unknown>;
   }[] = [];
   mutes: { room: string; identity: string; kind: 'audio' | 'video'; muted: boolean }[] = [];
@@ -123,7 +124,7 @@ export class FakeLiveKit implements LiveKitGateway {
   async updateParticipant(
     room: string,
     identity: string,
-    update: { canPublish: boolean; metadata?: Record<string, unknown> },
+    update: { canPublish: boolean; hidden: boolean; metadata?: Record<string, unknown> },
   ) {
     this.permissions.push({ room, identity, ...update });
   }
@@ -392,6 +393,7 @@ export async function createHarness(): Promise<Harness> {
       status: o.status ?? 'active',
       ban: null,
       adminRole: o.adminRole ?? null,
+      platformModerator: (o.platformModerator as UserDoc['platformModerator']) ?? null,
       isAgent: o.isAgent ?? false,
       wallet: { diamonds: 0, agentStock: 0, ...o.wallet },
       stats: {

@@ -55,6 +55,9 @@ final economyRepo = Provider(
 );
 final socialRepo = Provider((ref) => SocialRepository(ref.watch(apiProvider)));
 final agencyRepo = Provider((ref) => AgencyRepository(ref.watch(apiProvider)));
+final moderationRepo = Provider(
+  (ref) => ModerationRepository(ref.watch(apiProvider)),
+);
 
 /// Remote config, readable before sign-in (maintenance mode, force update, feature flags).
 final appConfigProvider = FutureProvider<AppConfig>(
@@ -87,6 +90,14 @@ class SessionController extends AsyncNotifier<MeUser?> {
   }
 
   void replace(MeUser me) => state = AsyncData(me);
+
+  /// A balance the server pushed (`wallet:updated`), applied without a round trip.
+  void applyBalance(int diamonds) {
+    final me = state.value;
+    if (me != null && me.wallet.diamonds != diamonds) {
+      state = AsyncData(me.withDiamonds(diamonds));
+    }
+  }
 
   /// The server turned this account away for maintenance, so it is not on the list (anymore).
   void revokeMaintenanceAccess() {

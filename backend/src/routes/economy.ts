@@ -189,7 +189,7 @@ export function economyRoutes(ctx: Ctx): Router {
 
   r.get('/store/items', async (req, res) => {
     const { type } = parseQuery(req, z.object({ type: z.enum(COSMETIC_TYPES).optional() }));
-    res.json({ items: await store.cosmetics(type) });
+    res.json({ items: await store.storeItems(currentUser(req).uid, type) });
   });
 
   r.post('/store/items/:id/purchase', moneyLimit, async (req, res) => {

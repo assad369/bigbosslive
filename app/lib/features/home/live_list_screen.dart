@@ -212,7 +212,10 @@ class LiveCard extends ConsumerWidget {
   /// Locked rooms ask for the password when there is one. Without one, staff go straight in
   /// and everyone else is told it's locked — room admins can still try, and the server decides.
   Future<void> _open(BuildContext context, WidgetRef ref) async {
-    if (!room.locked) {
+    final me = ref.read(sessionProvider).value;
+    // Staff and those who moderate any live pass a lock; the server checks the same.
+    final passesLock = me?.adminRole != null || (me?.canModerateLive ?? false);
+    if (!room.locked || passesLock) {
       await context.push('/live/${room.id}');
       return;
     }
@@ -221,10 +224,6 @@ class LiveCard extends ConsumerWidget {
       if (pw != null && context.mounted) {
         await context.push('/live/${room.id}', extra: RoomPassword(pw));
       }
-      return;
-    }
-    if (ref.read(sessionProvider).value?.adminRole != null) {
-      await context.push('/live/${room.id}');
       return;
     }
     // The snackbar outlives this card (it may scroll away), so don't use its context later.
@@ -242,10 +241,25 @@ class LiveCard extends ConsumerWidget {
       );
   }
 
+  /// Long-press for someone who may end any live: end this one for everyone.
+  Future<void> _endForEveryone(BuildContext context, WidgetRef ref) async {
+    final host = room.host.displayName;
+    if (!await confirmEndForEveryone(context, host) || !context.mounted) return;
+    try {
+      await ref.read(moderationRepo).endLive(room.id);
+      if (context.mounted) showMessage(context, '$host’s live was ended');
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) => InkWell(
     borderRadius: BorderRadius.circular(18),
     onTap: () => _open(context, ref),
+    onLongPress: ref.watch(meProvider.select((m) => m.canModerateLive))
+        ? () => _endForEveryone(context, ref)
+        : null,
     child: ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: Stack(

@@ -16,6 +16,7 @@ export interface TokenRequest {
   canPublish: boolean;
   /** Server-minted metadata (level, VIP, role). Clients read this instead of trusting each other. */
   metadata: Record<string, unknown>;
+  /** Invisible to other participants (a platform moderator in stealth). */
   hidden?: boolean;
 }
 
@@ -33,11 +34,15 @@ export interface LiveKitGateway {
    * never mistake an outage for an empty room.
    */
   listParticipants(room: string): Promise<string[]>;
-  /** Grant/revoke publishing and, optionally, replace the server-minted metadata (role). */
+  /**
+   * Grant/revoke publishing and, optionally, replace the server-minted metadata (role).
+   * LiveKit replaces the whole permission, so `hidden` must always be stated: leaving it out
+   * would reveal a hidden participant.
+   */
   updateParticipant(
     room: string,
     identity: string,
-    update: { canPublish: boolean; metadata?: Record<string, unknown> },
+    update: { canPublish: boolean; hidden: boolean; metadata?: Record<string, unknown> },
   ): Promise<void>;
   /**
    * Mute (or allow unmuting of) a participant's published tracks of one kind on the SFU. A
@@ -104,9 +109,9 @@ export function createLiveKitGateway(env: Env): LiveKitGateway {
         .filter((p) => p.state !== ParticipantInfo_State.DISCONNECTED)
         .map((p) => p.identity);
     },
-    async updateParticipant(room, identity, { canPublish, metadata }) {
+    async updateParticipant(room, identity, { canPublish, hidden, metadata }) {
       await rooms.updateParticipant(room, identity, {
-        permission: { canPublish, canSubscribe: true, canPublishData: true },
+        permission: { canPublish, canSubscribe: true, canPublishData: true, hidden },
         ...(metadata ? { metadata: JSON.stringify(metadata) } : {}),
       });
     },

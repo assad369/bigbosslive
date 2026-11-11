@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Input, Select, Space, Tag } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { Button, Input, Select, Space, Tag } from 'antd';
+import { CrownFilled, SearchOutlined } from '@ant-design/icons';
 import { VIP_TIERS } from '@bigboss/shared';
 import { FilterBar, Money, PageHeader, StatusTag, UserCell } from '../../components/common';
 import { activeTierOf } from '../../lib/tiers';
 import { ServerTable } from '../../components/ServerTable';
+import { AssignTierPackageModal } from '../../components/TierPackageAdmin';
+import { useAuth } from '../../auth/useAuth';
 import { ago } from '../../lib/format';
 
 export interface AdminUser {
@@ -15,6 +17,8 @@ export interface AdminUser {
   status: string;
   isAgent: boolean;
   adminRole: string | null;
+  /** Moderates from the app (no dashboard access). */
+  platformModerator?: { since: string; by: string } | null;
   email: string | null;
   phone: string | null;
   country: string | null;
@@ -42,6 +46,9 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
   const [status, setStatus] = useState<string | undefined>();
   const [tier, setTier] = useState<number | undefined>();
   const [sort, setSort] = useState('new');
+  const { can } = useAuth();
+  /** The user the "Assign tier" dialog is open for. */
+  const [assignUid, setAssignUid] = useState<string | null>(null);
 
   return (
     <>
@@ -148,8 +155,24 @@ export function UsersPage({ agentsOnly = false }: { agentsOnly?: boolean }) {
           { title: 'Country', dataIndex: 'country', render: (c: string | null) => c ?? '—' },
           { title: 'Joined', dataIndex: 'createdAt', render: ago },
           { title: 'Last seen', dataIndex: 'lastSeenAt', render: ago },
+          ...(can('users.edit')
+            ? [
+                {
+                  title: '',
+                  key: 'actions',
+                  render: (_: unknown, u: AdminUser) => (
+                    <Button size="small" icon={<CrownFilled />} onClick={() => setAssignUid(u._id)}>
+                      Assign tier
+                    </Button>
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
+      {assignUid && (
+        <AssignTierPackageModal uid={assignUid} open onClose={() => setAssignUid(null)} />
+      )}
     </>
   );
 }

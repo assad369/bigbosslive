@@ -48,28 +48,40 @@ export interface Movement {
 export class WalletService {
   constructor(private readonly ctx: Ctx) {}
 
-  /** Users whose diamonds moved in each open transaction, published once it commits. */
-  private readonly touched = new WeakMap<ClientSession, Set<string>>();
+  /**
+   * Users whose diamonds moved in each open transaction, with their latest balance and the
+   * reason of their latest movement, published once it commits.
+   */
+  private readonly touched = new WeakMap<
+    ClientSession,
+    Map<string, { diamonds: number; reason: LedgerReason }>
+  >();
 
   /**
-   * After commit, people on a live stage show their new balance on their tile. Diamonds only:
-   * agent stock is not shown. Never fails the movement.
+   * After commit, people on a live stage show their new balance on their tile, and each user
+   * whose diamonds moved gets `wallet:updated` with their new balance (one per transaction).
+   * Diamonds only: agent stock is not shown. Never fails the movement.
    */
-  private track(session: ClientSession, m: Movement): void {
+  private track(session: ClientSession, m: Movement, balanceAfter: number): void {
     if (m.currency !== 'diamonds') return;
-    let uids = this.touched.get(session);
-    if (!uids) {
-      uids = new Set();
-      this.touched.set(session, uids);
+    let moved = this.touched.get(session);
+    if (!moved) {
+      moved = new Map();
+      this.touched.set(session, moved);
     }
-    uids.add(m.uid);
-    const all = uids;
+    moved.set(m.uid, { diamonds: balanceAfter, reason: m.reason });
+    const all = moved;
     onCommit(
       session,
       async () => {
         this.touched.delete(session);
+        for (const [uid, { diamonds, reason }] of all)
+          this.ctx.realtime.toUser(SOCKET.namespaces.app, uid, SOCKET.app.walletUpdated, {
+            reason,
+            diamonds,
+          });
         await this.ctx.services.live
-          .publishSeatBalances([...all])
+          .publishSeatBalances([...all.keys()])
           .catch((err: unknown) => this.ctx.log.warn({ err }, 'seat balance broadcast failed'));
       },
       'wallet:seat-balances',
@@ -96,7 +108,7 @@ export class WalletService {
     }
     const balanceAfter = balanceOf(updated, m.currency);
     await this.writeLedger(session, m, -m.amount, balanceAfter);
-    this.track(session, m);
+    this.track(session, m, balanceAfter);
     return balanceAfter;
   }
 
@@ -113,7 +125,7 @@ export class WalletService {
     const balanceAfter = balanceOf(updated, m.currency);
     if (m.amount > 0) {
       await this.writeLedger(session, m, m.amount, balanceAfter);
-      this.track(session, m);
+      this.track(session, m, balanceAfter);
     }
     return balanceAfter;
   }
@@ -245,9 +257,7 @@ export class WalletService {
       }
       throw err;
     }
-    this.ctx.realtime.toUser(SOCKET.namespaces.app, input.uid, SOCKET.app.walletUpdated, {
-      reason,
-    });
+    // `wallet:updated` goes out from `track` once the credit commits.
     return { recharge: doc, replayed: false };
   }
 

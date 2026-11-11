@@ -20,7 +20,7 @@ import { DeleteOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons
 import { useQueryClient } from '@tanstack/react-query';
 import { isCancel } from 'axios';
 import {
-  COSMETIC_TYPES,
+  STORE_COSMETIC_TYPES,
   FRAME_FORMATS,
   MAX_COSMETICS_PER_BATCH,
   MAX_GRANT_DAYS,
@@ -254,7 +254,10 @@ export function BulkDecorationsModal({ open, onClose }: { open: boolean; onClose
         <Space wrap size="middle" align="start">
           <Form.Item name="type" label="Type" rules={[{ required: true }]} style={{ width: 190 }}>
             <Select
-              options={COSMETIC_TYPES.map((t) => ({ value: t, label: cosmeticTypeLabel(t) }))}
+              options={STORE_COSMETIC_TYPES.map((t) => ({
+                value: t,
+                label: cosmeticTypeLabel(t),
+              }))}
             />
           </Form.Item>
           <Form.Item name="vipTierRequired" label="VIP tier" style={{ width: 150 }}>

@@ -212,6 +212,8 @@ export class UsersService {
         : [0, 0];
     return {
       ...toPublicUser(user, this.ctx.clock.now()),
+      // Wallet balances are public on profiles (stars are derived from it client-side).
+      diamonds: user.wallet?.diamonds ?? 0,
       isFollowing: isFollowing > 0,
       isBlocked: isBlocked > 0,
     };

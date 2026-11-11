@@ -17,6 +17,7 @@ import { adminRoutes } from './routes/admin.js';
 import { contentRoutes } from './routes/content.js';
 import { economyRoutes } from './routes/economy.js';
 import { liveRoutes, livekitWebhookRoute } from './routes/live.js';
+import { moderatorRoutes } from './routes/moderator.js';
 import { shareRoutes } from './routes/share.js';
 import { sightguardWebhookRoute } from './routes/sightguard.js';
 import { socialRoutes } from './routes/social.js';
@@ -112,6 +113,7 @@ export function createApp(ctx: Ctx): Express {
   app.use('/v1', accountRoutes(ctx));
   app.use('/v1', contentRoutes(ctx));
   app.use('/v1/live', liveRoutes(ctx));
+  app.use('/v1/moderator', moderatorRoutes(ctx));
   app.use('/v1', economyRoutes(ctx));
   app.use('/v1', socialRoutes(ctx));
   app.use('/v1/admin', adminRoutes(ctx));

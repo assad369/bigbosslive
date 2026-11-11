@@ -82,6 +82,7 @@ Future<void> _handlePurchaseError(BuildContext context, Object e) async {
 class StoreScreen extends ConsumerWidget {
   const StoreScreen({super.key});
 
+  /// Mirrors `STORE_COSMETIC_TYPES` in `packages/shared` (chat bubbles aren't sold yet).
   static const tabs = [
     ('frame', 'Frames'),
     ('entry_animation', 'Entries'),
@@ -111,6 +112,59 @@ class StoreScreen extends ConsumerWidget {
   );
 }
 
+/// The busy key for wearing or taking off items of [type]. One per slot, shared by the
+/// store tabs and Mine, so the same slot is never changed from two places at once.
+String _slotKey(String type) => 'equip:$type';
+
+/// Puts [item] on ([wear]) or takes it off, then refreshes the store, Mine and the session
+/// (the profile's frame). Returns whether it ran. Everything it needs from [ref] is read
+/// before the first `await`: the tab may be gone by the time the server answers.
+Future<bool> _setWorn(
+  BuildContext context,
+  WidgetRef ref,
+  StoreItem item, {
+  required bool wear,
+}) async {
+  final actions = ref.read(_actionsProvider.notifier);
+  final repo = ref.read(economyRepo);
+  final session = ref.read(sessionProvider.notifier);
+  final container = ProviderScope.containerOf(context, listen: false);
+  try {
+    final ran = await actions.run(_slotKey(item.type), (_) async {
+      await repo.equip(wear ? item.id : null, item.type);
+      container
+        ..invalidate(_ownedProvider)
+        ..invalidate(_itemsProvider(item.type));
+      await session.refresh();
+    });
+    if (ran && context.mounted) {
+      showMessage(
+        context,
+        wear ? '${item.name} equipped' : '${item.name} taken off',
+      );
+    }
+    return ran;
+  } catch (e) {
+    if (context.mounted) showError(context, e);
+    return false;
+  }
+}
+
+/// The tier the user holds now (0 = none).
+int _myTier(WidgetRef ref) =>
+    ref.read(sessionProvider).value?.brief.vipTier ?? 0;
+
+/// Sends someone without the right tier to the tier packages, with the reason.
+Future<void> _needsTier(BuildContext context, StoreItem item) async {
+  showMessage(
+    context,
+    item.vipIncluded
+        ? 'Included with ${VipBadge.labelFor(item.vipTierRequired)}'
+        : 'Requires ${VipBadge.labelFor(item.vipTierRequired)}',
+  );
+  await context.push('/vip');
+}
+
 class _StoreGrid extends ConsumerWidget {
   const _StoreGrid({required this.type});
   final String type;
@@ -118,55 +172,69 @@ class _StoreGrid extends ConsumerWidget {
   Future<void> _buy(BuildContext context, WidgetRef ref, StoreItem item) async {
     if (!await _confirmSpend(context, item.name, item.priceDiamonds)) return;
     if (!context.mounted) return;
+    final actions = ref.read(_actionsProvider.notifier);
+    final repo = ref.read(economyRepo);
+    final session = ref.read(sessionProvider.notifier);
+    final container = ProviderScope.containerOf(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      final ran = await ref.read(_actionsProvider.notifier).run(
-        'item:${item.id}',
-        (key) async {
-          await ref.read(economyRepo).buyItem(item.id, idempotencyKey: key);
-          await ref.read(sessionProvider.notifier).refresh();
-        },
-      );
-      ref.invalidate(_ownedProvider);
-      if (ran && context.mounted) {
-        showMessage(context, '${item.name} added — equip it in Mine');
-      }
+      final ran = await actions.run('item:${item.id}', (key) async {
+        await repo.buyItem(item.id, idempotencyKey: key);
+        await session.refresh();
+      });
+      container
+        ..invalidate(_ownedProvider)
+        ..invalidate(_itemsProvider(item.type));
+      if (!ran || !context.mounted) return;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('${item.name} is yours'),
+            action: item.wearable && !item.equipped
+                ? SnackBarAction(
+                    label: 'Equip',
+                    onPressed: () {
+                      if (context.mounted) {
+                        _setWorn(context, ref, item, wear: true);
+                      }
+                    },
+                  )
+                : null,
+          ),
+        );
     } catch (e) {
       if (context.mounted) await _handlePurchaseError(context, e);
     }
   }
 
-  /// A tier-included item is never bought: holders wear it at once, others see the tiers.
-  Future<void> _wearIncluded(
+  Future<void> _onTap(
     BuildContext context,
     WidgetRef ref,
     StoreItem item,
   ) async {
-    final tier = ref.read(sessionProvider).value?.brief.vipTier ?? 0;
-    if (tier < item.vipTierRequired) {
-      showMessage(
+    final locked = item.vipTierRequired > _myTier(ref);
+    if (item.vipIncluded) {
+      // A tier perk is never bought: holders wear it, others see the tiers.
+      if (locked) return _needsTier(context, item);
+      if (!item.wearable) {
+        return showMessage(context, '${item.name} is in Mine');
+      }
+      await _setWorn(context, ref, item, wear: !item.equipped);
+      return;
+    }
+    if (item.owned) {
+      await _OwnedItemSheet.show(
         context,
-        'Included with ${VipBadge.labelFor(item.vipTierRequired)}',
+        item: item,
+        canExtend: !locked,
+        onWear: (wear) => _setWorn(context, ref, item, wear: wear),
+        onExtend: () => _buy(context, ref, item),
       );
-      await context.push('/vip');
       return;
     }
-    if (item.type != 'frame' && item.type != 'entry_animation') {
-      showMessage(context, '${item.name} is in Mine');
-      return;
-    }
-    try {
-      final ran = await ref.read(_actionsProvider.notifier).run(
-        'item:${item.id}',
-        (_) async {
-          await ref.read(economyRepo).equip(item.id, item.type);
-          await ref.read(sessionProvider.notifier).refresh();
-        },
-      );
-      ref.invalidate(_ownedProvider);
-      if (ran && context.mounted) showMessage(context, '${item.name} equipped');
-    } catch (e) {
-      if (context.mounted) showError(context, e);
-    }
+    if (locked) return _needsTier(context, item);
+    await _buy(context, ref, item);
   }
 
   @override
@@ -203,93 +271,13 @@ class _StoreGrid extends ConsumerWidget {
                 itemCount: list.length,
                 itemBuilder: (_, i) {
                   final item = list[i];
-                  final buying = busy.contains('item:${item.id}');
-                  return Card(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: buying
-                          ? null
-                          : () => item.vipIncluded
-                                ? _wearIncluded(context, ref, item)
-                                : _buy(context, ref, item),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          children: [
-                            Expanded(
-                              child:
-                                  item.previewUrl == null &&
-                                      item.type == 'frame'
-                                  // No still preview: show the frame itself, animated.
-                                  ? LayoutBuilder(
-                                      builder: (_, box) => FrameView(
-                                        url: item.assetUrl,
-                                        format: item.animationFormat,
-                                        size: box.biggest.shortestSide,
-                                      ),
-                                    )
-                                  : item.previewUrl != null
-                                  ? CachedNetworkImage(
-                                      imageUrl: item.previewUrl!,
-                                      errorWidget: (_, _, _) => const Icon(
-                                        Icons.auto_awesome,
-                                        color: BBColors.gold,
-                                        size: 48,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.auto_awesome,
-                                      color: BBColors.gold,
-                                      size: 48,
-                                    ),
-                            ),
-                            Text(
-                              item.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              item.vipIncluded
-                                  ? '${VipBadge.labelFor(item.vipTierRequired)} perk'
-                                  : '${item.durationDays} days${item.vipTierRequired > 0 ? ' · ${VipBadge.labelFor(item.vipTierRequired)}+' : ''}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: BBColors.inkSubtle,
-                                fontSize: 12,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            if (buying)
-                              const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            else if (item.vipIncluded)
-                              const FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  'Included',
-                                  style: TextStyle(
-                                    color: BBColors.gold,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              )
-                            else
-                              FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: DiamondAmount(item.priceDiamonds),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  final working =
+                      busy.contains('item:${item.id}') ||
+                      busy.contains(_slotKey(item.type));
+                  return StoreItemTile(
+                    item: item,
+                    busy: working,
+                    onTap: working ? null : () => _onTap(context, ref, item),
                   );
                 },
               ),
@@ -298,25 +286,246 @@ class _StoreGrid extends ConsumerWidget {
   }
 }
 
+/// One store item: its picture, name, terms, and the caller's own state (Equipped, Owned)
+/// or its price.
+class StoreItemTile extends StatelessWidget {
+  const StoreItemTile({
+    super.key,
+    required this.item,
+    this.onTap,
+    this.busy = false,
+  });
+  final StoreItem item;
+  final VoidCallback? onTap;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final terms = item.vipIncluded
+        ? '${VipBadge.labelFor(item.vipTierRequired)} perk'
+        : item.owned && item.ownedUntil != null
+        ? 'Until ${Fmt.date(item.ownedUntil!)}'
+        : '${item.durationDays} days${item.vipTierRequired > 0 ? ' · ${VipBadge.labelFor(item.vipTierRequired)}+' : ''}';
+    return Card(
+      shape: item.equipped
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: const BorderSide(color: BBColors.gold, width: 2),
+            )
+          : null,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Expanded(child: CosmeticPreview(item: item)),
+              Text(
+                item.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(
+                terms,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: BBColors.inkSubtle, fontSize: 12),
+              ),
+              const SizedBox(height: 6),
+              if (busy)
+                const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (item.equipped)
+                const _StateLabel('Equipped', BBColors.success)
+              else if (item.owned)
+                const _StateLabel('Owned', BBColors.goldDeep)
+              else if (item.vipIncluded)
+                const _StateLabel('Included', BBColors.gold)
+              else
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: DiamondAmount(item.priceDiamonds),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StateLabel extends StatelessWidget {
+  const _StateLabel(this.text, this.color);
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => FittedBox(
+    fit: BoxFit.scaleDown,
+    child: Text(
+      text,
+      style: TextStyle(color: color, fontWeight: FontWeight.w700),
+    ),
+  );
+}
+
+/// What a store item looks like: a frame drawn by [FrameView] (animated) when it has no
+/// still preview, a background as its picture, otherwise the preview image.
+class CosmeticPreview extends StatelessWidget {
+  const CosmeticPreview({super.key, required this.item, this.size});
+  final StoreItem item;
+
+  /// Fixed square size (list rows); null fills the available space (grid tiles).
+  final double? size;
+
+  @override
+  Widget build(BuildContext context) {
+    const fallback = Icon(Icons.auto_awesome, color: BBColors.gold, size: 40);
+    final preview = item.previewUrl;
+    Widget image(String url) => CachedNetworkImage(
+      imageUrl: url,
+      fit: BoxFit.contain,
+      errorWidget: (_, _, _) => fallback,
+    );
+    final Widget child;
+    if (preview != null) {
+      child = image(preview);
+    } else if (item.type == 'frame') {
+      child = LayoutBuilder(
+        builder: (_, box) => FrameView(
+          url: item.assetUrl,
+          format: item.animationFormat,
+          size: size ?? box.biggest.shortestSide,
+        ),
+      );
+    } else if (item.type == 'room_background' &&
+        item.animationFormat == 'none') {
+      child = image(item.assetUrl);
+    } else {
+      child = fallback;
+    }
+    return size == null
+        ? child
+        : SizedBox.square(dimension: size, child: child);
+  }
+}
+
+/// Plays an entrance effect or shows a background full screen, once.
+Future<void> showCosmeticPreview(BuildContext context, StoreItem item) =>
+    showDialog<void>(
+      context: context,
+      barrierColor: BBColors.espressoShade,
+      builder: (ctx) => GestureDetector(
+        onTap: () => Navigator.pop(ctx),
+        child: SizedBox.expand(
+          child:
+              item.type == 'room_background' && item.animationFormat == 'none'
+              ? CachedNetworkImage(imageUrl: item.assetUrl, fit: BoxFit.cover)
+              : EffectView(
+                  url: item.assetUrl,
+                  format: item.animationFormat,
+                  fit: item.type == 'room_background'
+                      ? BoxFit.cover
+                      : BoxFit.contain,
+                  onDone: () {
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                ),
+        ),
+      ),
+    );
+
+/// An item the user already holds, tapped in the store: wear it (or take it off), preview
+/// it, or extend it by buying it again.
+class _OwnedItemSheet extends StatelessWidget {
+  const _OwnedItemSheet({
+    required this.item,
+    required this.canExtend,
+    required this.onWear,
+    required this.onExtend,
+  });
+  final StoreItem item;
+  final bool canExtend;
+  final Future<bool> Function(bool wear) onWear;
+  final Future<void> Function() onExtend;
+
+  static Future<void> show(
+    BuildContext context, {
+    required StoreItem item,
+    required bool canExtend,
+    required Future<bool> Function(bool wear) onWear,
+    required Future<void> Function() onExtend,
+  }) => showModalBottomSheet<void>(
+    context: context,
+    builder: (_) => _OwnedItemSheet(
+      item: item,
+      canExtend: canExtend,
+      onWear: onWear,
+      onExtend: onExtend,
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(height: 120, child: CosmeticPreview(item: item)),
+          const SizedBox(height: 8),
+          Text(
+            item.name,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          if (item.ownedUntil != null)
+            Text(
+              'Yours until ${Fmt.dateTime(item.ownedUntil!)}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: BBColors.inkMuted),
+            ),
+          const SizedBox(height: 16),
+          if (item.wearable)
+            GoldButton(
+              label: item.equipped ? 'Take off' : 'Equip',
+              onPressed: () {
+                Navigator.pop(context);
+                onWear(!item.equipped);
+              },
+            ),
+          if (item.type != 'frame') ...[
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: () => showCosmeticPreview(context, item),
+              child: const Text('Preview'),
+            ),
+          ],
+          if (canExtend) ...[
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                onExtend();
+              },
+              child: Text(
+                'Extend ${item.durationDays} days · 💎 ${Fmt.full(item.priceDiamonds)}',
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
 class _OwnedList extends ConsumerWidget {
   const _OwnedList();
-
-  Future<void> _equip(
-    BuildContext context,
-    WidgetRef ref,
-    String? itemId,
-    String type,
-  ) async {
-    try {
-      await ref.read(_actionsProvider.notifier).run('equip:$type', (_) async {
-        await ref.read(economyRepo).equip(itemId, type);
-        ref.invalidate(_ownedProvider);
-        await ref.read(sessionProvider.notifier).refresh();
-      });
-    } catch (e) {
-      if (context.mounted) showError(context, e);
-    }
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -339,12 +548,10 @@ class _OwnedList extends ConsumerWidget {
             ],
             for (final o in items)
               ListTile(
-                leading: o.item.previewUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: o.item.previewUrl!,
-                        width: 44,
-                      )
-                    : const Icon(Icons.auto_awesome, color: BBColors.gold),
+                leading: CosmeticPreview(item: o.item, size: 44),
+                onTap: o.item.type == 'frame'
+                    ? null
+                    : () => showCosmeticPreview(context, o.item),
                 title: Text(
                   o.item.name,
                   maxLines: 1,
@@ -359,17 +566,12 @@ class _OwnedList extends ConsumerWidget {
                         : '${o.viaVip ? 'Until' : 'Expires'} ${Fmt.relative(o.expiresAt)}',
                   ].join(' · '),
                 ),
-                trailing:
-                    o.item.type == 'frame' || o.item.type == 'entry_animation'
+                trailing: o.item.wearable
                     ? _EquipButton(
                         equipped: o.equipped,
-                        busy: busy.contains('equip:${o.item.type}'),
-                        onPressed: () => _equip(
-                          context,
-                          ref,
-                          o.equipped ? null : o.item.id,
-                          o.item.type,
-                        ),
+                        busy: busy.contains(_slotKey(o.item.type)),
+                        onPressed: () =>
+                            _setWorn(context, ref, o.item, wear: !o.equipped),
                       )
                     : null,
               ),

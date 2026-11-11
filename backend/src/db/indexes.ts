@@ -20,6 +20,15 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { phone: 1 }, sparse: true },
     { key: { isAgent: 1 }, partialFilterExpression: { isAgent: true } },
     { key: { adminRole: 1 }, partialFilterExpression: { adminRole: { $type: 'string' } } },
+    {
+      key: { 'platformModerator.since': -1, _id: -1 },
+      partialFilterExpression: { platformModerator: { $type: 'object' } },
+    },
+    // `store.sweep`: equipped items whose ownership expired.
+    ...(['frame', 'entryAnimation', 'roomBackground'] as const).map((slot) => ({
+      key: { [`equipped.${slot}ExpiresAt`]: 1 },
+      partialFilterExpression: { [`equipped.${slot}ExpiresAt`]: { $type: 'date' } },
+    })),
     { key: { 'level.level': -1 } },
     { key: { agencyId: 1 }, partialFilterExpression: { agencyId: { $type: 'objectId' } } },
     {
@@ -44,6 +53,14 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     {
       key: { 'equipped.entryAnimationVipTier': 1 },
       partialFilterExpression: { 'equipped.entryAnimationVipTier': { $gt: 0 } },
+    },
+    {
+      key: { 'equipped.roomBackgroundVipTier': 1 },
+      partialFilterExpression: { 'equipped.roomBackgroundVipTier': { $gt: 0 } },
+    },
+    {
+      key: { 'equipped.roomBackgroundId': 1 },
+      partialFilterExpression: { 'equipped.roomBackgroundId': { $type: 'objectId' } },
     },
   ],
   follows: [
@@ -73,9 +90,17 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
       name: 'youtube_ends_at',
     },
   ],
-  roomPresence: [{ key: { roomId: 1, identity: 1 }, unique: true }],
+  roomPresence: [
+    { key: { roomId: 1, identity: 1 }, unique: true },
+    // Where a user is watching: identity refreshes and dropping a revoked moderator.
+    { key: { identity: 1 } },
+  ],
+  // Dedupes `live_rooms.uniqueViewers`; only needed while a summary can still be computed.
+  liveViewers: [{ key: { createdAt: 1 }, expireAfterSeconds: 90 * 86_400 }],
   roomBans: [
     { key: { hostId: 1, userId: 1 }, unique: true },
+    // The Moderation panel's "banned from these hosts' lives".
+    { key: { userId: 1, createdAt: -1 } },
     {
       key: { until: 1 },
       expireAfterSeconds: 0,

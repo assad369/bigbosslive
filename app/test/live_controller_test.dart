@@ -12,8 +12,11 @@ class _FakeRepo implements LiveRepository {
   Completer<RoomDetail>? polling;
 
   @override
-  Future<LiveSession> join(String roomId, {String? password}) =>
-      joining!.future;
+  Future<LiveSession> join(
+    String roomId, {
+    String? password,
+    bool resume = false,
+  }) => joining!.future;
 
   @override
   Future<RoomDetail> detail(String roomId) => polling!.future;

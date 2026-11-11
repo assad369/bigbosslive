@@ -23,6 +23,9 @@ const FeedModerationPage = lazy(() =>
 );
 const DeviceBansPage = lazy(() => moderation().then((m) => ({ default: m.DeviceBansPage })));
 const PkBattlesPage = lazy(() => moderation().then((m) => ({ default: m.PkBattlesPage })));
+const PlatformModeratorsPage = lazy(() =>
+  moderation().then((m) => ({ default: m.PlatformModeratorsPage })),
+);
 const economy = () => import('./pages/economy/EconomyPages');
 const RechargesPage = lazy(() => economy().then((m) => ({ default: m.RechargesPage })));
 const GiftTransactionsPage = lazy(() =>
@@ -75,6 +78,11 @@ const routes: { path: string; permission: string; element: ReactNode }[] = [
   { path: '/feed', permission: 'feed.moderate', element: <FeedModerationPage /> },
   { path: '/reports', permission: 'reports.read', element: <ReportsPage /> },
   { path: '/devices', permission: 'devices.ban', element: <DeviceBansPage /> },
+  {
+    path: '/platform-moderators',
+    permission: 'users.read',
+    element: <PlatformModeratorsPage />,
+  },
   { path: '/recharges', permission: 'wallet.read', element: <RechargesPage /> },
   { path: '/gift-transactions', permission: 'wallet.read', element: <GiftTransactionsPage /> },
   { path: '/withdrawals', permission: 'withdrawals.read', element: <WithdrawalsPage /> },

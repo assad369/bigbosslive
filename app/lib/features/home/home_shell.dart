@@ -18,20 +18,29 @@ class HomeShell extends ConsumerStatefulWidget {
 
 class _HomeShellState extends ConsumerState<HomeShell> {
   StreamSubscription<Map<String, dynamic>>? _wallet;
+  Timer? _refreshSoon;
+
+  /// A burst of balance pushes (a host receiving gifts) costs one profile fetch.
+  static const _refreshDebounce = Duration(seconds: 3);
 
   @override
   void initState() {
     super.initState();
-    // Server-side balance changes (recharges, agent top-ups) refresh the profile.
-    _wallet = ref
-        .read(socketProvider)
-        .on('wallet:updated')
-        .listen((_) => ref.read(sessionProvider.notifier).refresh());
+    // Every server-side balance change. The new balance applies at once; the profile is
+    // re-read shortly after for what may have moved with it (level, recharge totals).
+    _wallet = ref.read(socketProvider).on('wallet:updated').listen((p) {
+      final session = ref.read(sessionProvider.notifier);
+      final diamonds = p['diamonds'];
+      if (diamonds is num) session.applyBalance(diamonds.toInt());
+      _refreshSoon?.cancel();
+      _refreshSoon = Timer(_refreshDebounce, session.refresh);
+    });
   }
 
   @override
   void dispose() {
     _wallet?.cancel();
+    _refreshSoon?.cancel();
     super.dispose();
   }
 

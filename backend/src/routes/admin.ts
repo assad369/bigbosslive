@@ -331,6 +331,28 @@ export function adminRoutes(ctx: Ctx): Router {
     res.json({ balance });
   });
 
+  // ── Platform moderators (app users who moderate from the app) ─────────────────
+  r.get('/platform-moderators', can('users.read'), async (req, res) => {
+    const q = parseQuery(req, cursorQuery);
+    res.json(await s.platformModerators.list(q.cursor, q.limit));
+  });
+
+  r.post('/platform-moderators', can('moderators.manage'), async (req, res) => {
+    const { user } = parseBody(req, z.object({ user: z.string().trim().min(1).max(128) }));
+    const target = await s.users.resolve(user);
+    if (await s.platformModerators.setFlag(target._id, true, currentUser(req).uid))
+      await audit(req, 'user.platform_moderator', 'user', target._id, { enabled: true });
+    res.status(204).end();
+  });
+
+  r.post('/users/:uid/platform-moderator', can('moderators.manage'), async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    const { enabled } = parseBody(req, z.object({ enabled: z.boolean() }));
+    if (await s.platformModerators.setFlag(uid, enabled, currentUser(req).uid))
+      await audit(req, 'user.platform_moderator', 'user', uid, { enabled });
+    res.status(204).end();
+  });
+
   r.post('/users/:uid/agent', can('agents.manage'), async (req, res) => {
     const { uid } = parseParams(req, uidParam);
     const { isAgent } = parseBody(req, z.object({ isAgent: z.boolean() }));
@@ -372,7 +394,7 @@ export function adminRoutes(ctx: Ctx): Router {
     const user = await ctx.col.users.findOne({ _id: uid }, { projection: { vip: 1, equipped: 1 } });
     if (!user) throw notFound('User');
     res.json({
-      items: await s.store.wardrobe(uid),
+      items: await s.store.wardrobe(uid, { allTypes: true }),
       frame: resolveFrame(user, ctx.clock.now()),
     });
   });
@@ -1102,6 +1124,7 @@ export function adminRoutes(ctx: Ctx): Router {
         adminId: z.string().optional(),
         action: z.string().optional(),
         targetId: z.string().optional(),
+        actorKind: z.enum(['staff', 'platform_moderator', 'system']).optional(),
       }),
     );
     res.json(await s.audit.list(q, q.page, q.pageSize));

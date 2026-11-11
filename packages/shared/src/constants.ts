@@ -133,9 +133,18 @@ export const FRAME_FORMATS = [
   'lottie',
 ] as const satisfies readonly AnimationFormat[];
 
-/** Cosmetic types a user can wear; the others can be owned but not equipped yet. */
-export const EQUIPPABLE_COSMETIC_TYPES = ['frame', 'entry_animation'] as const;
+/**
+ * Cosmetic types a user can wear. A room background is shown behind the stage of the wearer's
+ * own live rooms (a background the host sets for one live still wins).
+ */
+export const EQUIPPABLE_COSMETIC_TYPES = ['frame', 'entry_animation', 'room_background'] as const;
 export type EquippableCosmeticType = (typeof EQUIPPABLE_COSMETIC_TYPES)[number];
+
+/**
+ * Types the app's store and wardrobe show. `chat_bubble` exists in the data but has no
+ * design yet, so it is neither sold nor listed and the admin can't create new ones.
+ */
+export const STORE_COSMETIC_TYPES = EQUIPPABLE_COSMETIC_TYPES;
 
 /** Most decorations one bulk-create request may carry. Larger uploads are chunked. */
 export const MAX_COSMETICS_PER_BATCH = 100;

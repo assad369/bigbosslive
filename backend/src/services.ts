@@ -11,10 +11,12 @@ import { GamesService } from './modules/games/games.service.js';
 import { GiftsService } from './modules/gifts/gifts.service.js';
 import { LevelsService } from './modules/levels/levels.service.js';
 import { LiveService } from './modules/live/live.service.js';
+import { LiveSummaryService } from './modules/live/live-summary.service.js';
 import { MaintenanceService } from './modules/config/maintenance.service.js';
 import { ModerationService } from './modules/moderation/moderation.service.js';
 import { NotificationsService } from './modules/notifications/notifications.service.js';
 import { PkService } from './modules/pk/pk.service.js';
+import { PlatformModeratorsService } from './modules/moderation/platform-moderators.service.js';
 import { StorageSettingsService } from './modules/config/storage-settings.service.js';
 import { ShareService } from './modules/share/share.service.js';
 import { SightGuardEventsService } from './modules/sightguard/sightguard-events.service.js';
@@ -40,10 +42,12 @@ export interface Services {
   iap: IapService;
   levels: LevelsService;
   live: LiveService;
+  liveSummary: LiveSummaryService;
   maintenance: MaintenanceService;
   moderation: ModerationService;
   notifications: NotificationsService;
   pk: PkService;
+  platformModerators: PlatformModeratorsService;
   share: ShareService;
   sightguard: SightGuardService;
   sightguardEvents: SightGuardEventsService;
@@ -75,10 +79,12 @@ export function createServices(ctx: Ctx): Services {
     iap: new IapService(ctx),
     levels: new LevelsService(ctx),
     live: new LiveService(ctx),
+    liveSummary: new LiveSummaryService(ctx),
     maintenance: new MaintenanceService(ctx),
     moderation: new ModerationService(ctx),
     notifications: new NotificationsService(ctx),
     pk: new PkService(ctx),
+    platformModerators: new PlatformModeratorsService(ctx),
     share: new ShareService(ctx),
     sightguard: new SightGuardService(ctx),
     sightguardEvents: new SightGuardEventsService(ctx),

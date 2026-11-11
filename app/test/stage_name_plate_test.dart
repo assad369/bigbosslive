@@ -48,7 +48,9 @@ void main() {
       expect(name, findsOneWidget);
       expect(amount, findsOneWidget);
       expect(avatar, findsOneWidget);
-      expect(find.text('Lv ${user.level}'), findsOneWidget);
+      // The level stays in the profile sheet: the tile's line 1 is the name alone.
+      expect(find.text('Lv ${user.level}'), findsNothing);
+      expect(find.byType(LevelBadge), findsNothing);
 
       // Line 2 sits under line 1, and both sit right of the avatar.
       expect(
@@ -64,7 +66,7 @@ void main() {
         lessThanOrEqualTo(tester.getTopLeft(amount).dx),
       );
 
-      // Only level and name on line 1: no role or VIP badges.
+      // No role or VIP badges either.
       expect(find.byType(RoleBadge), findsNothing);
       expect(find.byType(VipTag), findsNothing);
       expect(find.text('Host'), findsNothing);

@@ -1,4 +1,4 @@
-import { SHORT_ID_PATTERN } from '@bigboss/shared';
+import { SHORT_ID_PATTERN, type AdminRole } from '@bigboss/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import type { Ctx } from '../context.js';
@@ -15,6 +15,7 @@ import {
 import { unauthorized } from '../lib/errors.js';
 import { profileInput } from '../modules/users/users.service.js';
 import { toMeUser } from '../modules/users/users.presenter.js';
+import { moderationFor } from '../modules/moderation/authority.js';
 import { pushTokenInput } from '../modules/notifications/notifications.service.js';
 import { reportInput } from '../modules/moderation/moderation.service.js';
 
@@ -22,15 +23,18 @@ import { reportInput } from '../modules/moderation/moderation.service.js';
 export function accountRoutes(ctx: Ctx): Router {
   const r = Router();
   const auth = requireAuth(ctx);
-  const { users, follows, levels, notifications, moderation, gifts, maintenance } = ctx.services;
+  const { users, follows, levels, notifications, moderation, gifts, maintenance, config } =
+    ctx.services;
 
-  const me = async (uid: string) => {
+  /** `tokenRole` is the verified claim: in-app staff powers never come from the Mongo mirror. */
+  const me = async (uid: string, tokenRole: AdminRole | null) => {
     const user = await users.get(uid);
     return toMeUser(
       user,
       await levels.progress(user),
       ctx.clock.now(),
       await maintenance.hasAccess(uid),
+      moderationFor(user, tokenRole, await config.get('platformModerators')),
     );
   };
 
@@ -42,17 +46,21 @@ export function accountRoutes(ctx: Ctx): Router {
     if (!req.token.adminRole) await maintenance.assertOpen(req.token.uid);
     const input = parseBody(req, profileInput.partial().default({}));
     const { user, created } = await users.ensureProfile(req.token, input);
-    res.status(created ? 201 : 200).json({ user: await me(user._id), created });
+    res
+      .status(created ? 201 : 200)
+      .json({ user: await me(user._id, req.token.adminRole), created });
   });
 
   r.get('/me', auth, async (req, res) => {
-    res.json({ user: await me(currentUser(req).uid) });
+    const auth = currentUser(req);
+    res.json({ user: await me(auth.uid, auth.adminRole) });
   });
 
   r.patch('/me', auth, async (req, res) => {
     const patch = parseBody(req, profileInput.partial());
-    await users.updateProfile(currentUser(req).uid, patch);
-    res.json({ user: await me(currentUser(req).uid) });
+    const auth = currentUser(req);
+    await users.updateProfile(auth.uid, patch);
+    res.json({ user: await me(auth.uid, auth.adminRole) });
   });
 
   r.delete('/me', auth, async (req, res) => {
@@ -145,6 +153,27 @@ export function accountRoutes(ctx: Ctx): Router {
       throw unauthorized('You can only view your own history');
     const { page, pageSize } = parseQuery(req, pageQuery);
     res.json(await ctx.services.live.history(uid, page, pageSize));
+  });
+
+  // One month of history grouped by local day (the Broadcasting History screen).
+  r.get('/users/:uid/live-history/monthly', auth, async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    if (uid !== currentUser(req).uid && !currentUser(req).adminRole)
+      throw unauthorized('You can only view your own history');
+    const { month, tz } = parseQuery(
+      req,
+      z.object({
+        month: z
+          .string()
+          .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+          .optional(),
+        tz: z
+          .string()
+          .regex(/^[+-](0\d|1[0-4]):[0-5]\d$/)
+          .default('+00:00'),
+      }),
+    );
+    res.json(await ctx.services.liveSummary.monthly(uid, month, tz));
   });
 
   r.post('/reports', auth, async (req, res) => {

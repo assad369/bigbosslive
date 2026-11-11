@@ -16,7 +16,11 @@ import '../../features/home/live_list_screen.dart';
 import '../../features/leaderboard/leaderboard_screen.dart';
 import '../../features/live/go_live_screen.dart';
 import '../../features/live/live_room_screen.dart';
+import '../../features/live/live_summary_screen.dart';
+import '../../features/moderation/moderation_screen.dart';
+import '../../features/moderation/user_tools_sheet.dart';
 import '../../features/notifications/notifications_screen.dart';
+import '../../features/profile/broadcast_history.dart';
 import '../../features/profile/profile_screens.dart';
 import '../../features/store/store_screens.dart';
 import '../../features/store/tier_packages_screen.dart';
@@ -187,6 +191,31 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       // A shared profile link carries the short ID people see; the profile itself is
       // addressed by uid.
+      // The Moderation panel: platform moderators only (the server refuses anyone else).
+      GoRoute(
+        path: '/moderation',
+        redirect: (_, _) =>
+            ref.read(sessionProvider).value?.isPlatformModerator == true
+            ? null
+            : '/me',
+        builder: (_, _) => const ModerationScreen(),
+        routes: [
+          GoRoute(
+            path: ':uid/devices',
+            builder: (_, s) => UserDevicesScreen(
+              uid: s.pathParameters['uid']!,
+              user: s.extra is UserBrief ? s.extra! as UserBrief : null,
+            ),
+          ),
+          GoRoute(
+            path: ':uid/live-bans',
+            builder: (_, s) => UserLiveBansScreen(
+              uid: s.pathParameters['uid']!,
+              user: s.extra is UserBrief ? s.extra! as UserBrief : null,
+            ),
+          ),
+        ],
+      ),
       GoRoute(
         path: '/u/:shortId',
         builder: (_, s) =>
@@ -251,7 +280,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings/blocked',
         builder: (_, _) => const BlockedUsersScreen(),
       ),
-      GoRoute(path: '/history', builder: (_, _) => const LiveHistoryScreen()),
+      GoRoute(
+        path: '/history',
+        builder: (_, _) => const BroadcastHistoryScreen(),
+      ),
+      GoRoute(
+        path: '/live-summary/:id',
+        builder: (_, s) => LiveSummaryScreen(roomId: s.pathParameters['id']!),
+      ),
       GoRoute(path: '/post/new', builder: (_, _) => const CreatePostScreen()),
       GoRoute(
         path: '/post/:id',

@@ -156,14 +156,30 @@ class LiveRepository {
     ),
   );
 
-  /// [password] unlocks a locked room that has one.
-  Future<LiveSession> join(String roomId, {String? password}) async =>
-      LiveSession.fromJson(
-        await _api.post(
-          '/live/$roomId/join',
-          body: password == null ? null : {'password': password},
-        ),
-      );
+  /// [password] unlocks a locked room that has one. [resume] is a reconnect of someone
+  /// already watching: the room doesn't see their entrance again.
+  Future<LiveSession> join(
+    String roomId, {
+    String? password,
+    bool resume = false,
+  }) async => LiveSession.fromJson(
+    await _api.post(
+      '/live/$roomId/join',
+      body: password == null && !resume
+          ? null
+          : {'password': ?password, if (resume) 'resume': true},
+    ),
+  );
+
+  /// A platform moderator takes a free seat without approval, or leaves it. Returns
+  /// whether they are hidden from the room afterwards (stealth).
+  Future<bool> platformModeratorStage(
+    String roomId, {
+    required bool onStage,
+  }) async => (await _api.post(
+    '/live/$roomId/platform-moderator/stage',
+    body: {'onStage': onStage},
+  )).flag('hidden');
   Future<RoomDetail> detail(String roomId) async =>
       RoomDetail.fromJson((await _api.get('/live/$roomId')).obj('room'));
   Future<void> heartbeat(String roomId) => _api.post('/live/$roomId/heartbeat');
@@ -308,8 +324,39 @@ class LiveRepository {
         query: {'tab': tab},
       )).list('items', PkCandidate.fromJson);
 
-  Future<Json> history(String uid, {int page = 1}) =>
-      _api.get('/users/$uid/live-history', query: {'page': page});
+  /// One month of [uid]'s ended lives, grouped by the local day each started. [month] is
+  /// the first of the month; days follow the device's current UTC offset.
+  Future<LiveHistoryMonth> monthlyHistory(
+    String uid,
+    DateTime month, {
+    Duration? utcOffset,
+  }) async {
+    final offset = utcOffset ?? DateTime.now().timeZoneOffset;
+    return LiveHistoryMonth.fromJson(
+      await _api.get(
+        '/users/$uid/live-history/monthly',
+        query: {'month': historyMonthKey(month), 'tz': utcOffsetLabel(offset)},
+      ),
+    );
+  }
+
+  /// How an ended live went (host or staff only; 409 while it is still running).
+  Future<LiveSummary> summary(String roomId) async => LiveSummary.fromJson(
+    (await _api.get('/live/$roomId/summary')).obj('summary'),
+  );
+}
+
+/// `2026-03` for March 2026.
+String historyMonthKey(DateTime month) =>
+    '${month.year.toString().padLeft(4, '0')}-${month.month.toString().padLeft(2, '0')}';
+
+/// `+06:00` / `-03:30` for a UTC offset, as the history endpoint takes it.
+String utcOffsetLabel(Duration offset) {
+  final minutes = offset.inMinutes;
+  final sign = minutes < 0 ? '-' : '+';
+  final abs = minutes.abs();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '$sign${two(abs ~/ 60)}:${two(abs % 60)}';
 }
 
 class EconomyRepository {
@@ -687,4 +734,89 @@ class SocialRepository {
 
   Future<void> markAllNotificationsRead() =>
       _api.post('/notifications/read', body: {'ids': 'all'});
+}
+
+/// The Moderation panel (`/moderator/*`), for platform moderators. Every rule is the
+/// server's; a refusal comes back as an [ApiException] whose message is shown as is.
+class ModerationRepository {
+  ModerationRepository(this._api);
+  final ApiClient _api;
+
+  /// [status] is `all`, `banned` or `active`. An empty [query] lists the newest accounts.
+  Future<Paged<ModeratedUser>> search({
+    String query = '',
+    String status = 'all',
+    String? cursor,
+  }) async => Paged.fromJson(
+    await _api.get(
+      '/moderator/users',
+      query: {'q': query, 'status': status, 'cursor': cursor},
+    ),
+    ModeratedUser.fromJson,
+  );
+
+  Future<ModeratedUser> user(String uid) async => ModeratedUser.fromJson(
+    (await _api.get('/moderator/users/$uid')).obj('user'),
+  );
+
+  /// [days] is 1, 7 or 30; null bans until lifted. Keep one [idempotencyKey] per ban the
+  /// moderator means, so a retry after a timeout never bans (or cascades) twice.
+  Future<({ModeratedUser user, DeviceBanResult? devices})> ban(
+    String uid, {
+    required String reason,
+    int? days,
+    bool banDevices = false,
+    required String idempotencyKey,
+  }) async {
+    final j = await _api.post(
+      '/moderator/users/$uid/ban',
+      body: {'reason': reason, 'days': days, 'banDevices': banDevices},
+      idempotent: true,
+      idempotencyKey: idempotencyKey,
+    );
+    return (
+      user: ModeratedUser.fromJson(j.obj('user')),
+      devices: switch (j.objOrNull('devices')) {
+        final d? => DeviceBanResult.fromJson(d),
+        null => null,
+      },
+    );
+  }
+
+  Future<ModeratedUser> unban(String uid) async => ModeratedUser.fromJson(
+    (await _api.post('/moderator/users/$uid/unban')).obj('user'),
+  );
+
+  Future<List<ModeratedDevice>> devices(String uid) async =>
+      (await _api.get('/moderator/users/$uid/devices'))
+          .list('items', ModeratedDevice.fromJson);
+
+  Future<DeviceBanPreview> deviceBanPreview(String uid) async =>
+      DeviceBanPreview.fromJson(
+        await _api.get('/moderator/users/$uid/device-ban-preview'),
+      );
+
+  Future<DeviceBanResult> banDevice(
+    String deviceId, {
+    required String reason,
+    required String idempotencyKey,
+  }) async => DeviceBanResult.fromJson(
+    await _api.post(
+      '/moderator/devices/${Uri.encodeComponent(deviceId)}/ban',
+      body: {'reason': reason},
+      idempotent: true,
+      idempotencyKey: idempotencyKey,
+    ),
+  );
+
+  Future<List<ModeratedRoomBan>> roomBans(String uid) async =>
+      (await _api.get('/moderator/users/$uid/room-bans'))
+          .list('items', ModeratedRoomBan.fromJson);
+
+  Future<void> liftRoomBan(String hostId, String uid) =>
+      _api.delete('/moderator/room-bans/$hostId/$uid');
+
+  /// End someone's live for everyone in it.
+  Future<void> endLive(String roomId) =>
+      _api.post('/moderator/live/$roomId/end');
 }

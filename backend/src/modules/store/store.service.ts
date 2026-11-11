@@ -9,6 +9,7 @@ import {
   MAX_VIP_TIER,
   MEDIA_EXTENSIONS,
   MEDIA_TYPES,
+  STORE_COSMETIC_TYPES,
   vipTierLabel,
   type AdminCosmetic,
   type AdminUserCosmetic,
@@ -18,13 +19,14 @@ import {
   type EntryEffect,
   type EquippableCosmeticType,
   type OwnedCosmetic,
+  type StoreCosmetic,
 } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { CosmeticDoc, UserDoc } from '../../db/schema.js';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
 import { once } from '../../lib/idempotency.js';
 import { addDays } from '../../lib/time.js';
-import { activeVipTier } from '../users/users.presenter.js';
+import { activeVipTier, SLOT_PREFIX, slotWearable } from '../users/users.presenter.js';
 
 export const cosmeticInput = z.object({
   type: z.enum(COSMETIC_TYPES),
@@ -98,35 +100,66 @@ function checkCosmetic(c: Omit<CosmeticDoc, '_id' | 'createdAt'>): void {
 }
 
 /** The `equipped.*` fields of each wearable slot. */
-const SLOTS = {
-  frame: { id: 'equipped.frameId', tier: 'equipped.frameVipTier' },
-  entry_animation: { id: 'equipped.entryAnimationId', tier: 'equipped.entryAnimationVipTier' },
-} as const;
+function slotOf(type: EquippableCosmeticType) {
+  const p = `equipped.${SLOT_PREFIX[type]}`;
+  return { id: `${p}Id`, tier: `${p}VipTier`, expires: `${p}ExpiresAt` } as const;
+}
+const SLOTS = Object.fromEntries(EQUIPPABLE_COSMETIC_TYPES.map((t) => [t, slotOf(t)])) as {
+  [T in EquippableCosmeticType]: ReturnType<typeof slotOf>;
+};
 
-/** Wear `item`; `vipTier` is 0 when owned, else the tier that entitles the wearer. */
-function equipFields(item: CosmeticDoc, type: EquippableCosmeticType, vipTier: number) {
-  return type === 'frame'
-    ? {
-        'equipped.frameId': item._id,
-        'equipped.frameUrl': item.assetUrl,
-        'equipped.frameFormat': item.animationFormat,
-        'equipped.frameVipTier': vipTier,
-      }
-    : { 'equipped.entryAnimationId': item._id, 'equipped.entryAnimationVipTier': vipTier };
+/**
+ * Wear `item`. `vipTier` is 0 when owned, else the tier that entitles the wearer;
+ * `expiresAt` is the ownership's expiry (null when worn through a tier).
+ */
+function equipFields(
+  item: CosmeticDoc,
+  type: EquippableCosmeticType,
+  vipTier: number,
+  expiresAt: Date | null,
+): Record<string, unknown> {
+  const slot = SLOTS[type];
+  const out: Record<string, unknown> = {
+    [slot.id]: item._id,
+    [slot.tier]: vipTier,
+    [slot.expires]: vipTier > 0 ? null : expiresAt,
+  };
+  if (type === 'frame') {
+    out['equipped.frameUrl'] = item.assetUrl;
+    out['equipped.frameFormat'] = item.animationFormat;
+  }
+  if (type === 'room_background') out['equipped.roomBackgroundUrl'] = item.assetUrl;
+  return out;
 }
 
-function unequipFields(type: EquippableCosmeticType) {
-  return type === 'frame'
-    ? {
-        'equipped.frameId': null,
-        'equipped.frameUrl': null,
-        'equipped.frameFormat': 'none' as const,
-        'equipped.frameVipTier': 0,
-      }
-    : { 'equipped.entryAnimationId': null, 'equipped.entryAnimationVipTier': 0 };
+function unequipFields(type: EquippableCosmeticType): Record<string, unknown> {
+  const slot = SLOTS[type];
+  const out: Record<string, unknown> = { [slot.id]: null, [slot.tier]: 0, [slot.expires]: null };
+  if (type === 'frame') {
+    out['equipped.frameUrl'] = null;
+    out['equipped.frameFormat'] = 'none';
+  }
+  if (type === 'room_background') out['equipped.roomBackgroundUrl'] = null;
+  return out;
 }
+
+/** Users the hourly sweep handles per batch. Cleared rows stop matching, so it always progresses. */
+const SWEEP_BATCH = 500;
+/** Upper bound on one sweep's batches, so a backlog is spread over runs instead of one long job. */
+const SWEEP_MAX_BATCHES = 200;
+
+const storeType = (t: CosmeticType) => (STORE_COSMETIC_TYPES as readonly string[]).includes(t);
 
 const sameId = (a: ObjectId | null | undefined, b: ObjectId) => !!a && a.equals(b);
+
+/** Whether `item` is the one in its slot of `equipped`. */
+function isWornBy(equipped: UserDoc['equipped'] | undefined, item: CosmeticDoc): boolean {
+  if (!equipped || !isEquippable(item.type)) return false;
+  const id = (equipped as unknown as Record<string, ObjectId | null | undefined>)[
+    `${SLOT_PREFIX[item.type]}Id`
+  ];
+  return sameId(id, item._id);
+}
 
 /** Cosmetics (avatar frames, entry animations, room backgrounds, bubbles). Tier packages live in `TierPackagesService`. */
 export class StoreService {
@@ -140,6 +173,40 @@ export class StoreService {
       .sort({ type: 1, sortOrder: 1 })
       .toArray();
     return docs.map(toCosmetic);
+  }
+
+  /**
+   * The app's store: active items of the types the app sells, each with the caller's own
+   * state (owned until when, worn), so a tile can say Owned / Equipped instead of Buy.
+   */
+  async storeItems(uid: string, type: CosmeticType | undefined): Promise<StoreCosmetic[]> {
+    if (type && !storeType(type)) return [];
+    const now = this.ctx.clock.now();
+    const [docs, user] = await Promise.all([
+      this.ctx.col.cosmetics
+        .find({ active: true, type: type ? type : { $in: [...STORE_COSMETIC_TYPES] } })
+        .sort({ type: 1, sortOrder: 1 })
+        .toArray(),
+      this.ctx.col.users.findOne({ _id: uid }, { projection: { equipped: 1 } }),
+    ]);
+    const owned = docs.length
+      ? await this.ctx.col.userCosmetics
+          .find(
+            { userId: uid, cosmeticId: { $in: docs.map((d) => d._id) }, expiresAt: { $gt: now } },
+            { projection: { cosmeticId: 1, expiresAt: 1 } },
+          )
+          .toArray()
+      : [];
+    const until = new Map(owned.map((o) => [String(o.cosmeticId), o.expiresAt]));
+    return docs.map((d) => {
+      const ownedUntil = until.get(String(d._id)) ?? null;
+      return {
+        ...toCosmetic(d),
+        owned: Boolean(ownedUntil),
+        ownedUntil: ownedUntil?.toISOString() ?? null,
+        equipped: isWornBy(user?.equipped, d),
+      };
+    });
   }
 
   /** The admin catalog: paged and filtered, with how many users hold each item now. */
@@ -199,6 +266,8 @@ export class StoreService {
   async createCosmetics(inputs: CosmeticInput[]): Promise<Cosmetic[]> {
     inputs.forEach((input, i) => {
       try {
+        if (!storeType(input.type))
+          throw badRequest(`New ${input.type.replace('_', ' ')} items can't be created yet`);
         checkCosmetic(input);
       } catch (err) {
         if (inputs.length > 1 && err instanceof Error)
@@ -247,7 +316,7 @@ export class StoreService {
           { session },
         ),
         this.ctx.col.users.countDocuments(
-          { $or: [{ 'equipped.frameId': id }, { 'equipped.entryAnimationId': id }] },
+          { $or: EQUIPPABLE_COSMETIC_TYPES.map((t) => ({ [SLOTS[t].id]: id })) } as Filter<UserDoc>,
           { session },
         ),
       ]);
@@ -268,6 +337,10 @@ export class StoreService {
   private async syncEquipped(item: CosmeticDoc): Promise<void> {
     if (!isEquippable(item.type)) return;
     const slot = SLOTS[item.type];
+    // Who wears it now, before the writes below may take it off some of them.
+    const wearers = await this.ctx.col.users.distinct('_id', {
+      [slot.id]: item._id,
+    } as Filter<UserDoc>);
     if (item.type === 'frame')
       await this.ctx.col.users.updateMany(
         { 'equipped.frameId': item._id },
@@ -278,12 +351,30 @@ export class StoreService {
           },
         },
       );
+    if (item.type === 'room_background')
+      await this.ctx.col.users.updateMany(
+        { 'equipped.roomBackgroundId': item._id },
+        { $set: { 'equipped.roomBackgroundUrl': item.assetUrl } },
+      );
     const viaVip = { [slot.id]: item._id, [slot.tier]: { $gt: 0 } } as Filter<UserDoc>;
     const $set =
       item.vipIncluded && item.active
         ? { [slot.tier]: item.vipTierRequired }
         : unequipFields(item.type);
     await this.ctx.col.users.updateMany(viaVip, { $set } as UpdateFilter<UserDoc>);
+    await this.refreshWearers(wearers);
+  }
+
+  /**
+   * After what some users wear changed: re-mint their live identity (frame in LiveKit
+   * metadata, directory card, room background) where they are live or watching. Never fails
+   * the change that caused it.
+   */
+  private async refreshWearers(uids: string[]): Promise<void> {
+    if (!uids.length) return;
+    await this.ctx.services.live
+      .refreshIdentities(uids)
+      .catch((err: unknown) => this.ctx.log.warn({ err }, 'live identity refresh failed'));
   }
 
   // ── Ownership & wearing ─────────────────────────────────────────────────────────
@@ -318,12 +409,22 @@ export class StoreService {
       },
       { upsert: true, session },
     );
+    // Extending an item that is worn: the slot carries the new expiry, or it would lapse at
+    // the old one.
+    if (isEquippable(item.type)) {
+      const slot = SLOTS[item.type];
+      await this.ctx.col.users.updateOne(
+        { _id: uid, [slot.id]: item._id, [slot.tier]: { $not: { $gt: 0 } } } as Filter<UserDoc>,
+        { $set: { [slot.expires]: expiresAt } } as UpdateFilter<UserDoc>,
+        { session },
+      );
+    }
     return expiresAt;
   }
 
   async purchaseCosmetic(uid: string, cosmeticId: ObjectId, key: string) {
     const item = await this.ctx.col.cosmetics.findOne({ _id: cosmeticId, active: true });
-    if (!item) throw notFound('Item');
+    if (!item || !storeType(item.type)) throw notFound('Item');
     if (item.vipIncluded)
       throw badRequest(
         `Included with ${vipTierLabel(item.vipTierRequired) ?? `tier ${item.vipTierRequired}`}`,
@@ -393,7 +494,9 @@ export class StoreService {
         if (equipped)
           await this.ctx.col.users.updateOne(
             { _id: uid },
-            { $set: equipFields(item, item.type as EquippableCosmeticType, 0) },
+            {
+              $set: equipFields(item, item.type as EquippableCosmeticType, 0, expiresAt),
+            } as UpdateFilter<UserDoc>,
             { session },
           );
         return {
@@ -406,25 +509,28 @@ export class StoreService {
         };
       },
     );
+    if (result.equipped && !replayed) await this.refreshWearers([uid]);
     return { ...result, replayed };
   }
 
   /** Take back an owned decoration; it comes off unless the user wears it through VIP. */
   async revokeCosmetic(uid: string, cosmeticId: ObjectId): Promise<void> {
-    await this.ctx.db.withTransaction(async (session) => {
+    const takenOff = await this.ctx.db.withTransaction(async (session) => {
       const removed = await this.ctx.col.userCosmetics.findOneAndDelete(
         { userId: uid, cosmeticId },
         { session },
       );
       if (!removed) throw notFound('This user does not own that decoration');
-      if (!isEquippable(removed.type)) return;
+      if (!isEquippable(removed.type)) return false;
       const slot = SLOTS[removed.type];
-      await this.ctx.col.users.updateOne(
+      const res = await this.ctx.col.users.updateOne(
         { _id: uid, [slot.id]: cosmeticId, [slot.tier]: { $not: { $gt: 0 } } } as Filter<UserDoc>,
         { $set: unequipFields(removed.type) } as UpdateFilter<UserDoc>,
         { session },
       );
+      return res.modifiedCount > 0;
     });
+    if (takenOff) await this.refreshWearers([uid]);
   }
 
   /** What a user may wear: owned items, then items their VIP tier includes. */
@@ -438,7 +544,7 @@ export class StoreService {
   }
 
   /** {@link owned} with acquisition details, for the admin's view of a user. */
-  async wardrobe(uid: string): Promise<AdminUserCosmetic[]> {
+  async wardrobe(uid: string, opts: { allTypes?: boolean } = {}): Promise<AdminUserCosmetic[]> {
     const now = this.ctx.clock.now();
     const user = await this.ctx.col.users.findOne(
       { _id: uid },
@@ -446,14 +552,21 @@ export class StoreService {
     );
     if (!user) throw notFound('User');
     const tier = activeVipTier(user.vip, now);
+    // The app lists only what it can show; the admin sees everything the user holds.
+    const typeFilter = opts.allTypes ? {} : { type: { $in: [...STORE_COSMETIC_TYPES] } };
     const [rows, included] = await Promise.all([
       this.ctx.col.userCosmetics
-        .find({ userId: uid, expiresAt: { $gt: now } })
+        .find({ userId: uid, expiresAt: { $gt: now }, ...typeFilter })
         .sort({ acquiredAt: -1 })
         .toArray(),
       tier > 0
         ? this.ctx.col.cosmetics
-            .find({ vipIncluded: true, active: true, vipTierRequired: { $gte: 1, $lte: tier } })
+            .find({
+              vipIncluded: true,
+              active: true,
+              vipTierRequired: { $gte: 1, $lte: tier },
+              ...typeFilter,
+            })
             .sort({ type: 1, sortOrder: 1, _id: -1 })
             .toArray()
         : [],
@@ -462,10 +575,7 @@ export class StoreService {
       ? await this.ctx.col.cosmetics.find({ _id: { $in: rows.map((r) => r.cosmeticId) } }).toArray()
       : [];
     const byId = new Map(items.map((i) => [String(i._id), i]));
-    const isWorn = (item: CosmeticDoc) =>
-      item.type === 'frame'
-        ? sameId(user.equipped.frameId, item._id)
-        : item.type === 'entry_animation' && sameId(user.equipped.entryAnimationId, item._id);
+    const isWorn = (item: CosmeticDoc) => isWornBy(user.equipped, item);
 
     const out: AdminUserCosmetic[] = [];
     const seen = new Set<string>();
@@ -498,85 +608,112 @@ export class StoreService {
     return out;
   }
 
-  /** Wear an item the user owns, or one their active VIP tier includes; null takes it off. */
+  /**
+   * Wear an item the user owns, or one their active VIP tier includes; null takes it off.
+   * The ownership read and the slot write share a transaction, so a concurrent revoke or sweep
+   * can't leave an item worn that is no longer held. Live rooms pick the change up at once.
+   */
   async equip(
     uid: string,
     cosmeticId: ObjectId | null,
     type: EquippableCosmeticType,
   ): Promise<void> {
     if (!cosmeticId) {
-      await this.ctx.col.users.updateOne({ _id: uid }, { $set: unequipFields(type) });
+      const res = await this.ctx.col.users.updateOne(
+        { _id: uid, [SLOTS[type].id]: { $ne: null } } as Filter<UserDoc>,
+        { $set: unequipFields(type) } as UpdateFilter<UserDoc>,
+      );
+      if (res.modifiedCount) await this.refreshWearers([uid]);
       return;
     }
     const now = this.ctx.clock.now();
-    const [owned, item, user] = await Promise.all([
-      this.ctx.col.userCosmetics.findOne({ userId: uid, cosmeticId, expiresAt: { $gt: now } }),
-      this.ctx.col.cosmetics.findOne({ _id: cosmeticId }),
-      this.ctx.col.users.findOne({ _id: uid }, { projection: { vip: 1 } }),
-    ]);
-    if (!user) throw notFound('User');
-    const included =
-      !!item?.vipIncluded && item.active && item.vipTierRequired <= activeVipTier(user.vip, now);
-    if (!owned && !included) throw forbidden('You do not own this item');
-    if (!item || item.type !== type) throw badRequest(`Item is not a ${type}`);
-    await this.ctx.col.users.updateOne(
-      { _id: uid },
-      { $set: equipFields(item, type, owned ? 0 : item.vipTierRequired) },
-    );
+    await this.ctx.db.withTransaction(async (session) => {
+      const [owned, item, user] = await Promise.all([
+        this.ctx.col.userCosmetics.findOne(
+          { userId: uid, cosmeticId, expiresAt: { $gt: now } },
+          { session },
+        ),
+        this.ctx.col.cosmetics.findOne({ _id: cosmeticId }, { session }),
+        this.ctx.col.users.findOne({ _id: uid }, { session, projection: { vip: 1 } }),
+      ]);
+      if (!user) throw notFound('User');
+      if (!item) throw notFound('Item');
+      if (item.type !== type) throw badRequest(`Item is not a ${type}`);
+      const included =
+        !!item.vipIncluded && item.active && item.vipTierRequired <= activeVipTier(user.vip, now);
+      if (!owned && !included) throw forbidden('You do not own this item');
+      await this.ctx.col.users.updateOne(
+        { _id: uid },
+        {
+          $set: equipFields(item, type, owned ? 0 : item.vipTierRequired, owned?.expiresAt ?? null),
+        } as UpdateFilter<UserDoc>,
+        { session },
+      );
+    });
+    await this.refreshWearers([uid]);
   }
 
   /**
    * Take off what nobody may wear any more: items whose ownership expired, and items worn
-   * through a VIP tier the user no longer holds. Reads already ignore both; this keeps the
-   * stored state honest. Run by the hourly job.
+   * through a VIP tier the user no longer holds. Reads already ignore both
+   * (`slotWearable`); this keeps the stored state honest and live rooms current. Run by the
+   * hourly job.
+   *
+   * It queries the users' own slots (`*ExpiresAt`, `*VipTier`), never the ownership rows,
+   * which are kept after they expire: a scan over those re-read the same oldest rows forever
+   * once there were more than one batch of them. Cleared users stop matching, so every batch
+   * makes progress.
    */
   async sweepExpired(): Promise<number> {
     const now = this.ctx.clock.now();
-    const expired = await this.ctx.col.userCosmetics
-      .find({ expiresAt: { $lte: now } }, { projection: { userId: 1, cosmeticId: 1 } })
-      .limit(5000)
-      .toArray();
+    const touched = new Set<string>();
     let cleared = 0;
-    for (const e of expired) {
-      for (const type of EQUIPPABLE_COSMETIC_TYPES) {
-        const slot = SLOTS[type];
-        // Worn through VIP is still fine while the tier lasts; that is checked below.
-        const res = await this.ctx.col.users.updateOne(
-          {
-            _id: e.userId,
-            [slot.id]: e.cosmeticId,
-            [slot.tier]: { $not: { $gt: 0 } },
-          } as Filter<UserDoc>,
-          { $set: unequipFields(type) } as UpdateFilter<UserDoc>,
-        );
-        cleared += res.modifiedCount;
-      }
-    }
     for (const type of EQUIPPABLE_COSMETIC_TYPES) {
       const slot = SLOTS[type];
-      const res = await this.ctx.col.users.updateMany(
+      const lapsed: Filter<UserDoc>[] = [
+        // Owned and expired (slots worn through a tier carry no expiry).
+        { [slot.expires]: { $lte: now } } as Filter<UserDoc>,
+        // Worn through a tier that ended or is now too low.
         {
           [slot.tier]: { $gt: 0 },
           $or: [
             { 'vip.expiresAt': { $lte: now } },
-            { $expr: { $lt: ['$vip.tier', `$${slot.tier}`] } },
+            { $expr: { $lt: [{ $ifNull: ['$vip.tier', 0] }, `$${slot.tier}`] } },
           ],
         } as Filter<UserDoc>,
-        { $set: unequipFields(type) } as UpdateFilter<UserDoc>,
-      );
-      cleared += res.modifiedCount;
+      ];
+      for (const filter of lapsed) {
+        for (let batch = 0; batch < SWEEP_MAX_BATCHES; batch++) {
+          const ids = await this.ctx.col.users
+            .find(filter, { projection: { _id: 1 } })
+            .limit(SWEEP_BATCH)
+            .map((u) => u._id)
+            .toArray();
+          if (!ids.length) break;
+          const res = await this.ctx.col.users.updateMany(
+            { $and: [{ _id: { $in: ids } }, filter] } as Filter<UserDoc>,
+            { $set: unequipFields(type) } as UpdateFilter<UserDoc>,
+          );
+          cleared += res.modifiedCount;
+          ids.forEach((id) => touched.add(id));
+          if (ids.length < SWEEP_BATCH) break;
+        }
+      }
     }
+    await this.refreshWearers([...touched]);
     return cleared;
   }
 
   /**
-   * The entrance effect played when `uid` joins a room: their equipped entry animation (one
-   * worn through a tier only while that tier is held), else none.
+   * The entrance effect played when `uid` joins a room: their equipped entry animation while
+   * it is wearable (worn through a tier only while that tier is held, owned only until the
+   * ownership expires), else none.
    */
   async entryEffectFor(uid: string, vipTier: number): Promise<EntryEffect | null> {
     const user = await this.ctx.col.users.findOne({ _id: uid }, { projection: { equipped: 1 } });
     const e = user?.equipped;
-    if (!e?.entryAnimationId || (e.entryAnimationVipTier ?? 0) > vipTier) return null;
+    if (!e?.entryAnimationId || !slotWearable(e, 'entry_animation', vipTier, this.ctx.clock.now()))
+      return null;
     const item = await this.ctx.col.cosmetics.findOne(
       { _id: e.entryAnimationId },
       { projection: { assetUrl: 1, animationFormat: 1 } },

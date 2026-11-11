@@ -224,6 +224,7 @@ class PublicUser {
     this.agencyId,
     this.isFollowing = false,
     this.isBlocked = false,
+    this.diamonds,
   });
 
   final UserBrief brief;
@@ -236,6 +237,10 @@ class PublicUser {
   final String? agencyId;
   final bool isFollowing;
   final bool isBlocked;
+
+  /// Current wallet balance, sent with a profile (`GET /users/:uid`); null in lists and
+  /// from older servers.
+  final int? diamonds;
 
   String get id => brief.id;
 
@@ -250,6 +255,7 @@ class PublicUser {
     agencyId: j.strOrNull('agencyId'),
     isFollowing: j.flag('isFollowing'),
     isBlocked: j.flag('isBlocked'),
+    diamonds: j['diamonds'] is num ? j.integer('diamonds') : null,
   );
 }
 
@@ -264,6 +270,7 @@ class MeUser {
     this.phone,
     this.vipExpiresAt,
     this.maintenanceAccess = false,
+    this.moderation,
   });
   final PublicUser profile;
   final Wallet wallet;
@@ -276,6 +283,15 @@ class MeUser {
 
   /// On the admin's maintenance list: keeps using the app while maintenance mode is on.
   final bool maintenanceAccess;
+
+  /// What this user may moderate from the app; null for everyone else.
+  final MeModeration? moderation;
+
+  /// Opens the Moderation panel (holds the platform moderator role).
+  bool get isPlatformModerator => moderation?.isPlatformModerator ?? false;
+
+  /// May remove, ban, mute and delete chat in any live, and end any live.
+  bool get canModerateLive => moderation?.canModerateLive ?? false;
 
   String get id => profile.id;
   UserBrief get brief => profile.brief;
@@ -290,6 +306,7 @@ class MeUser {
     phone: phone,
     vipExpiresAt: vipExpiresAt,
     maintenanceAccess: maintenanceAccess,
+    moderation: moderation,
   );
 
   /// The server said this account is no longer on the maintenance list.
@@ -302,6 +319,7 @@ class MeUser {
     email: email,
     phone: phone,
     vipExpiresAt: vipExpiresAt,
+    moderation: moderation,
   );
 
   MeUser withDiamonds(int diamonds) =>
@@ -317,6 +335,201 @@ class MeUser {
     phone: j.strOrNull('phone'),
     vipExpiresAt: j.date('vipExpiresAt'),
     maintenanceAccess: j.flag('maintenanceAccess'),
+    moderation: switch (j.objOrNull('moderation')) {
+      final m? => MeModeration.fromJson(m),
+      null => null,
+    },
+  );
+}
+
+/// In-app moderation rights (`/me.moderation`). The server enforces every one of them; the
+/// app only uses this to decide what to draw.
+class MeModeration {
+  const MeModeration({
+    this.isPlatformModerator = false,
+    this.canModerateLive = false,
+    this.stealthEnabled = false,
+    this.selfStageEnabled = false,
+  });
+
+  /// Holds the platform moderator role: opens the Moderation panel.
+  final bool isPlatformModerator;
+
+  /// May remove, ban, mute and delete chat in any live, and end any live.
+  final bool canModerateLive;
+
+  /// Joins lives hidden (no viewer count, join line or entrance).
+  final bool stealthEnabled;
+
+  /// May take a free seat without the host's approval.
+  final bool selfStageEnabled;
+
+  factory MeModeration.fromJson(Json j) => MeModeration(
+    isPlatformModerator: j.flag('isPlatformModerator'),
+    canModerateLive: j.flag('canModerateLive'),
+    stealthEnabled: j.flag('stealthEnabled'),
+    selfStageEnabled: j.flag('selfStageEnabled'),
+  );
+}
+
+/// A row of the Moderation panel's user search.
+class ModeratedUser {
+  const ModeratedUser({
+    required this.user,
+    required this.status,
+    this.banReason,
+    this.bannedUntil,
+    this.bannedAt,
+    this.isPlatformModerator = false,
+    this.isAgent = false,
+    this.isStaff = false,
+    this.createdAt,
+  });
+  final UserBrief user;
+  final String status;
+  final String? banReason;
+
+  /// Null on a permanent ban (or when not banned).
+  final DateTime? bannedUntil;
+  final DateTime? bannedAt;
+  final bool isPlatformModerator;
+  final bool isAgent;
+
+  /// Dashboard staff. Platform moderators can't act on them.
+  final bool isStaff;
+  final DateTime? createdAt;
+
+  String get id => user.id;
+  bool get isBanned => status == 'banned';
+
+  /// Only staff may act on staff and platform moderators; the server says so too.
+  bool get isProtected => isStaff || isPlatformModerator;
+
+  factory ModeratedUser.fromJson(Json j) {
+    final ban = j.objOrNull('ban');
+    return ModeratedUser(
+      user: UserBrief.fromJson(j.obj('user')),
+      status: j.str('status', 'active'),
+      banReason: ban?.strOrNull('reason'),
+      bannedUntil: ban?.date('until'),
+      bannedAt: ban?.date('at'),
+      isPlatformModerator: j.flag('isPlatformModerator'),
+      isAgent: j.flag('isAgent'),
+      isStaff: j.flag('isStaff'),
+      createdAt: j.date('createdAt'),
+    );
+  }
+}
+
+/// A device an account signed in from.
+class ModeratedDevice {
+  const ModeratedDevice({
+    required this.deviceId,
+    this.platform,
+    this.lastSeenAt,
+    this.accountCount = 1,
+    this.banned = false,
+    this.isYours = false,
+  });
+  final String deviceId;
+  final String? platform;
+  final DateTime? lastSeenAt;
+  final int accountCount;
+  final bool banned;
+
+  /// The moderator's own handset: it can't be banned from here.
+  final bool isYours;
+
+  factory ModeratedDevice.fromJson(Json j) => ModeratedDevice(
+    deviceId: j.str('deviceId'),
+    platform: j.strOrNull('platform'),
+    lastSeenAt: j.date('lastSeenAt'),
+    accountCount: j.integer('accountCount', 1),
+    banned: j.flag('banned'),
+    isYours: j.flag('isYours'),
+  );
+}
+
+/// An account a device ban would leave alone, and why.
+class SkippedAccount {
+  const SkippedAccount({required this.uid, required this.reason, this.user});
+  final String uid;
+  final String reason;
+  final UserBrief? user;
+
+  factory SkippedAccount.fromJson(Json j) => SkippedAccount(
+    uid: j.str('uid'),
+    reason: j.str('reason'),
+    user: switch (j.objOrNull('user')) {
+      final u? => UserBrief.fromJson(u),
+      null => null,
+    },
+  );
+}
+
+/// What banning every device of an account would do. Nothing is written until confirmed.
+class DeviceBanPreview {
+  const DeviceBanPreview({
+    required this.devices,
+    required this.accounts,
+    this.alreadyBanned = 0,
+    this.skipped = const [],
+  });
+  final int devices;
+
+  /// Accounts that would be banned, the target included.
+  final int accounts;
+  final int alreadyBanned;
+  final List<SkippedAccount> skipped;
+
+  factory DeviceBanPreview.fromJson(Json j) => DeviceBanPreview(
+    devices: j.integer('devices'),
+    accounts: j.integer('accounts'),
+    alreadyBanned: j.integer('alreadyBanned'),
+    skipped: j.list('skipped', SkippedAccount.fromJson),
+  );
+}
+
+class DeviceBanResult {
+  const DeviceBanResult({
+    this.devicesBanned = 0,
+    this.accountsBanned = 0,
+    this.skipped = const [],
+  });
+  final int devicesBanned;
+  final int accountsBanned;
+  final List<SkippedAccount> skipped;
+
+  factory DeviceBanResult.fromJson(Json j) => DeviceBanResult(
+    devicesBanned: j.integer('devicesBanned'),
+    accountsBanned: j.integer('accountsBanned'),
+    skipped: j.list('skipped', SkippedAccount.fromJson),
+  );
+}
+
+/// A host who banned a user from their lives.
+class ModeratedRoomBan {
+  const ModeratedRoomBan({
+    required this.hostId,
+    this.host,
+    this.until,
+    this.createdAt,
+  });
+  final String hostId;
+  final UserBrief? host;
+
+  /// Null = until lifted.
+  final DateTime? until;
+  final DateTime? createdAt;
+
+  factory ModeratedRoomBan.fromJson(Json j) => ModeratedRoomBan(
+    hostId: j.str('hostId'),
+    host: switch (j.objOrNull('host')) {
+      final h? => UserBrief.fromJson(h),
+      null => null,
+    },
+    until: j.date('until'),
+    createdAt: j.date('createdAt'),
   );
 }
 
@@ -400,6 +613,7 @@ class Seat {
     this.videoMuted = false,
     required this.locked,
     this.diamonds = 0,
+    this.seatedAt,
   });
   final int index;
   final UserBrief? user;
@@ -412,6 +626,10 @@ class Seat {
   /// The seated person's diamond balance, kept current by `balances` seat events.
   final int diamonds;
 
+  /// When the occupant sat down. The video stage keeps guests in this order, so a late
+  /// joiner lands last. Null on an empty seat and from older servers.
+  final DateTime? seatedAt;
+
   factory Seat.fromJson(Json j) {
     final u = j.objOrNull('user');
     return Seat(
@@ -421,6 +639,7 @@ class Seat {
       videoMuted: j.flag('videoMuted'),
       locked: j.flag('locked'),
       diamonds: j.integer('diamonds'),
+      seatedAt: u == null ? null : j.date('seatedAt'),
     );
   }
 
@@ -435,6 +654,7 @@ class Seat {
     videoMuted: videoMuted,
     locked: locked,
     diamonds: diamonds ?? this.diamonds,
+    seatedAt: seatedAt,
   );
 }
 
@@ -560,12 +780,28 @@ class LiveCredentials {
 }
 
 class LiveSession {
-  const LiveSession({required this.detail, required this.credentials});
+  const LiveSession({
+    required this.detail,
+    required this.credentials,
+    this.entry,
+    this.stealth = false,
+  });
   final RoomDetail detail;
   final LiveCredentials credentials;
+
+  /// The joiner's own entrance (`bb.entry` payload): the room's copy goes out before they
+  /// connect, so they play this one. Null without a tier or an entrance effect, on a
+  /// reconnect, and for a hidden platform moderator.
+  final Json? entry;
+
+  /// A platform moderator connected hidden: nobody sees them, their join or their entrance.
+  final bool stealth;
+
   factory LiveSession.fromJson(Json j) => LiveSession(
     detail: RoomDetail.fromJson(j.obj('room')),
     credentials: LiveCredentials.fromJson(j.obj('credentials')),
+    entry: j.objOrNull('entry'),
+    stealth: j.flag('stealth'),
   );
 }
 
@@ -911,6 +1147,9 @@ class StoreItem {
     required this.vipTierRequired,
     this.vipIncluded = false,
     this.animationFormat = 'none',
+    this.owned = false,
+    this.ownedUntil,
+    this.equipped = false,
   });
   final String id;
   final String type;
@@ -924,6 +1163,20 @@ class StoreItem {
   /// Holders of [vipTierRequired] or higher wear it free; it can't be bought.
   final bool vipIncluded;
   final String animationFormat;
+
+  /// The caller holds it now (bought or granted). Only the store listing says; elsewhere false.
+  final bool owned;
+  final DateTime? ownedUntil;
+
+  /// The caller is wearing it (store listing only).
+  final bool equipped;
+
+  /// Can be worn (has a slot): frames, entrance effects and room backgrounds.
+  bool get wearable => wearableTypes.contains(type);
+
+  /// Mirrors `EQUIPPABLE_COSMETIC_TYPES` in `packages/shared`.
+  static const wearableTypes = {'frame', 'entry_animation', 'room_background'};
+
   factory StoreItem.fromJson(Json j) => StoreItem(
     id: j.str('id'),
     type: j.str('type'),
@@ -935,6 +1188,9 @@ class StoreItem {
     durationDays: j.integer('durationDays'),
     vipTierRequired: j.integer('vipTierRequired'),
     vipIncluded: j.flag('vipIncluded'),
+    owned: j.flag('owned'),
+    ownedUntil: j.date('ownedUntil'),
+    equipped: j.flag('equipped'),
   );
 }
 
@@ -1138,7 +1394,12 @@ class AppConfig {
     required this.termsUrl,
     required this.privacyUrl,
     required this.supportEmail,
+    this.diamondsPerStar = defaultDiamondsPerStar,
   });
+
+  /// One lakh diamonds make a star unless the admin sets another rate.
+  static const defaultDiamondsPerStar = 100000;
+
   final bool maintenance;
   final String maintenanceMessage;
   final int minBuildAndroid;
@@ -1148,6 +1409,9 @@ class AppConfig {
   final String termsUrl;
   final String privacyUrl;
   final String supportEmail;
+
+  /// A wallet shows one star per this many diamonds (`app.diamondsPerStar`).
+  final int diamondsPerStar;
 
   bool feature(String key) => features[key] ?? true;
 
@@ -1169,6 +1433,10 @@ class AppConfig {
       termsUrl: app.str('termsUrl'),
       privacyUrl: app.str('privacyUrl'),
       supportEmail: app.str('supportEmail'),
+      diamondsPerStar: switch (app.integer('diamondsPerStar')) {
+        final n when n > 0 => n,
+        _ => defaultDiamondsPerStar,
+      },
     );
   }
 }
@@ -1537,4 +1805,258 @@ class AgencyMembership {
     locked: j.flag('locked'),
     joinedAt: j.date('joinedAt'),
   );
+}
+
+// ── Live history & post-live summary ─────────────────────────────────────────────
+
+/// One ended live in the host's broadcasting history.
+class LiveHistoryItem {
+  const LiveHistoryItem({
+    required this.id,
+    required this.isAudio,
+    required this.title,
+    required this.startedAt,
+    this.endedAt,
+    required this.durationSec,
+    required this.peakViewers,
+    required this.diamonds,
+    this.endReason,
+  });
+  final String id;
+  final bool isAudio;
+  final String title;
+  final DateTime startedAt;
+  final DateTime? endedAt;
+  final int durationSec;
+  final int peakViewers;
+
+  /// Diamonds the host earned (after fees).
+  final int diamonds;
+  final String? endReason;
+
+  /// The title, or "Video live" / "Audio live" when it has none.
+  String get label => title.isNotEmpty
+      ? title
+      : isAudio
+      ? 'Audio live'
+      : 'Video live';
+
+  factory LiveHistoryItem.fromJson(Json j) => LiveHistoryItem(
+    id: j.str('id'),
+    isAudio: j.str('type') == 'audio',
+    title: j.str('title'),
+    startedAt: j.date('startedAt') ?? DateTime.now(),
+    endedAt: j.date('endedAt'),
+    durationSec: j.integer('durationSec'),
+    peakViewers: j.integer('peakViewers'),
+    diamonds: j.integer('giftDiamonds'),
+    endReason: j.strOrNull('endReason'),
+  );
+}
+
+/// The lives that started on one local day.
+class LiveHistoryDay {
+  const LiveHistoryDay({
+    required this.date,
+    required this.totalSeconds,
+    required this.sessionCount,
+    required this.peakViewers,
+    required this.diamonds,
+    required this.sessions,
+  });
+
+  /// Local midnight of the day.
+  final DateTime date;
+  final int totalSeconds;
+  final int sessionCount;
+  final int peakViewers;
+  final int diamonds;
+  final List<LiveHistoryItem> sessions;
+
+  factory LiveHistoryDay.fromJson(Json j) => LiveHistoryDay(
+    date: DateTime.tryParse(j.str('date')) ?? DateTime(1970),
+    totalSeconds: j.integer('totalSeconds'),
+    sessionCount: j.integer('sessionCount'),
+    peakViewers: j.integer('peakViewers'),
+    diamonds: j.integer('diamonds'),
+    sessions: j.list('sessions', LiveHistoryItem.fromJson),
+  );
+}
+
+/// One month of history, grouped by the day each live started (`GET
+/// /users/:uid/live-history/monthly`).
+class LiveHistoryMonth {
+  const LiveHistoryMonth({
+    required this.month,
+    required this.totalSeconds,
+    required this.sessionCount,
+    required this.liveDays,
+    required this.diamonds,
+    this.earliestMonth,
+    required this.days,
+  });
+
+  /// The first of the month (local).
+  final DateTime month;
+  final int totalSeconds;
+  final int sessionCount;
+  final int liveDays;
+  final int diamonds;
+
+  /// The month of the host's first live; null when they never went live.
+  final DateTime? earliestMonth;
+
+  /// Newest first.
+  final List<LiveHistoryDay> days;
+
+  static DateTime? _month(String? key) =>
+      key == null ? null : DateTime.tryParse('$key-01');
+
+  factory LiveHistoryMonth.fromJson(Json j) => LiveHistoryMonth(
+    month: _month(j.strOrNull('month')) ?? DateTime(1970),
+    totalSeconds: j.integer('totalSeconds'),
+    sessionCount: j.integer('sessionCount'),
+    liveDays: j.integer('liveDays'),
+    diamonds: j.integer('diamonds'),
+    earliestMonth: _month(j.strOrNull('earliestMonth')),
+    days: j.list('days', LiveHistoryDay.fromJson),
+  );
+}
+
+class LiveSummaryGifter {
+  const LiveSummaryGifter({
+    required this.rank,
+    this.user,
+    required this.diamonds,
+    required this.gifts,
+  });
+  final int rank;
+
+  /// Null when the account is gone.
+  final UserBrief? user;
+  final int diamonds;
+  final int gifts;
+
+  factory LiveSummaryGifter.fromJson(Json j) => LiveSummaryGifter(
+    rank: j.integer('rank'),
+    user: j.objOrNull('user') == null
+        ? null
+        : UserBrief.fromJson(j.obj('user')),
+    diamonds: j.integer('diamonds'),
+    gifts: j.integer('gifts'),
+  );
+}
+
+class LiveSummaryGift {
+  const LiveSummaryGift({
+    required this.name,
+    this.iconUrl,
+    required this.count,
+    required this.diamonds,
+  });
+  final String name;
+  final String? iconUrl;
+  final int count;
+  final int diamonds;
+
+  factory LiveSummaryGift.fromJson(Json j) => LiveSummaryGift(
+    name: j.obj('gift').str('name'),
+    iconUrl: j.obj('gift').strOrNull('iconUrl'),
+    count: j.integer('count'),
+    diamonds: j.integer('diamonds'),
+  );
+}
+
+/// How one ended live went (`GET /live/:id/summary`).
+class LiveSummary {
+  const LiveSummary({
+    required this.roomId,
+    required this.isAudio,
+    required this.title,
+    required this.startedAt,
+    required this.endedAt,
+    this.endReason,
+    required this.durationSec,
+    required this.isFinal,
+    required this.peakViewers,
+    this.totalJoins,
+    this.uniqueViewers,
+    required this.newFollowers,
+    this.chatMessages,
+    this.reactions,
+    required this.hostDiamonds,
+    required this.hostEarnings,
+    required this.roomDiamonds,
+    required this.giftCount,
+    required this.gifters,
+    required this.topGifters,
+    required this.topGifts,
+  });
+  final String roomId;
+  final bool isAudio;
+  final String title;
+  final DateTime startedAt;
+  final DateTime endedAt;
+  final String? endReason;
+  final int durationSec;
+
+  /// False for about a minute after the end, while late gifts may still count.
+  final bool isFinal;
+  final int peakViewers;
+
+  /// Null for lives that ended before the counter existed.
+  final int? totalJoins;
+  final int? uniqueViewers;
+  final int newFollowers;
+  final int? chatMessages;
+  final int? reactions;
+
+  /// Cost of the gifts the host received, and what they were credited after fees.
+  final int hostDiamonds;
+  final int hostEarnings;
+
+  /// Every gift in the room (host and guests), at cost.
+  final int roomDiamonds;
+  final int giftCount;
+  final int gifters;
+  final List<LiveSummaryGifter> topGifters;
+  final List<LiveSummaryGift> topGifts;
+
+  String get label => title.isNotEmpty
+      ? title
+      : isAudio
+      ? 'Audio live'
+      : 'Video live';
+
+  static int? _maybe(Json j, String k) => j[k] is num ? j.integer(k) : null;
+
+  factory LiveSummary.fromJson(Json j) {
+    final audience = j.obj('audience');
+    final engagement = j.obj('engagement');
+    final gifts = j.obj('gifts');
+    final started = j.date('startedAt') ?? DateTime.now();
+    return LiveSummary(
+      roomId: j.str('roomId'),
+      isAudio: j.str('type') == 'audio',
+      title: j.str('title'),
+      startedAt: started,
+      endedAt: j.date('endedAt') ?? started,
+      endReason: j.strOrNull('endReason'),
+      durationSec: j.integer('durationSec'),
+      isFinal: j.flag('final', true),
+      peakViewers: audience.integer('peakViewers'),
+      totalJoins: _maybe(audience, 'totalJoins'),
+      uniqueViewers: _maybe(audience, 'uniqueViewers'),
+      newFollowers: audience.integer('newFollowers'),
+      chatMessages: _maybe(engagement, 'chatMessages'),
+      reactions: _maybe(engagement, 'reactions'),
+      hostDiamonds: gifts.integer('hostDiamonds'),
+      hostEarnings: gifts.integer('hostEarnings'),
+      roomDiamonds: gifts.integer('roomDiamonds'),
+      giftCount: gifts.integer('giftCount'),
+      gifters: gifts.integer('gifters'),
+      topGifters: gifts.list('topGifters', LiveSummaryGifter.fromJson),
+      topGifts: gifts.list('topGifts', LiveSummaryGift.fromJson),
+    );
+  }
 }

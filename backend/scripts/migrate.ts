@@ -205,6 +205,57 @@ const MIGRATIONS: Migration[] = [
       console.log(`  locked ${locked} agency member(s)`);
     },
   },
+  {
+    id: '2026-11-11-platform-moderators',
+    async up(db) {
+      // The in-app platform moderator role starts empty.
+      await db.col.users.updateMany(
+        { platformModerator: { $exists: false } },
+        { $set: { platformModerator: null } },
+      );
+    },
+  },
+  {
+    id: '2026-11-11-equipped-expiry',
+    async up(db) {
+      // An owned, equipped item now carries its ownership expiry on the slot, so reads drop it
+      // the moment it lapses. Backfill it from the ownership rows; a slot whose ownership is
+      // gone gets "already expired", and the next store.sweep takes it off.
+      const slots = [
+        { id: 'frameId', tier: 'frameVipTier', expires: 'frameExpiresAt' },
+        {
+          id: 'entryAnimationId',
+          tier: 'entryAnimationVipTier',
+          expires: 'entryAnimationExpiresAt',
+        },
+      ] as const;
+      const epoch = new Date(0);
+      let updated = 0;
+      for (const slot of slots) {
+        const wearers = db.col.users.find(
+          {
+            [`equipped.${slot.id}`]: { $type: 'objectId' },
+            [`equipped.${slot.tier}`]: { $not: { $gt: 0 } },
+            [`equipped.${slot.expires}`]: { $exists: false },
+          },
+          { projection: { equipped: 1 } },
+        );
+        for await (const u of wearers) {
+          const itemId = (u.equipped as unknown as Record<string, unknown>)[slot.id];
+          const owned = await db.col.userCosmetics.findOne(
+            { userId: u._id, cosmeticId: itemId as never },
+            { projection: { expiresAt: 1 } },
+          );
+          await db.col.users.updateOne(
+            { _id: u._id },
+            { $set: { [`equipped.${slot.expires}`]: owned?.expiresAt ?? epoch } },
+          );
+          updated++;
+        }
+      }
+      console.log(`  backfilled ${updated} equipped slot(s)`);
+    },
+  },
 ];
 
 const dryRun = process.argv.includes('--dry-run');

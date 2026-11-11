@@ -38,6 +38,7 @@ const LABELS: Record<string, string> = {
   diamondsPerUsd: 'Diamonds per 1 USD (withdrawals)',
   minWithdrawDiamonds: 'Minimum withdrawal (diamonds)',
   maxGiftQuantity: 'Max gift quantity per send',
+  diamondsPerStar: 'Diamonds per star shown next to wallet balances',
   staleAfterSec: 'Close lives with no heartbeat after (s)',
   audioSeatCount: 'Audio room seats',
   videoSeatCount: 'People on a video stage, host included (2–13)',
@@ -59,6 +60,9 @@ const LABELS: Record<string, string> = {
   searchCacheSec: 'Reuse a search for (s); each search spends quota',
   blockedVideoIds: 'Blocked video ids',
   blockedChannelIds: 'Blocked channel ids (UC…)',
+  stealthEnabled: 'Platform moderators join lives hidden',
+  selfStageEnabled: 'Platform moderators take a seat without approval',
+  banRateLimitPerHour: 'Bans one platform moderator may issue per hour',
 };
 
 const SECTIONS: { key: string; title: string; help: string }[] = [
@@ -79,6 +83,11 @@ const SECTIONS: { key: string; title: string; help: string }[] = [
     key: 'moderation',
     title: 'Moderation',
     help: 'Applied to chat, comments, posts, room titles and profiles.',
+  },
+  {
+    key: 'platformModerators',
+    title: 'Platform moderators',
+    help: 'App users granted the platform moderator role (Community → Platform moderators). Hidden moderators add nothing to the viewer count and get no join line or entrance. Turning stealth off does not reveal a moderator already in a room; they show on their next join.',
   },
   {
     key: 'app',
@@ -658,13 +667,17 @@ interface AuditRow {
 export function AuditPage() {
   const [action, setAction] = useState('');
   const [adminId, setAdminId] = useState('');
+  const [actorKind, setActorKind] = useState<string | undefined>();
   return (
     <>
-      <PageHeader title="Audit log" subtitle="Append-only record of every admin write" />
+      <PageHeader
+        title="Audit log"
+        subtitle="Append-only record of every admin write and every platform moderator action"
+      />
       <ServerTable<AuditRow>
         queryKey="audit"
         url="/admin/audit"
-        filters={{ action: action || undefined, adminId: adminId || undefined }}
+        filters={{ action: action || undefined, adminId: adminId || undefined, actorKind }}
         rowKey="_id"
         toolbar={
           <FilterBar>
@@ -679,6 +692,18 @@ export function AuditPage() {
               placeholder="Admin uid"
               onSearch={setAdminId}
               style={{ width: 200 }}
+            />
+            <Select
+              allowClear
+              placeholder="Who"
+              style={{ width: 190 }}
+              value={actorKind}
+              onChange={setActorKind}
+              options={[
+                { value: 'staff', label: 'Staff' },
+                { value: 'platform_moderator', label: 'Platform moderators' },
+                { value: 'system', label: 'Automated' },
+              ]}
             />
           </FilterBar>
         }

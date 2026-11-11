@@ -9,6 +9,7 @@ import type {
   Currency,
   GameKey,
   LedgerReason,
+  LiveEndReason,
   MessageType,
   PkEndReason,
   PkRoundState,
@@ -47,6 +48,11 @@ export interface UserDoc {
   status: UserStatus;
   ban: { reason: string; until: Date | null; by: string; at: Date } | null;
   adminRole: AdminRole | null;
+  /**
+   * A platform moderator: an app user trusted to moderate from inside the app (no dashboard
+   * access). Granted and revoked by admins with `moderators.manage`. Null/absent otherwise.
+   */
+  platformModerator?: { since: Date; by: string } | null;
   isAgent: boolean;
   wallet: { diamonds: number; agentStock: number };
   stats: {
@@ -74,11 +80,14 @@ export interface UserDoc {
     badge?: TierBadgeDoc | null;
   };
   /**
-   * What the user shows. `frameUrl`/`frameFormat` are copied from an equipped store frame
-   * (kept in sync when that item changes). `frameVipTier`/`entryAnimationVipTier` are 0 for
-   * an item the user owns, else the tier that lets them wear it unowned (`vipIncluded`), so a
-   * lapsed tier drops it at read time. Readers resolve the shown frame with `resolveFrame()`,
-   * never these directly.
+   * What the user shows. `frameUrl`/`frameFormat`/`roomBackgroundUrl` are copied from the
+   * equipped store item (kept in sync when that item changes). Per slot:
+   * - `*VipTier` is 0 for an item the user owns, else the tier that lets them wear it unowned
+   *   (`vipIncluded`), so a lapsed tier drops it at read time.
+   * - `*ExpiresAt` is the ownership's expiry (null when worn through a tier), so an expired
+   *   item drops at read time too, before `store.sweep` clears the slot.
+   * Readers go through `resolveFrame()` / `resolveRoomBackground()` / `slotWearable()`, never
+   * these fields directly.
    */
   equipped: {
     frameId: ObjectId | null;
@@ -86,7 +95,13 @@ export interface UserDoc {
     frameUrl: string | null;
     frameFormat?: AnimationFormat;
     frameVipTier?: number;
+    frameExpiresAt?: Date | null;
     entryAnimationVipTier?: number;
+    entryAnimationExpiresAt?: Date | null;
+    roomBackgroundId?: ObjectId | null;
+    roomBackgroundUrl?: string | null;
+    roomBackgroundVipTier?: number;
+    roomBackgroundExpiresAt?: Date | null;
   };
   agencyId: ObjectId | null;
   liveRoomId: ObjectId | null;
@@ -128,6 +143,28 @@ export interface SeatDoc {
    * the seat; being seen again clears it. Null/absent while present.
    */
   absentSince?: Date | null;
+  /**
+   * When the current occupant took the seat. Clients order the video stage by it, so guests
+   * keep their join order and a late joiner lands last. Null on an empty seat; absent on
+   * rooms started before it existed (clients fall back to the seat index).
+   */
+  seatedAt?: Date | null;
+}
+
+/** Frozen post-live summary, written once a settle window after the live ended. */
+export interface LiveSummaryDoc {
+  finalizedAt: Date;
+  /** Every gift sent in the room, at full cost (host and guests). */
+  roomDiamonds: number;
+  giftCount: number;
+  gifters: number;
+  /** Cost of the gifts the host received (before fees). */
+  hostDiamonds: number;
+  /** Diamonds credited to the host for them (after fees). */
+  hostEarnings: number;
+  newFollowers: number;
+  topGifters: { userId: string; diamonds: number; gifts: number }[];
+  topGifts: { giftId: ObjectId; giftName: string; count: number; diamonds: number }[];
 }
 
 export interface LiveRoomDoc {
@@ -158,6 +195,11 @@ export interface LiveRoomDoc {
   /** Host's VIP tier when the session started or resumed; orders the Popular tab. */
   hostVipTier?: number;
   backgroundUrl: string | null;
+  /**
+   * The host's equipped store background, snapshotted at go-live and refreshed when they
+   * equip or it lapses. Shown when `backgroundUrl` (set for this live) is empty.
+   */
+  decorBackgroundUrl?: string | null;
   /** No new viewers may join (staff, moderators and seated guests still can). */
   locked: boolean;
   /** scrypt hash (`salt:hash`, hex) of an optional numeric password that bypasses the lock. */
@@ -165,10 +207,27 @@ export interface LiveRoomDoc {
   startedAt: Date;
   lastHeartbeatAt: Date;
   endedAt: Date | null;
-  endReason: 'host' | 'admin' | 'stale' | 'webhook' | 'banned' | 'moderation' | null;
+  endReason: LiveEndReason | null;
   endedBy: string | null;
   /** YouTube songs and their queue. Written only by `YouTubeService`. */
   youtube?: YouTubeStateDoc | null;
+  /** LiveKit joins by viewers (a reconnect after leaving counts again). Absent on old rooms. */
+  totalJoins?: number;
+  /** Distinct viewers (deduped through `live_viewers`). Absent on old rooms. */
+  uniqueViewers?: number;
+  chatMessages?: number;
+  reactions?: number;
+  /** Set once by `LiveSummaryService` after the settle window; null/absent until then. */
+  summary?: LiveSummaryDoc | null;
+}
+
+/** One row per (room, viewer): dedupes `live_rooms.uniqueViewers`. Expires after 90 days. */
+export interface LiveViewerDoc {
+  /** `${roomId}:${uid}` */
+  _id: string;
+  roomId: ObjectId;
+  uid: string;
+  createdAt: Date;
 }
 
 /** The song playing now, as stored: `endsAt` is server-only and read by `youtube.sweep`. */
@@ -190,6 +249,12 @@ export interface RoomPresenceDoc {
   roomId: ObjectId;
   identity: string;
   joinedAt: Date;
+  /**
+   * A platform moderator connected with a hidden LiveKit grant (stealth). Copied from the
+   * webhook's `permission.hidden`, so it survives a redeploy. Hidden rows are left out of the
+   * viewer count, the viewer list and the join announcement. Cleared while they sit on stage.
+   */
+  hidden?: boolean;
 }
 
 export interface RoomBanDoc {
@@ -748,9 +813,12 @@ export interface AppConfigDoc {
 
 export interface AuditLogDoc {
   _id?: ObjectId;
-  /** `system` for automated actions (SightGuard verdicts). */
+  /**
+   * The actor's uid; `system` for automated actions (SightGuard verdicts). Platform
+   * moderators acting from the app are recorded with `adminRole: 'platform_moderator'`.
+   */
   adminId: string;
-  adminRole: AdminRole | 'system';
+  adminRole: AdminRole | 'system' | 'platform_moderator' | 'user';
   action: string;
   targetType: string;
   targetId: string | null;

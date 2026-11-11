@@ -16,6 +16,7 @@ export interface Collections {
   blocks: Collection<S.BlockDoc>;
   liveRooms: Collection<S.LiveRoomDoc>;
   roomPresence: Collection<S.RoomPresenceDoc>;
+  liveViewers: Collection<S.LiveViewerDoc>;
   roomBans: Collection<S.RoomBanDoc>;
   seatRequests: Collection<S.SeatRequestDoc>;
   liveMessages: Collection<S.LiveMessageDoc>;
@@ -69,6 +70,7 @@ const NAMES: Record<keyof Collections, string> = {
   blocks: 'blocks',
   liveRooms: 'live_rooms',
   roomPresence: 'room_presence',
+  liveViewers: 'live_viewers',
   roomBans: 'room_bans',
   seatRequests: 'seat_requests',
   liveMessages: 'live_messages',

@@ -9,7 +9,6 @@ import '../../core/deep_links/deep_link.dart';
 import '../../core/deep_links/share_link.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
-import '../../core/utils/json.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../games/games_screens.dart';
@@ -178,19 +177,35 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
   Future<void> _leave() async {
     if (c.isHost && c.status != LiveStatus.ended) {
       if (!await confirmEndLive(context)) return;
-      final Json? summary;
       _leaving = true;
       try {
-        summary = await _active.endHosting();
+        await _active.endHosting();
       } catch (e) {
         // The live is still running; stay so the host can try again.
         _leaving = false;
         if (mounted) showError(context, e);
         return;
       }
-      if (!mounted) return;
-      await showLiveSummary(context, summary);
+      // The summary takes this screen's place, so closing it lands where the live began.
+      if (mounted) context.pushReplacement('/live-summary/${widget.roomId}');
+      return;
     } else {
+      // Someone who may end any live chooses between leaving and ending it for everyone.
+      if (c.canModerateLive && c.status == LiveStatus.live) {
+        final host = c.detail?.room.host.displayName ?? 'the host';
+        final choice = await askModeratorLeave(context, host);
+        if (choice == null || !mounted) return;
+        if (choice == ModeratorLeave.endForEveryone) {
+          if (!await confirmEndForEveryone(context, host) || !mounted) return;
+          try {
+            await ref.read(moderationRepo).endLive(widget.roomId);
+          } catch (e) {
+            if (mounted) showError(context, e);
+            return;
+          }
+        }
+      }
+      if (!mounted) return;
       _leaving = true;
       _active.close();
     }
@@ -230,6 +245,23 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
     }
   }
 
+  /// The ✕ on a guest's tile: confirm, then free their seat. They stay in the room.
+  Future<void> _removeFromStage(Seat seat) async {
+    final user = seat.user;
+    if (user == null) return;
+    if (!await confirmRemoveFromStage(context, user.displayName)) return;
+    // The seat may have changed hands while the dialog was open.
+    final current = c.detail?.seats
+        .where((s) => s.index == seat.index && s.user?.id == user.id)
+        .firstOrNull;
+    if (current == null) return;
+    try {
+      await c.manageSeat(current.index, 'remove');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
   Future<void> _stageAction() async {
     try {
       if (c.onSeat) {
@@ -250,11 +282,22 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
             ],
           ),
         );
-        if (ok == true) await c.leaveSeat();
+        if (ok == true) {
+          // A platform moderator leaves through their own route, which re-hides them
+          // when stealth is on.
+          await (c.canSelfStage
+              ? c.setPlatformModeratorStage(onStage: false)
+              : c.leaveSeat());
+        }
       } else if (c.seatRequestPending) {
         await c.cancelSeatRequest();
       } else {
         if (!await ensureStagePermissions(context, video: c.isVideoRoom)) {
+          return;
+        }
+        // A platform moderator with self-stage takes a free seat without asking.
+        if (c.canSelfStage) {
+          await c.setPlatformModeratorStage(onStage: true);
           return;
         }
         await c.requestSeat();
@@ -340,6 +383,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                 ? 'You were removed for breaking our community guidelines.'
                 : 'The host or a room admin removed you.',
           ),
+          LiveStatus.ended when c.endReason == 'moderator' => _Ended(
+            icon: Icons.gpp_bad_rounded,
+            title: c.isHost ? 'Your live was ended' : 'This live has ended',
+            message: 'A moderator ended this live.',
+          ),
           LiveStatus.ended when c.endReason == 'moderation' => _Ended(
             icon: Icons.gpp_bad_rounded,
             title: c.isHost ? 'Your live was ended' : 'This live has ended',
@@ -372,6 +420,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                     onInvite: _openParticipants,
                   ),
                   onSwap: c.canSwap ? _swap : null,
+                  onRemoveFromStage: _removeFromStage,
                 ),
               ),
               const Positioned(

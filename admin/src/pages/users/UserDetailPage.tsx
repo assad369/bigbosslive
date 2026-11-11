@@ -164,6 +164,7 @@ export function UserDetailPage() {
                 )}
                 {user.isAgent && <Tag color="purple">Agent</Tag>}
                 {user.adminRole && <Tag color="gold">{user.adminRole}</Tag>}
+                {user.platformModerator && <Tag color="geekblue">Platform moderator</Tag>}
                 {liveRoom && <Tag color="volcano">Live · {liveRoom.viewerCount} viewers</Tag>}
               </Space>
               <Typography.Text type="secondary">{user.bio || 'No bio'}</Typography.Text>
@@ -258,6 +259,27 @@ export function UserDetailPage() {
                               user.isAgent
                                 ? 'Remove agent status?'
                                 : 'Make this user a recharge agent?'
+                            }
+                          />
+                        )}
+                        {can('moderators.manage') && (
+                          <ActionButton
+                            size="middle"
+                            label={
+                              user.platformModerator
+                                ? 'Remove platform moderator'
+                                : 'Make platform moderator'
+                            }
+                            run={() =>
+                              send('post', `/admin/users/${uid}/platform-moderator`, {
+                                enabled: !user.platformModerator,
+                              })
+                            }
+                            invalidate={[...invalidate, ['platform-moderators']]}
+                            confirm={
+                              user.platformModerator
+                                ? 'Remove their in-app moderation powers? Any live they watch hidden is closed for them.'
+                                : 'Let this user moderate from the app: ban users and devices, remove people from any live and end lives. It gives no dashboard access.'
                             }
                           />
                         )}

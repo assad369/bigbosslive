@@ -5,7 +5,6 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
-import '../../core/utils/json.dart';
 import '../../core/widgets/widgets.dart';
 import '../../data/repositories.dart';
 import '../../models/models.dart';
@@ -33,30 +32,87 @@ Future<bool> confirmEndLive(BuildContext context) async =>
     ) ??
     false;
 
-Future<void> showLiveSummary(BuildContext context, Json? s) => showDialog<void>(
+/// What a platform moderator (or `live.moderate` staff) means by the room's close button.
+enum ModeratorLeave { leave, endForEveryone }
+
+/// The close button for someone who may end any live: just leave, or end it for everyone.
+Future<ModeratorLeave?> askModeratorLeave(
+  BuildContext context,
+  String hostName,
+) => showDialog<ModeratorLeave>(
   context: context,
   builder: (ctx) => AlertDialog(
-    title: const Text('Live ended'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _SummaryRow('Duration', Fmt.duration(s?.integer('durationSec') ?? 0)),
-        _SummaryRow('Peak viewers', Fmt.full(s?.integer('peakViewers') ?? 0)),
-        _SummaryRow('Gifts', Fmt.full(s?.integer('giftCount') ?? 0)),
-        _SummaryRow(
-          'Diamonds earned',
-          '💎 ${Fmt.full(s?.integer('giftDiamonds') ?? 0)}',
-        ),
-      ],
+    title: const Text('Leave this live?'),
+    content: Text(
+      'You can also end $hostName’s live for everyone. Use it for rule-breaking lives only; '
+      'it is recorded.',
     ),
     actions: [
-      FilledButton(
+      TextButton(
         onPressed: () => Navigator.pop(ctx),
-        child: const Text('Done'),
+        child: const Text('Cancel'),
+      ),
+      TextButton(
+        style: TextButton.styleFrom(foregroundColor: BBColors.danger),
+        onPressed: () => Navigator.pop(ctx, ModeratorLeave.endForEveryone),
+        child: const Text('End for everyone'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(ctx, ModeratorLeave.leave),
+        child: const Text('Leave'),
       ),
     ],
   ),
 );
+
+/// Asks before ending [hostName]'s live for everyone (a platform moderator's action).
+Future<bool> confirmEndForEveryone(
+  BuildContext context,
+  String hostName,
+) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('End $hostName’s live?'),
+        content: const Text(
+          'Everyone watching is sent out and the host is told it was ended. It is recorded.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: BBColors.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('End live'),
+          ),
+        ],
+      ),
+    ) ??
+    false;
+
+/// Asks before taking [name] off the stage (the ✕ on their tile).
+Future<bool> confirmRemoveFromStage(BuildContext context, String name) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Remove $name from the stage?'),
+        content: const Text('They stay in the live as a viewer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: BBColors.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    ) ??
+    false;
 
 /// Asks the host to accept or decline a PK challenge and sends the answer. Closes itself
 /// (as a decline) when the invitation expires.
@@ -286,22 +342,5 @@ class _ExpiringDialogState extends State<_ExpiringDialog> {
       TextButton(onPressed: () => _close(false), child: Text(widget.decline)),
       FilledButton(onPressed: () => _close(true), child: Text(widget.accept)),
     ],
-  );
-}
-
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow(this.label, this.value);
-  final String label;
-  final String value;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(
-      children: [
-        Text(label, style: const TextStyle(color: BBColors.inkMuted)),
-        const Spacer(),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
-      ],
-    ),
   );
 }

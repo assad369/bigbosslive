@@ -68,6 +68,11 @@ export interface PublicUser {
   liveRoomId: string | null;
   agencyId: string | null;
   createdAt: IsoDate;
+  /**
+   * Current diamond balance. Sent by the profile endpoint (`GET /users/:uid`) only, not by
+   * lists. Clients show one star per `app.diamondsPerStar` diamonds.
+   */
+  diamonds?: number;
 }
 
 /** Compact identity used in live rooms, chat rows, leaderboards and lists. */
@@ -171,6 +176,71 @@ export interface MeUser extends PublicUser {
   vipExpiresAt: IsoDate | null;
   /** On the admin's maintenance list: may use the app while maintenance mode is on. */
   maintenanceAccess: boolean;
+  /** What this user may moderate from inside the app; null for everyone else. */
+  moderation: MeModeration | null;
+}
+
+/**
+ * In-app moderation rights. A platform moderator is an app user an admin trusted with them
+ * (no dashboard access); dashboard staff with `live.moderate` share the live-room powers.
+ */
+export interface MeModeration {
+  /** Holds the platform moderator flag: opens the Moderation panel. */
+  isPlatformModerator: boolean;
+  /** May remove, ban, mute and delete chat in any live room, and end any live. */
+  canModerateLive: boolean;
+  /** Platform moderators join lives hidden (no viewer count, join line or entrance). */
+  stealthEnabled: boolean;
+  /** Platform moderators may take a seat without the host's approval. */
+  selfStageEnabled: boolean;
+}
+
+/** A row of the in-app Moderation panel. Never carries contact details or device ids. */
+export interface ModeratedUser {
+  user: UserBrief;
+  status: UserStatus;
+  ban: { reason: string; until: IsoDate | null; at: IsoDate } | null;
+  isPlatformModerator: boolean;
+  isAgent: boolean;
+  /** Dashboard staff: platform moderators can't act on them. */
+  isStaff: boolean;
+  createdAt: IsoDate;
+}
+
+/** A device an account signed in from, as a platform moderator sees it. */
+export interface ModeratedDevice {
+  deviceId: string;
+  platform: string | null;
+  lastSeenAt: IsoDate;
+  /** Accounts that have signed in on it. */
+  accountCount: number;
+  banned: boolean;
+  /** The moderator's own handset: it can't be banned from here. */
+  isYours: boolean;
+}
+
+/** What a device ban would do, before it is confirmed. Writes nothing. */
+export interface DeviceBanPreview {
+  devices: number;
+  /** Accounts that would be banned (already-banned ones are not counted). */
+  accounts: number;
+  alreadyBanned: number;
+  skipped: { user: UserBrief | null; uid: string; reason: string }[];
+}
+
+export interface DeviceBanResult {
+  devicesBanned: number;
+  accountsBanned: number;
+  skipped: { uid: string; reason: string }[];
+}
+
+/** A host who banned this user from their lives. */
+export interface ModeratedRoomBan {
+  host: UserBrief | null;
+  hostId: string;
+  until: IsoDate | null;
+  by: string;
+  createdAt: IsoDate;
 }
 
 export interface LiveRoom {
@@ -347,6 +417,15 @@ export interface Cosmetic {
  * A decoration a user may wear: one they own (`source: 'owned'`, until `expiresAt`) or one
  * their tier includes (`source: 'vip'`, until the worn tier package's expiry).
  */
+/** A store item with the caller's own state, as `GET /store/items` lists it. */
+export interface StoreCosmetic extends Cosmetic {
+  /** The caller holds it now (bought or granted, unexpired). */
+  owned: boolean;
+  ownedUntil: IsoDate | null;
+  /** The caller is wearing it. */
+  equipped: boolean;
+}
+
 export interface OwnedCosmetic {
   item: Cosmetic;
   expiresAt: IsoDate | null;
@@ -563,4 +642,94 @@ export interface AgencyMembership {
   role: AgencyRole;
   locked: boolean;
   joinedAt: IsoDate;
+}
+
+// ── Live history & post-live summary ───────────────────────────────────────────
+
+export type LiveEndReason =
+  | 'host'
+  | 'admin'
+  | 'stale'
+  | 'webhook'
+  | 'banned'
+  | 'moderation'
+  /** Ended by a platform moderator from the app. */
+  | 'moderator';
+
+/** One ended live in a host's broadcasting history. */
+export interface LiveHistoryItem {
+  id: string;
+  type: RoomType;
+  title: string;
+  startedAt: IsoDate;
+  endedAt: IsoDate | null;
+  durationSec: number;
+  peakViewers: number;
+  /** Diamonds the host earned (after fees). */
+  giftDiamonds: number;
+  endReason: LiveEndReason | null;
+}
+
+/** The lives that started on one local day. */
+export interface LiveHistoryDay {
+  /** `YYYY-MM-DD` in the requested offset. */
+  date: string;
+  totalSeconds: number;
+  sessionCount: number;
+  peakViewers: number;
+  diamonds: number;
+  /** Newest first. */
+  sessions: LiveHistoryItem[];
+}
+
+/** `GET /users/:uid/live-history/monthly`: one month, grouped by the day each live started. */
+export interface LiveHistoryMonth {
+  /** `YYYY-MM` */
+  month: string;
+  totalSeconds: number;
+  sessionCount: number;
+  liveDays: number;
+  diamonds: number;
+  /** The month of the host's first ended live (`YYYY-MM`), or null without any. */
+  earliestMonth: string | null;
+  /** Newest first. */
+  days: LiveHistoryDay[];
+}
+
+/** `GET /live/:id/summary`: how one ended live went. */
+export interface LiveSummary {
+  roomId: string;
+  type: RoomType;
+  title: string;
+  coverUrl: string | null;
+  startedAt: IsoDate;
+  endedAt: IsoDate;
+  endReason: LiveEndReason | null;
+  durationSec: number;
+  /** False during the settle window after the end: late gifts may still be counted. */
+  final: boolean;
+  audience: {
+    peakViewers: number;
+    /** Null for lives that ended before the counter existed. */
+    totalJoins: number | null;
+    uniqueViewers: number | null;
+    newFollowers: number;
+  };
+  engagement: { chatMessages: number | null; reactions: number | null };
+  gifts: {
+    /** Cost of the gifts the host received. */
+    hostDiamonds: number;
+    /** Diamonds credited to the host for them (after fees). */
+    hostEarnings: number;
+    /** Every gift in the room (host and guests), at cost. */
+    roomDiamonds: number;
+    giftCount: number;
+    gifters: number;
+    topGifters: { rank: number; user: UserBrief | null; diamonds: number; gifts: number }[];
+    topGifts: {
+      gift: { id: string; name: string; iconUrl: string | null };
+      count: number;
+      diamonds: number;
+    }[];
+  };
 }

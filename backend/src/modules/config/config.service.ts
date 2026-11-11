@@ -44,6 +44,8 @@ export const CONFIG_SCHEMAS = {
     supportEmail: z.string().default('support@bigbosslive.app'),
     termsUrl: z.string().default('https://bigbosslive.app/terms'),
     privacyUrl: z.string().default('https://bigbosslive.app/privacy'),
+    /** Display only: a wallet shows one star per this many diamonds (1 lakh by default). */
+    diamondsPerStar: z.number().int().positive().default(100_000),
   }),
   live: z.object({
     /** A live room with no heartbeat for this long is closed by the sweeper. */
@@ -72,6 +74,21 @@ export const CONFIG_SCHEMAS = {
     leadInSec: z.number().int().min(0).max(10).default(3),
     /** Between rounds, the battle ends if no host starts the next round within this time. */
     pauseTimeoutSec: z.number().int().min(10).max(900).default(120),
+  }),
+  /**
+   * Platform moderators (app users with `users.platformModerator`). Private: the app only
+   * learns the two switches through `/me.moderation`, and only for people who moderate.
+   */
+  platformModerators: z.object({
+    /**
+     * Platform moderators join lives as hidden LiveKit participants: no viewer count, join
+     * line or entrance. Turning it off does not reveal one already connected.
+     */
+    stealthEnabled: z.boolean().default(false),
+    /** Platform moderators may take a free seat without the host's approval. */
+    selfStageEnabled: z.boolean().default(false),
+    /** Account and device bans one platform moderator may issue per hour. */
+    banRateLimitPerHour: z.number().int().min(1).max(500).default(30),
   }),
   /** YouTube music in lives (`features.youtubeEnabled`). Private: never sent to the app. */
   youtube: z.object({

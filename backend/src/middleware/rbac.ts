@@ -30,6 +30,8 @@ export const PERMISSIONS = {
   'games.read': ['finance', 'admin'],
   'config.manage': ['admin'],
   'audit.read': ['admin'],
+  /** Grant and revoke the in-app platform moderator role. */
+  'moderators.manage': ['admin'],
   'admins.manage': [],
 } as const satisfies Record<string, readonly AdminRole[]>;
 

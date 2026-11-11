@@ -15,7 +15,13 @@ import {
 } from '../lib/http.js';
 import { unauthorized } from '../lib/errors.js';
 import { hasPermission } from '../middleware/rbac.js';
-import { liveChatInput, roomPassword, startLiveInput } from '../modules/live/live.service.js';
+import { canModerateLive } from '../modules/moderation/authority.js';
+import {
+  liveChatInput,
+  roomPassword,
+  startLiveInput,
+  type LiveActor,
+} from '../modules/live/live.service.js';
 import {
   youtubeCommandInput,
   youtubeEndedInput,
@@ -68,9 +74,34 @@ export function liveRoutes(ctx: Ctx): Router {
     byUser: true,
   });
   const rid = (req: express.Request) => toObjectId(parseParams(req, roomParam).id, 'room id');
-  const actor = (req: express.Request) => {
+  /**
+   * One rule for every in-room moderation route: platform moderators and staff with
+   * `live.moderate` (from the token claim) may moderate any live. Other staff roles (support,
+   * finance) act like anyone else.
+   */
+  const actor = (req: express.Request): LiveActor => {
     const me = currentUser(req);
-    return { uid: me.uid, isAdmin: Boolean(me.adminRole) };
+    return {
+      uid: me.uid,
+      isAdmin: canModerateLive(me.user, me.adminRole),
+      isStaff: hasPermission(me.adminRole, 'live.moderate'),
+    };
+  };
+  /** Audit what someone did in a room they neither host nor administer. */
+  const auditOutsider = async (
+    req: express.Request,
+    staffAction: boolean,
+    action: string,
+    roomId: { toString(): string },
+    payload: unknown,
+  ) => {
+    if (staffAction)
+      await ctx.services.audit.record(
+        req,
+        action,
+        { type: 'live_room', id: String(roomId) },
+        payload,
+      );
   };
 
   r.post('/', async (req, res) => {
@@ -112,15 +143,23 @@ export function liveRoutes(ctx: Ctx): Router {
       else next();
     },
     async (req, res) => {
-      const password = parseBody(
+      const body = parseBody(
         req,
-        z.object({ password: roomPassword.optional() }).optional(),
-      )?.password;
+        z
+          .object({
+            password: roomPassword.optional(),
+            /** A reconnect of someone already watching: no entrance again. */
+            resume: z.boolean().optional(),
+          })
+          .optional(),
+      );
       const me = currentUser(req);
       res.json(
         await live.join(rid(req), me.uid, {
-          ...(password ? { password } : {}),
+          ...(body?.password ? { password: body.password } : {}),
           isStaff: Boolean(me.adminRole),
+          canModerate: canModerateLive(me.user, me.adminRole),
+          resume: Boolean(body?.resume),
         }),
       );
     },
@@ -161,7 +200,13 @@ export function liveRoutes(ctx: Ctx): Router {
 
   r.delete('/:id/chat/:messageId', async (req, res) => {
     const { messageId } = z.object({ messageId: objectIdString }).parse(req.params);
-    await live.deleteChat(rid(req), actor(req), toObjectId(messageId, 'message id'));
+    const roomId = rid(req);
+    const { staffAction } = await live.deleteChat(
+      roomId,
+      actor(req),
+      toObjectId(messageId, 'message id'),
+    );
+    await auditOutsider(req, staffAction, 'live.chat_delete', roomId, { messageId });
     res.status(204).end();
   });
 
@@ -173,6 +218,17 @@ export function liveRoutes(ctx: Ctx): Router {
 
   r.post('/:id/end', async (req, res) => {
     res.json({ summary: await live.endByHost(rid(req), currentUser(req).uid) });
+  });
+
+  // How an ended live went: its host, or staff who can read lives.
+  r.get('/:id/summary', async (req, res) => {
+    const me = currentUser(req);
+    res.json({
+      summary: await ctx.services.liveSummary.summary(rid(req), {
+        uid: me.uid,
+        canReadAll: hasPermission(me.adminRole, 'live.read'),
+      }),
+    });
   });
 
   r.get('/:id/viewers', async (req, res) => {
@@ -187,7 +243,9 @@ export function liveRoutes(ctx: Ctx): Router {
         banMinutes: z.number().int().min(1).max(525_600).nullable().default(60),
       }),
     );
-    await live.kick(rid(req), actor(req), userId, banMinutes);
+    const roomId = rid(req);
+    const { staffAction } = await live.kick(roomId, actor(req), userId, banMinutes);
+    await auditOutsider(req, staffAction, 'live.kick', roomId, { userId, banMinutes });
     res.status(204).end();
   });
 
@@ -224,12 +282,23 @@ export function liveRoutes(ctx: Ctx): Router {
         index: z.number().int().min(1).max(15).nullable().default(null),
       }),
     );
-    res.json(await live.decideSeat(rid(req), actor(req), userId, accept, index));
+    const roomId = rid(req);
+    const { staffAction, ...result } = await live.decideSeat(
+      roomId,
+      actor(req),
+      userId,
+      accept,
+      index,
+    );
+    await auditOutsider(req, staffAction, 'live.seat_decide', roomId, { userId, accept });
+    res.json(result);
   });
 
   r.post('/:id/seats/invite', async (req, res) => {
     const { userId } = parseBody(req, z.object({ userId: z.string().min(1).max(128) }));
-    await live.inviteToSeat(rid(req), actor(req), userId);
+    const roomId = rid(req);
+    const { staffAction } = await live.inviteToSeat(roomId, actor(req), userId);
+    await auditOutsider(req, staffAction, 'live.seat_invite', roomId, { userId });
     res.status(202).end();
   });
 
@@ -251,28 +320,33 @@ export function liveRoutes(ctx: Ctx): Router {
         action: z.enum(['remove', 'mute', 'unmute', 'camera_off', 'camera_on', 'lock', 'unlock']),
       }),
     );
-    await live.manageSeat(rid(req), actor(req), index, action);
+    const roomId = rid(req);
+    const { staffAction } = await live.manageSeat(roomId, actor(req), index, action);
+    await auditOutsider(req, staffAction, 'live.seat_manage', roomId, { index, action });
     res.status(204).end();
   });
 
   // Swap a seated guest into the host's stage spot (null restores). Staff need live.moderate.
   r.post('/:id/stage/swap', async (req, res) => {
     const { userId } = parseBody(req, z.object({ userId: z.string().min(1).max(128).nullable() }));
-    const me = currentUser(req);
     const roomId = rid(req);
-    const { staffAction, swappedUid } = await live.swapStage(
-      roomId,
-      { uid: me.uid, isAdmin: hasPermission(me.adminRole, 'live.moderate') },
-      userId,
-    );
-    if (staffAction)
-      await ctx.services.audit.record(
-        req,
-        'live.stage_swap',
-        { type: 'live_room', id: String(roomId) },
-        { userId },
-      );
+    const { staffAction, swappedUid } = await live.swapStage(roomId, actor(req), userId);
+    await auditOutsider(req, staffAction, 'live.stage_swap', roomId, { userId });
     res.json({ swappedUid });
+  });
+
+  // A platform moderator takes a seat without approval, or leaves it (`selfStageEnabled`).
+  r.post('/:id/platform-moderator/stage', async (req, res) => {
+    const { onStage } = parseBody(req, z.object({ onStage: z.boolean() }));
+    const roomId = rid(req);
+    const result = await live.platformModeratorStage(roomId, currentUser(req).uid, onStage);
+    await ctx.services.audit.record(
+      req,
+      'live.platform_moderator_stage',
+      { type: 'live_room', id: String(roomId) },
+      result,
+    );
+    res.json(result);
   });
 
   // YouTube music (host, room admins and staff; `ended` from anyone in the live)
@@ -327,7 +401,12 @@ export function livekitWebhookRoute(ctx: Ctx): Router {
     const identity = event.participant?.identity;
     switch (event.event) {
       case 'participant_joined':
-        if (room && identity) await ctx.services.live.onParticipantJoined(room, identity);
+        if (room && identity)
+          await ctx.services.live.onParticipantJoined(
+            room,
+            identity,
+            Boolean(event.participant?.permission?.hidden),
+          );
         break;
       case 'participant_left':
         if (room && identity) await ctx.services.live.onParticipantLeft(room, identity);

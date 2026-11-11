@@ -12,7 +12,7 @@ import '../../core/media/avatar_picker.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
-import '../../core/utils/json.dart';
+import '../../core/widgets/wallet_balance.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../store/tier_packages_screen.dart';
@@ -153,6 +153,18 @@ class MeScreen extends ConsumerWidget {
                 TierPackageTiles(),
               ],
             ),
+            if (me.isPlatformModerator) ...[
+              const SizedBox(height: 12),
+              _MenuCard(
+                children: [
+                  _MenuItem(
+                    icon: Icons.gavel_rounded,
+                    label: 'Moderation · find and ban accounts',
+                    onTap: () => context.push('/moderation'),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             _MenuCard(
               children: [
@@ -178,7 +190,7 @@ class MeScreen extends ConsumerWidget {
               children: [
                 _MenuItem(
                   icon: Icons.history_rounded,
-                  label: 'Live history',
+                  label: 'Broadcasting History',
                   onTap: () => context.push('/history'),
                 ),
                 _MenuItem(
@@ -370,7 +382,9 @@ class UserProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(userProvider(uid));
-    final isMe = ref.watch(meProvider).id == uid;
+    final me = ref.watch(meProvider);
+    final isMe = me.id == uid;
+    final myDiamonds = isMe ? me.wallet.diamonds : null;
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -451,6 +465,12 @@ class UserProfileScreen extends ConsumerWidget {
                   VipBadge(u.brief.vipTier),
                 ],
               ),
+              // My own balance follows `wallet:updated`; anyone else's is as of loading.
+              if ((myDiamonds ?? u.diamonds) case final diamonds?)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Center(child: WalletBalance(diamonds, size: 15)),
+                ),
               if (u.bio.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
@@ -1126,112 +1146,6 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
                 ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class LiveHistoryScreen extends ConsumerStatefulWidget {
-  const LiveHistoryScreen({super.key});
-  @override
-  ConsumerState<LiveHistoryScreen> createState() => _LiveHistoryScreenState();
-}
-
-class _LiveHistoryScreenState extends ConsumerState<LiveHistoryScreen> {
-  static const _pageSize = 20;
-
-  /// Lifetime totals, from the first page.
-  Json? _totals;
-
-  /// The endpoint pages by number; the page to fetch next is the list's cursor.
-  Future<Paged<Json>> _load(String? cursor) async {
-    final page = int.tryParse(cursor ?? '') ?? 1;
-    final uid = ref.read(meProvider).id;
-    final j = await ref.read(liveRepo).history(uid, page: page);
-    if (page == 1 && mounted) setState(() => _totals = j.obj('totals'));
-    final total = j.integer('total');
-    return Paged(
-      items: j.list('items', (e) => e),
-      nextCursor: page * _pageSize < total ? '${page + 1}' : null,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final totals = _totals;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Live history')),
-      body: PagedList<Json>(
-        padding: const EdgeInsets.all(16),
-        load: _load,
-        header: totals == null
-            ? null
-            : Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          children: [
-                            Text(
-                              Fmt.duration(totals.integer('seconds')),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 18,
-                              ),
-                            ),
-                            const Text(
-                              'Total live',
-                              style: TextStyle(color: BBColors.inkMuted),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: DiamondAmount(
-                                totals.integer('diamonds'),
-                                style: const TextStyle(fontSize: 18),
-                              ),
-                            ),
-                            const Text(
-                              'Diamonds earned',
-                              style: TextStyle(color: BBColors.inkMuted),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-        empty: const EmptyState(
-          icon: Icons.history_toggle_off,
-          title: 'No lives yet',
-        ),
-        itemBuilder: (_, s) => ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(
-            s.str('type') == 'audio'
-                ? Icons.mic_rounded
-                : Icons.videocam_rounded,
-            color: BBColors.gold,
-          ),
-          title: Text(
-            s.str('title'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            '${Fmt.ago(s.date('startedAt'))} · ${Fmt.duration(s.integer('durationSec'))} · peak ${s.integer('peakViewers')}',
-          ),
-          trailing: DiamondAmount(s.integer('giftDiamonds')),
         ),
       ),
     );

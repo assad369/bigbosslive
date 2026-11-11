@@ -3,6 +3,13 @@ import type { LiveRoomDoc } from '../../db/schema.js';
 import type { UserBrief } from '../users/users.presenter.js';
 import { youtubeView } from '../youtube/youtube.state.js';
 
+/** The background a room shows: one set for this live, else the host's equipped store one. */
+export function effectiveBackground(
+  r: Pick<LiveRoomDoc, 'backgroundUrl' | 'decorBackgroundUrl'>,
+): string | null {
+  return r.backgroundUrl ?? r.decorBackgroundUrl ?? null;
+}
+
 export function toLiveRoom(r: LiveRoomDoc, host: UserBrief | undefined): LiveRoom {
   return {
     id: String(r._id),
@@ -47,7 +54,7 @@ export function toRoomDetail(
     livekitRoom: r.livekitRoom,
     moderatorIds: r.moderatorIds,
     moderators: r.moderatorIds.flatMap((id) => users.get(id) ?? []),
-    backgroundUrl: r.backgroundUrl,
+    backgroundUrl: effectiveBackground(r),
     seats: r.seats.map((s) => ({
       index: s.index,
       userId: s.userId,
@@ -55,6 +62,8 @@ export function toRoomDetail(
       // Absent on rooms started before camera moderation existed.
       videoMuted: Boolean(s.videoMuted),
       locked: s.locked,
+      /** When the occupant sat down; the video stage keeps guests in this order. */
+      seatedAt: s.userId && s.seatedAt ? s.seatedAt.toISOString() : null,
       user: s.userId ? (users.get(s.userId) ?? null) : null,
       diamonds: s.userId ? (balances.get(s.userId) ?? 0) : 0,
     })),

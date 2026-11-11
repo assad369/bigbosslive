@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
+import '../../core/widgets/wallet_balance.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../profile/profile_screens.dart';
@@ -378,7 +379,7 @@ class _FollowPillState extends ConsumerState<_FollowPill> {
 /// The full-width card under the header's first row: 💎 diamonds this live, viewers (tap
 /// for the list), the lock state, and the host's ID at the end. Scales down rather than
 /// overflow on a narrow phone.
-class _StatsCard extends StatelessWidget {
+class _StatsCard extends ConsumerWidget {
   const _StatsCard({required this.c, required this.onViewers});
   final LiveRoomController c;
   final VoidCallback onViewers;
@@ -386,8 +387,11 @@ class _StatsCard extends StatelessWidget {
   static const height = 36.0;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final room = c.detail!.room;
+    // The host's wallet right now (seat 0's balance, pushed on every change to it).
+    final wallet = c.hostDiamonds;
+    final stars = starsFor(wallet, ref.watch(diamondsPerStarProvider));
     const figure = TextStyle(
       color: BBColors.ivory,
       fontSize: 15,
@@ -441,6 +445,24 @@ class _StatsCard extends StatelessWidget {
                     ),
                     stat(
                       const Icon(
+                        Icons.account_balance_wallet_rounded,
+                        size: 17,
+                        color: BBColors.goldLight,
+                      ),
+                      Fmt.compact(wallet),
+                      'Host wallet, diamonds',
+                    ),
+                    stat(
+                      const Icon(
+                        Icons.star_rounded,
+                        size: 19,
+                        color: BBColors.gold,
+                      ),
+                      Fmt.full(stars),
+                      'Host stars',
+                    ),
+                    stat(
+                      const Icon(
                         Icons.remove_red_eye_rounded,
                         size: 18,
                         color: BBColors.champagne,
@@ -458,6 +480,17 @@ class _StatsCard extends StatelessWidget {
                         ),
                         room.hasPassword ? 'Password' : 'Locked',
                         'Entry',
+                      ),
+                    // Only this platform moderator sees it: nobody else knows they're here.
+                    if (c.stealth)
+                      stat(
+                        const Icon(
+                          Icons.visibility_off_rounded,
+                          size: 16,
+                          color: BBColors.goldLight,
+                        ),
+                        'Hidden',
+                        'You are hidden from the room',
                       ),
                   ],
                 ),
@@ -889,6 +922,14 @@ class LiveBottomBar extends StatelessWidget {
         icon: Icons.call_end_rounded,
         tooltip: 'Leave the stage',
         danger: true,
+        size: size,
+        onTap: onStageAction,
+      );
+    }
+    if (c.canSelfStage) {
+      return LiveRoundButton(
+        icon: Icons.add_call,
+        tooltip: 'Go on stage',
         size: size,
         onTap: onStageAction,
       );

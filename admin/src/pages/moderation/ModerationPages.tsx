@@ -1,8 +1,22 @@
 import { useState } from 'react';
-import { Button, Form, Image, Input, Select, Space, Switch, Tag, Typography } from 'antd';
+import {
+  Alert,
+  App as AntApp,
+  Button,
+  Form,
+  Image,
+  Input,
+  Select,
+  Space,
+  Switch,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { PkBattle } from '@bigboss/shared';
-import { send } from '../../lib/api';
+import { get, send } from '../../lib/api';
 import { ago, dateTime, num } from '../../lib/format';
 import {
   ActionButton,
@@ -441,6 +455,126 @@ export function PkBattlesPage() {
           },
         ]}
       />
+    </>
+  );
+}
+
+// ── Platform moderators ──────────────────────────────────────────────────────────
+
+interface PlatformModeratorRow {
+  user: Brief;
+  since: string;
+  by: string;
+  status: string;
+}
+
+/**
+ * App users trusted to moderate from the app: the Moderation panel (ban users and devices,
+ * lift live bans) and moderator powers in every live room. The role gives no dashboard access.
+ */
+export function PlatformModeratorsPage() {
+  const { can } = useAuth();
+  const { message } = AntApp.useApp();
+  const qc = useQueryClient();
+  const [user, setUser] = useState('');
+  const list = useInfiniteQuery({
+    queryKey: ['platform-moderators'],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      get<{ items: PlatformModeratorRow[]; nextCursor: string | null }>(
+        '/admin/platform-moderators',
+        { limit: 50, cursor: pageParam },
+      ),
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+  const add = useMutation({
+    mutationFn: (id: string) => send('post', '/admin/platform-moderators', { user: id }),
+    onSuccess: () => {
+      message.success('Platform moderator added');
+      setUser('');
+      void qc.invalidateQueries({ queryKey: ['platform-moderators'] });
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
+  const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
+
+  return (
+    <>
+      <PageHeader
+        title="Platform moderators"
+        subtitle="App users who moderate from the app. Stealth and self-stage live in Settings → Platform moderators."
+      />
+      {can('moderators.manage') && (
+        <Space.Compact style={{ width: '100%', maxWidth: 480, marginBottom: 16 }}>
+          <Input
+            placeholder="Short ID or uid"
+            value={user}
+            onChange={(e) => setUser(e.target.value)}
+            onPressEnter={() => user.trim() && add.mutate(user.trim())}
+          />
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            loading={add.isPending}
+            disabled={!user.trim()}
+            onClick={() => add.mutate(user.trim())}
+          >
+            Add
+          </Button>
+        </Space.Compact>
+      )}
+      {list.error && <Alert type="error" message={(list.error as Error).message} />}
+      <Table<PlatformModeratorRow>
+        rowKey={(r) => r.user.id}
+        size="small"
+        scroll={{ x: 'max-content' }}
+        loading={list.isLoading}
+        dataSource={rows}
+        pagination={false}
+        locale={{ emptyText: 'No platform moderators yet' }}
+        columns={[
+          { title: 'User', render: (_, r) => <UserCell user={r.user} /> },
+          { title: 'Status', render: (_, r) => <StatusTag status={r.status} /> },
+          { title: 'Since', render: (_, r) => dateTime(r.since) },
+          {
+            title: 'Granted by',
+            render: (_, r) => <Typography.Text code>{r.by}</Typography.Text>,
+          },
+          ...(can('moderators.manage')
+            ? [
+                {
+                  title: '',
+                  width: 110,
+                  render: (_: unknown, r: PlatformModeratorRow) => (
+                    <ActionButton
+                      label="Remove"
+                      danger
+                      confirm={`Remove ${r.user.displayName ?? r.user.id}'s moderation powers? Any live they watch hidden is closed for them.`}
+                      run={() =>
+                        send(
+                          'post',
+                          `/admin/users/${encodeURIComponent(r.user.id)}/platform-moderator`,
+                          { enabled: false },
+                        )
+                      }
+                      invalidate={[['platform-moderators']]}
+                      success="Removed"
+                    />
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
+      {list.hasNextPage && (
+        <Button
+          style={{ marginTop: 12 }}
+          loading={list.isFetchingNextPage}
+          onClick={() => void list.fetchNextPage()}
+        >
+          Load more
+        </Button>
+      )}
     </>
   );
 }

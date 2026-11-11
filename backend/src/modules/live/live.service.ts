@@ -9,6 +9,7 @@ import type {
   LiveMessageDoc,
   LiveRoomDoc,
   SeatDoc,
+  UserDoc,
 } from '../../db/schema.js';
 import {
   AppError,
@@ -19,8 +20,14 @@ import {
 } from '../../lib/errors.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
 import { addSeconds } from '../../lib/time.js';
-import { activeBadge, activeVipTier, resolveFrame } from '../users/users.presenter.js';
-import { toLiveRoom, toRoomDetail } from './live.presenter.js';
+import {
+  activeBadge,
+  activeVipTier,
+  resolveFrame,
+  resolveRoomBackground,
+} from '../users/users.presenter.js';
+import { isPlatformModerator, isProtected } from '../moderation/authority.js';
+import { effectiveBackground, toLiveRoom, toRoomDetail } from './live.presenter.js';
 
 const objectIdHex = z.string().regex(/^[a-f0-9]{24}$/i);
 
@@ -55,6 +62,18 @@ export const liveChatInput = z.discriminatedUnion('type', [
 ]);
 
 export type LiveRole = 'host' | 'moderator' | 'guest' | 'audience';
+
+/**
+ * Who is acting in a room. `isAdmin`: may moderate any live (a platform moderator, or staff
+ * with `live.moderate`; see `canModerateLive`). `isStaff`: dashboard staff with
+ * `live.moderate`, the only people who may act on a protected account (staff or platform
+ * moderators).
+ */
+export interface LiveActor {
+  uid: string;
+  isAdmin: boolean;
+  isStaff?: boolean;
+}
 export type SeatAction =
   'remove' | 'mute' | 'unmute' | 'camera_off' | 'camera_on' | 'lock' | 'unlock';
 
@@ -163,22 +182,49 @@ export class LiveService {
     );
   }
 
-  /** Re-mint a connected participant's publish grant and role metadata after a role change. */
+  /**
+   * Re-mint a connected participant's publish grant and role metadata after a role change.
+   *
+   * LiveKit replaces the whole permission, `hidden` included, so it is always stated: a
+   * platform moderator who joined hidden stays hidden while in the audience (see
+   * {@link hiddenIn}), and is shown while on a seat. Without this, any role change in the room
+   * would reveal a watching moderator.
+   */
   private async syncParticipant(room: LiveRoomDoc, uid: string, role: LiveRole): Promise<void> {
-    const { metadata } = await this.metadataFor(uid, role);
+    const { user, metadata } = await this.metadataFor(uid, role);
+    const hidden = await this.hiddenIn(room, user, role);
     await this.ctx.livekit
       .updateParticipant(room.livekitRoom, uid, {
         canPublish: role === 'host' || role === 'guest',
-        metadata,
+        hidden,
+        metadata: hidden ? { ...metadata, stealth: true } : metadata,
       })
       // Not connected right now: the next /join mints a token with the new role.
       .catch(() => undefined);
   }
 
   /**
-   * After a user's identity changed (their tier package was put on, taken off or expired):
-   * re-mint their LiveKit metadata in every room they are in, and refresh the directory card
-   * of the room they host.
+   * Whether `user` is hidden in `room` right now: a platform moderator in the audience whose
+   * presence row says they connected hidden (stealth). Seated, they are visible; back in the
+   * audience, hidden again. Read from the database, so it survives a redeploy.
+   */
+  private async hiddenIn(
+    room: LiveRoomDoc,
+    user: Pick<UserDoc, '_id' | 'platformModerator'>,
+    role: LiveRole,
+  ): Promise<boolean> {
+    if (role !== 'audience' || !isPlatformModerator(user)) return false;
+    const row = await this.ctx.col.roomPresence.findOne(
+      { roomId: room._id, identity: user._id },
+      { projection: { hidden: 1 } },
+    );
+    return Boolean(row?.hidden);
+  }
+
+  /**
+   * After a user's identity changed (tier package, frame, entrance or background put on, taken
+   * off or expired): re-mint their LiveKit metadata in every room they are in, and refresh the
+   * directory card and background of the room they host.
    */
   async refreshIdentity(uid: string): Promise<void> {
     const present = await this.ctx.col.roomPresence
@@ -192,8 +238,56 @@ export class LiveService {
       .toArray();
     for (const room of rooms) {
       await this.syncParticipant(room, uid, this.roleOf(room, uid));
-      if (room.hostId === uid) await this.publishDirectory(room._id);
+      if (room.hostId === uid) {
+        await this.refreshDecorBackground(room);
+        await this.publishDirectory(room._id);
+      }
     }
+  }
+
+  /**
+   * {@link refreshIdentity} for many users at once, touching only those who are live or
+   * watching a live right now (the rest pick the change up on their next join).
+   */
+  async refreshIdentities(uids: string[]): Promise<void> {
+    const unique = [...new Set(uids)];
+    for (let i = 0; i < unique.length; i += 500) {
+      const chunk = unique.slice(i, i + 500);
+      const [present, hosting] = await Promise.all([
+        this.ctx.col.roomPresence.distinct('identity', { identity: { $in: chunk } }),
+        this.ctx.col.liveRooms.distinct('hostId', { hostId: { $in: chunk }, status: 'live' }),
+      ]);
+      for (const uid of new Set([...present, ...hosting])) {
+        await this.refreshIdentity(uid).catch((err: unknown) =>
+          this.ctx.log.warn({ err, uid }, 'identity refresh failed'),
+        );
+      }
+    }
+  }
+
+  /**
+   * Keep the host's equipped store background on their live room. Only the snapshot moves; a
+   * background the host set for this live (`backgroundUrl`) still wins in the room detail.
+   */
+  private async refreshDecorBackground(room: LiveRoomDoc): Promise<void> {
+    const host = await this.ctx.col.users.findOne(
+      { _id: room.hostId },
+      { projection: { vip: 1, equipped: 1 } },
+    );
+    const decor = host ? resolveRoomBackground(host, this.ctx.clock.now()) : null;
+    if ((room.decorBackgroundUrl ?? null) === decor) return;
+    const res = await this.ctx.col.liveRooms.findOneAndUpdate(
+      { _id: room._id, status: 'live' },
+      { $set: { decorBackgroundUrl: decor } },
+      { returnDocument: 'after' },
+    );
+    if (!res) return;
+    await this.broadcastSystem(res, {
+      kind: 'room_updated',
+      title: res.title,
+      coverUrl: res.coverUrl,
+      backgroundUrl: effectiveBackground(res),
+    });
   }
 
   private async metadataFor(uid: string, role: LiveRole) {
@@ -212,20 +306,28 @@ export class LiveService {
         ...resolveFrame(user, now),
         role,
         isAdmin: Boolean(user.adminRole),
-      },
+      } as Record<string, unknown> & { vipTier: number },
     };
   }
 
-  private async tokenFor(room: LiveRoomDoc, uid: string, role: LiveRole) {
+  private async tokenFor(
+    room: LiveRoomDoc,
+    uid: string,
+    role: LiveRole,
+    opts: { hidden?: boolean } = {},
+  ) {
     const { user, metadata } = await this.metadataFor(uid, role);
+    const hidden = Boolean(opts.hidden);
+    const meta = hidden ? { ...metadata, stealth: true } : metadata;
     const token = await this.ctx.livekit.createToken({
       room: room.livekitRoom,
       identity: uid,
       name: user.displayName,
       canPublish: role === 'host' || role === 'guest',
-      metadata,
+      metadata: meta,
+      hidden,
     });
-    return { token, url: this.ctx.livekit.url, identity: uid, role, metadata };
+    return { token, url: this.ctx.livekit.url, identity: uid, role, metadata: meta };
   }
 
   private async resume(room: LiveRoomDoc) {
@@ -238,6 +340,7 @@ export class LiveService {
         $set: {
           lastHeartbeatAt: this.ctx.clock.now(),
           hostVipTier: activeVipTier(host.vip, this.ctx.clock.now()),
+          decorBackgroundUrl: resolveRoomBackground(host, this.ctx.clock.now()),
         },
       },
     );
@@ -300,6 +403,7 @@ export class LiveService {
       pkBattleId: null,
       hostVipTier: activeVipTier(host.vip, now),
       backgroundUrl: null,
+      decorBackgroundUrl: resolveRoomBackground(host, now),
       locked: false,
       passwordHash: null,
       startedAt: now,
@@ -307,6 +411,11 @@ export class LiveService {
       endedAt: null,
       endReason: null,
       endedBy: null,
+      totalJoins: 0,
+      uniqueViewers: 0,
+      chatMessages: 0,
+      reactions: 0,
+      summary: null,
     };
     try {
       await this.ctx.col.liveRooms.insertOne(room);
@@ -332,48 +441,80 @@ export class LiveService {
   /**
    * Viewer join: checks bans, blocks and the room lock, then returns a subscribe-only token
    * (publish if seated). Staff, moderators and seated guests pass a lock; anyone else needs the
-   * password, when the host set one.
+   * password, when the host set one. People who moderate any live (`canModerate`: platform
+   * moderators, staff with `live.moderate`) also pass the host's room bans and blocks.
+   *
+   * A platform moderator joins hidden while stealth is on (`stealth: true`): no entrance,
+   * no viewer count, no join line. `resume` is a reconnect of someone already watching: no
+   * entrance either, or the whole room would see it again after every network drop.
    */
-  async join(roomId: ObjectId, uid: string, opts: { password?: string; isStaff?: boolean } = {}) {
+  async join(
+    roomId: ObjectId,
+    uid: string,
+    opts: { password?: string; isStaff?: boolean; canModerate?: boolean; resume?: boolean } = {},
+  ) {
     const room = await this.getLive(roomId);
     if (room.hostId === uid)
       return {
         room: await this.detail(roomId),
         credentials: await this.tokenFor(room, uid, 'host'),
+        entry: null,
+        stealth: false,
       };
 
     const now = this.ctx.clock.now();
-    const ban = await this.ctx.col.roomBans.findOne({ hostId: room.hostId, userId: uid });
-    if (ban && (!ban.until || ban.until > now)) {
-      throw new AppError(403, 'room_banned', 'You were removed from this live', {
-        until: ban.until,
-      });
+    if (!opts.canModerate) {
+      const ban = await this.ctx.col.roomBans.findOne({ hostId: room.hostId, userId: uid });
+      if (ban && (!ban.until || ban.until > now)) {
+        throw new AppError(403, 'room_banned', 'You were removed from this live', {
+          until: ban.until,
+        });
+      }
+      if (await this.ctx.services.users.isBlockedEitherWay(uid, room.hostId))
+        throw forbidden('You cannot join this live');
     }
-    if (await this.ctx.services.users.isBlockedEitherWay(uid, room.hostId))
-      throw forbidden('You cannot join this live');
 
     const role = this.roleOf(room, uid);
-    if (room.locked && role === 'audience' && !opts.isStaff) {
+    if (room.locked && role === 'audience' && !opts.isStaff && !opts.canModerate) {
       const hasPassword = Boolean(room.passwordHash);
       if (!room.passwordHash || !opts.password)
         throw new AppError(403, 'room_locked', 'This live is locked', { hasPassword });
       if (!(await verifyPassword(opts.password, room.passwordHash)))
         throw new AppError(403, 'wrong_password', 'Wrong password', { hasPassword });
     }
-    const credentials = await this.tokenFor(room, uid, role);
+    const user = await this.ctx.services.users.get(uid);
+    const stealth =
+      role === 'audience' &&
+      isPlatformModerator(user) &&
+      (await this.ctx.services.config.get('platformModerators')).stealthEnabled;
+    const credentials = await this.tokenFor(room, uid, role, { hidden: stealth });
 
+    // Already in the room (a reconnect, or a second join call): no second entrance.
+    const watching =
+      opts.resume ||
+      (await this.ctx.col.roomPresence.countDocuments(
+        { roomId: room._id, identity: uid },
+        { limit: 1 },
+      )) > 0;
     // Entrance for everyone in the room: VIP tiers get a banner, plus an effect when they
-    // have one (an equipped entry animation, else their tier's).
-    const effect = await this.ctx.services.store.entryEffectFor(uid, credentials.metadata.vipTier);
-    if (credentials.metadata.vipTier > 0 || effect) {
+    // have one (their equipped entry animation).
+    let entry = null;
+    if (!stealth && !watching) {
+      const effect = await this.ctx.services.store.entryEffectFor(
+        uid,
+        credentials.metadata.vipTier,
+      );
+      entry =
+        credentials.metadata.vipTier > 0 || effect ? { user: credentials.metadata, effect } : null;
+    }
+    if (entry) {
       void this.ctx.livekit
-        .sendData(room.livekitRoom, LIVEKIT_TOPICS.entry, {
-          user: credentials.metadata,
-          effect,
-        })
+        .sendData(room.livekitRoom, LIVEKIT_TOPICS.entry, entry)
         .catch(() => undefined);
     }
-    return { room: await this.detail(roomId), credentials };
+    // The broadcast goes out before the joiner connects to LiveKit, so they never receive it:
+    // they get the same entrance here and play it themselves once connected.
+    return { room: await this.detail(roomId), credentials, entry, stealth };
   }
 
   async heartbeat(roomId: ObjectId, hostId: string): Promise<void> {
@@ -416,7 +557,7 @@ export class LiveService {
       kind: 'room_updated',
       title: res.title,
       coverUrl: res.coverUrl,
-      backgroundUrl: res.backgroundUrl,
+      backgroundUrl: effectiveBackground(res),
     });
     await this.publishDirectory(roomId);
     return this.detail(roomId);
@@ -573,9 +714,10 @@ export class LiveService {
     };
   }
 
+  /** People watching, hidden platform moderators left out. */
   async viewers(roomId: ObjectId, limit = 100) {
     const rows = await this.ctx.col.roomPresence
-      .find({ roomId })
+      .find({ roomId, hidden: { $ne: true } })
       .sort({ joinedAt: 1 })
       .limit(limit)
       .toArray();
@@ -638,19 +780,48 @@ export class LiveService {
     throw forbidden('Only the host or a room moderator can do that');
   }
 
+  /**
+   * Someone who moderates any live, acting in a room they neither host nor administer. The
+   * route audits what they do.
+   */
+  private outsider(room: LiveRoomDoc, actor: LiveActor): boolean {
+    return actor.isAdmin && room.hostId !== actor.uid && !room.moderatorIds.includes(actor.uid);
+  }
+
+  /**
+   * Staff and platform moderators can't be removed, muted or have their messages deleted by a
+   * host, a room admin or another platform moderator. Only staff may act on them.
+   */
+  private async assertNotProtected(targetUid: string, actor: LiveActor): Promise<void> {
+    if (targetUid === actor.uid || actor.isStaff) return;
+    const target = await this.ctx.col.users.findOne(
+      { _id: targetUid },
+      { projection: { adminRole: 1, platformModerator: 1 } },
+    );
+    if (target && isProtected(target))
+      throw new AppError(
+        403,
+        'target_protected',
+        'Platform moderators and staff can’t be acted on',
+      );
+  }
+
   async kick(
     roomId: ObjectId,
-    actor: { uid: string; isAdmin: boolean },
+    actor: LiveActor,
     targetUid: string,
     banMinutes: number | null,
-  ): Promise<void> {
+  ): Promise<{ staffAction: boolean }> {
     const room = await this.getLive(roomId);
     await this.assertCanModerate(room, actor.uid, actor.isAdmin);
+    if (targetUid === actor.uid) throw badRequest('You cannot remove yourself');
     if (targetUid === room.hostId) throw badRequest('The host cannot be removed');
     if (room.moderatorIds.includes(targetUid) && room.hostId !== actor.uid && !actor.isAdmin) {
       throw forbidden('Moderators cannot remove other moderators');
     }
+    await this.assertNotProtected(targetUid, actor);
     await this.evict(room, targetUid, actor.uid, banMinutes);
+    return { staffAction: this.outsider(room, actor) };
   }
 
   /** Room ban, role and seat revoked, then the participant is told and disconnected. */
@@ -784,7 +955,10 @@ export class LiveService {
       deletedAt: null,
     };
     await this.ctx.col.liveMessages.insertOne(doc);
-    const { metadata } = await this.metadataFor(uid, this.roleOf(room, uid));
+    // A lasting count for the post-live summary (messages themselves expire after a week).
+    await this.ctx.col.liveRooms.updateOne({ _id: room._id }, { $inc: { chatMessages: 1 } });
+    const role = this.roleOf(room, uid);
+    const { user, metadata } = await this.metadataFor(uid, role);
     const message = {
       id: String(doc._id),
       type: doc.type,
@@ -793,6 +967,9 @@ export class LiveService {
       replyTo,
       user: metadata,
       at: now.toISOString(),
+      // A hidden platform moderator: nobody can find them in the room, so their messages say
+      // who they are. Decided here, never by the sender's client.
+      mod: await this.hiddenIn(room, user, role),
     };
     await this.ctx.livekit.sendData(room.livekitRoom, LIVEKIT_TOPICS.chat, message);
     return message;
@@ -868,28 +1045,38 @@ export class LiveService {
     return rest.find((uid) => !here.has(uid)) ?? null;
   }
 
-  /** The author, the host, a room moderator or staff can remove a chat message for everyone. */
+  /**
+   * The author, the host, a room moderator, a platform moderator or staff can remove a chat
+   * message for everyone. Messages of staff and platform moderators only by their author or
+   * staff.
+   */
   async deleteChat(
     roomId: ObjectId,
-    actor: { uid: string; isAdmin: boolean },
+    actor: LiveActor,
     messageId: ObjectId,
-  ): Promise<void> {
+  ): Promise<{ staffAction: boolean }> {
     const room = await this.getLive(roomId);
     const msg = await this.ctx.col.liveMessages.findOne({ _id: messageId, roomId });
     if (!msg) throw notFound('Message');
-    if (msg.userId !== actor.uid) await this.assertCanModerate(room, actor.uid, actor.isAdmin);
+    const own = msg.userId === actor.uid;
+    if (!own) {
+      await this.assertCanModerate(room, actor.uid, actor.isAdmin);
+      await this.assertNotProtected(msg.userId, actor);
+    }
     const res = await this.ctx.col.liveMessages.updateOne(
       { _id: messageId, deletedAt: null },
       { $set: { deletedAt: this.ctx.clock.now() } },
     );
     if (res.modifiedCount)
       await this.broadcastSystem(room, { kind: 'chat_deleted', id: String(messageId) });
+    return { staffAction: !own && this.outsider(room, actor) };
   }
 
   /** Heart reactions. Rate-limited per user at the route; clients coalesce the animation. */
   async react(roomId: ObjectId, uid: string, count: number): Promise<void> {
     const room = await this.getLive(roomId);
     await this.assertNotBanned(room, uid);
+    await this.ctx.col.liveRooms.updateOne({ _id: room._id }, { $inc: { reactions: count } });
     await this.ctx.livekit
       .sendData(room.livekitRoom, LIVEKIT_TOPICS.reaction, { uid, count })
       .catch(() => undefined);
@@ -948,6 +1135,7 @@ export class LiveService {
             'seats.$.muted': false,
             'seats.$.videoMuted': false,
             'seats.$.absentSince': null,
+            'seats.$.seatedAt': this.ctx.clock.now(),
           },
         },
         { returnDocument: 'after' },
@@ -970,6 +1158,7 @@ export class LiveService {
           'seats.$.muted': false,
           'seats.$.videoMuted': false,
           'seats.$.absentSince': null,
+          'seats.$.seatedAt': null,
         },
       },
       { returnDocument: 'after' },
@@ -993,12 +1182,12 @@ export class LiveService {
    */
   async swapStage(
     roomId: ObjectId,
-    actor: { uid: string; isAdmin: boolean },
+    actor: LiveActor,
     targetUid: string | null,
   ): Promise<{ swappedUid: string | null; staffAction: boolean }> {
     const room = await this.getLive(roomId);
     await this.assertCanModerate(room, actor.uid, actor.isAdmin);
-    const staffAction = room.hostId !== actor.uid && !room.moderatorIds.includes(actor.uid);
+    const staffAction = this.outsider(room, actor);
     if ((room.swappedUid ?? null) === targetUid)
       return { swappedUid: targetUid, staffAction: false };
     if (targetUid === null) {
@@ -1079,7 +1268,7 @@ export class LiveService {
   /** Host/moderator accepts or rejects a pending request. */
   async decideSeat(
     roomId: ObjectId,
-    actor: { uid: string; isAdmin: boolean },
+    actor: LiveActor,
     uid: string,
     accept: boolean,
     index: number | null,
@@ -1094,12 +1283,12 @@ export class LiveService {
     if (!req) throw notFound('Pending seat request');
     if (!accept) {
       await this.notifySeatStaff(room, { kind: 'request_resolved', uid, accepted: false }, [uid]);
-      return { seated: false as const };
+      return { seated: false as const, staffAction: this.outsider(room, actor) };
     }
     try {
       const seated = await this.occupySeat(room, uid, index);
       await this.notifySeatStaff(room, { kind: 'request_resolved', uid, accepted: true }, [uid]);
-      return { seated: true as const, index: seated };
+      return { seated: true as const, index: seated, staffAction: this.outsider(room, actor) };
     } catch (err) {
       // No free seat: put the request back so it can be accepted once one frees up.
       await this.ctx.col.seatRequests
@@ -1109,7 +1298,11 @@ export class LiveService {
     }
   }
 
-  async inviteToSeat(roomId: ObjectId, actor: { uid: string; isAdmin: boolean }, uid: string) {
+  async inviteToSeat(
+    roomId: ObjectId,
+    actor: LiveActor,
+    uid: string,
+  ): Promise<{ staffAction: boolean }> {
     const room = await this.getLive(roomId);
     await this.assertCanModerate(room, actor.uid, actor.isAdmin);
     if (room.seats.some((s) => s.userId === uid)) throw badRequest('Already on a seat');
@@ -1133,6 +1326,7 @@ export class LiveService {
         [uid],
       )
       .catch(() => undefined);
+    return { staffAction: this.outsider(room, actor) };
   }
 
   async respondToInvite(roomId: ObjectId, uid: string, accept: boolean) {
@@ -1161,14 +1355,92 @@ export class LiveService {
     if (!(await this.vacateSeatOf(room, uid))) throw badRequest('You are not on a seat');
   }
 
+  /**
+   * A platform moderator takes a free seat without the host's approval, or leaves it
+   * (`selfStageEnabled`). On a seat they are visible like any guest; leaving, they go back to
+   * hidden when stealth is on. Never makes them a room admin.
+   */
+  async platformModeratorStage(
+    roomId: ObjectId,
+    uid: string,
+    onStage: boolean,
+  ): Promise<{ onStage: boolean; index: number | null; hidden: boolean }> {
+    const room = await this.getLive(roomId);
+    const [user, cfg] = await Promise.all([
+      this.ctx.services.users.get(uid),
+      this.ctx.services.config.get('platformModerators'),
+    ]);
+    if (!isPlatformModerator(user)) throw forbidden('Platform moderators only');
+    if (!cfg.selfStageEnabled) throw forbidden('Taking a seat without approval is turned off');
+    if (room.hostId === uid) throw badRequest('You are the host');
+    const seat = room.seats.find((s) => s.index > 0 && s.userId === uid);
+    if (onStage) {
+      if (seat) return { onStage: true, index: seat.index, hidden: false };
+      const index = await this.occupySeat(room, uid, null);
+      await this.ctx.col.seatRequests.updateMany(
+        { roomId, userId: uid, status: 'pending' },
+        { $set: { status: 'cancelled' } },
+      );
+      return { onStage: true, index, hidden: false };
+    }
+    const hiddenNow = async () =>
+      Boolean(
+        (
+          await this.ctx.col.roomPresence.findOne(
+            { roomId, identity: uid },
+            { projection: { hidden: 1 } },
+          )
+        )?.hidden,
+      );
+    if (!seat) return { onStage: false, index: null, hidden: await hiddenNow() };
+    // Back to hidden if stealth is on now, even if they first joined visibly.
+    if (cfg.stealthEnabled)
+      await this.ctx.col.roomPresence.updateOne(
+        { roomId, identity: uid },
+        { $set: { hidden: true } },
+      );
+    await this.vacateSeatOf(room, uid);
+    await this.syncViewerCount(roomId);
+    return { onStage: false, index: null, hidden: await hiddenNow() };
+  }
+
+  /**
+   * Take a platform moderator out of every room they watch hidden (their role was revoked).
+   * They can rejoin, visibly.
+   */
+  async dropHidden(uid: string): Promise<number> {
+    const rows = await this.ctx.col.roomPresence.find({ identity: uid, hidden: true }).toArray();
+    for (const row of rows) {
+      const room = await this.ctx.col.liveRooms.findOne(
+        { _id: row.roomId },
+        { projection: { livekitRoom: 1, status: 1 } },
+      );
+      await this.ctx.col.roomPresence.deleteOne({ _id: row._id });
+      if (room?.status === 'live')
+        await this.ctx.livekit.removeParticipant(room.livekitRoom, uid).catch(() => undefined);
+    }
+    return rows.length;
+  }
+
+  /** A platform moderator (or staff) ends someone's live from the app. */
+  async endByModerator(roomId: ObjectId, actorUid: string): Promise<LiveRoomDoc> {
+    const room = await this.getLive(roomId);
+    if (room.hostId === actorUid) throw badRequest('End your own live from the live screen');
+    const ended = await this.end(roomId, 'moderator', actorUid);
+    if (!ended) throw new AppError(410, 'room_ended', 'This live has ended');
+    return ended;
+  }
+
   async manageSeat(
     roomId: ObjectId,
-    actor: { uid: string; isAdmin: boolean },
+    actor: LiveActor,
     index: number,
     action: SeatAction,
-  ) {
+  ): Promise<{ staffAction: boolean }> {
     const room = await this.getLive(roomId);
     await this.assertCanModerate(room, actor.uid, actor.isAdmin);
+    // Someone acting in a room they don't run: the route audits it.
+    const staffAction = this.outsider(room, actor);
     if (index === 0) throw badRequest('The host seat cannot be changed');
     const seat = room.seats.find((s) => s.index === index);
     if (!seat) throw notFound('Seat');
@@ -1178,10 +1450,13 @@ export class LiveService {
       room.moderatorIds.includes(seat.userId)
     )
       throw forbidden('Moderators cannot manage other moderators');
+    // Lifting a mute is harmless; anything that takes something away is not.
+    if (seat.userId && action !== 'unmute' && action !== 'camera_on' && action !== 'unlock')
+      await this.assertNotProtected(seat.userId, actor);
     switch (action) {
       case 'remove':
         if (seat.userId) await this.vacateSeatOf(room, seat.userId);
-        return;
+        return { staffAction };
       case 'lock':
         if (seat.userId) await this.vacateSeatOf(room, seat.userId);
         break;
@@ -1210,11 +1485,17 @@ export class LiveService {
           : { 'seats.$.videoMuted': action === 'camera_off' };
     await this.ctx.col.liveRooms.updateOne({ _id: room._id, 'seats.index': index }, { $set });
     await this.broadcastSeats(room._id);
+    return { staffAction };
   }
 
   // ── LiveKit webhooks & sweeping ────────────────────────────────────────────────
 
-  async onParticipantJoined(livekitRoom: string, identity: string): Promise<void> {
+  /**
+   * `hidden` is the participant's LiveKit `permission.hidden` (a platform moderator in
+   * stealth). It is kept on the presence row, so counts and lists leave them out even after a
+   * redeploy, and their join is neither counted nor announced.
+   */
+  async onParticipantJoined(livekitRoom: string, identity: string, hidden = false): Promise<void> {
     const room = await this.ctx.col.liveRooms.findOne(
       { livekitRoom, status: 'live' },
       { projection: { _id: 1, hostId: 1 } },
@@ -1222,11 +1503,31 @@ export class LiveService {
     if (!room || identity === room.hostId) return;
     const res = await this.ctx.col.roomPresence.updateOne(
       { roomId: room._id, identity },
-      { $setOnInsert: { roomId: room._id, identity, joinedAt: this.ctx.clock.now() } },
+      {
+        $set: { hidden },
+        $setOnInsert: { roomId: room._id, identity, joinedAt: this.ctx.clock.now() },
+      },
       { upsert: true },
     );
+    if (res.upsertedCount && !hidden) await this.countJoin(room._id, identity);
     // Only a first delivery announces the join; redelivered webhooks just recount.
-    await this.syncViewerCount(room._id, res.upsertedCount ? identity : undefined);
+    await this.syncViewerCount(room._id, res.upsertedCount && !hidden ? identity : undefined);
+  }
+
+  /**
+   * Audience counters for the post-live summary. Runs once per presence row, so a redelivered
+   * webhook never counts twice; `live_viewers` dedupes the unique count across reconnects.
+   */
+  private async countJoin(roomId: ObjectId, uid: string): Promise<void> {
+    const seen = await this.ctx.col.liveViewers.updateOne(
+      { _id: `${String(roomId)}:${uid}` },
+      { $setOnInsert: { roomId, uid, createdAt: this.ctx.clock.now() } },
+      { upsert: true },
+    );
+    await this.ctx.col.liveRooms.updateOne(
+      { _id: roomId },
+      { $inc: { totalJoins: 1, uniqueViewers: seen.upsertedCount ? 1 : 0 } },
+    );
   }
 
   async onParticipantLeft(livekitRoom: string, identity: string): Promise<void> {
@@ -1312,7 +1613,10 @@ export class LiveService {
    * gets the new count and its top viewers, so clients don't poll for them.
    */
   private async syncViewerCount(roomId: ObjectId, joinedUid?: string): Promise<void> {
-    const count = await this.ctx.col.roomPresence.countDocuments({ roomId });
+    const count = await this.ctx.col.roomPresence.countDocuments({
+      roomId,
+      hidden: { $ne: true },
+    });
     const room = await this.ctx.col.liveRooms.findOneAndUpdate(
       { _id: roomId, status: 'live' },
       [{ $set: { viewerCount: count, peakViewers: { $max: ['$peakViewers', count] } } }],
@@ -1450,7 +1754,7 @@ export class LiveService {
       kind: 'room_updated',
       title: res.title,
       coverUrl: res.coverUrl,
-      backgroundUrl: res.backgroundUrl,
+      backgroundUrl: effectiveBackground(res),
     });
     await this.publishDirectory(roomId);
     return true;

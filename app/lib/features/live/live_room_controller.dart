@@ -75,6 +75,7 @@ class ChatLine {
     this.voiceSec = 0,
     this.gift,
     this.fromServer = false,
+    this.mod = false,
   });
   final String id;
   final String text;
@@ -89,6 +90,9 @@ class ChatLine {
   /// Saved on the server (`live_messages`), so it has an id replies, reports and deletes
   /// can name. Lines the app writes itself (joins, notices, the gift fallback) are not.
   final bool fromServer;
+
+  /// Sent by a hidden platform moderator (decided by the server): drawn with a MOD chip.
+  final bool mod;
 
   bool get system => kind == ChatKind.system || kind == ChatKind.join;
 
@@ -126,6 +130,7 @@ class ChatLine {
       voiceSec: voice?.integer('durationSec') ?? 0,
       gift: gift == null ? null : ChatGift.fromJson(gift),
       fromServer: true,
+      mod: p.flag('mod'),
     );
   }
 }
@@ -198,17 +203,31 @@ class LiveRoomController extends ChangeNotifier {
     this._password,
     this.isStaff = false,
     this.isLiveModerator = false,
+    this.selfStageEnabled = false,
+    this.me,
   }) : _initial = hostSession;
 
   final String roomId;
   final String myUid;
 
-  /// Platform staff (an admin role): the server lets them run a room's music too.
+  /// This user, for their own "joined" line (the server's goes to the room before they are
+  /// connected, or not at all on a rejoin).
+  final UserBrief? me;
+
+  /// Platform staff (any admin role).
   final bool isStaff;
 
-  /// Staff whose role holds `live.moderate` (moderator, admin, superadmin): the server lets
-  /// them swap a guest into the host spot.
+  /// May moderate any live (`/me.moderation.canModerateLive`): a platform moderator, or
+  /// staff whose role holds `live.moderate`. The server applies the same rule; this only
+  /// decides which controls to draw.
   final bool isLiveModerator;
+
+  /// A platform moderator allowed to take a seat without the host's approval.
+  final bool selfStageEnabled;
+
+  /// Connected hidden (a platform moderator in stealth): nobody sees this user, their join
+  /// or their entrance. Set from each join, so a rejoin can change it.
+  bool stealth = false;
   final LiveRepository _repo;
   final LiveSession? _initial;
   final String? _password;
@@ -308,7 +327,23 @@ class LiveRoomController extends ChangeNotifier {
   int _pendingHearts = 0;
 
   Stream<GiftEvent> get gifts => _gifts.stream;
-  Stream<EntryEvent> get entries => _entries.stream;
+
+  /// Entrances in this room. A subscriber that arrives just after this user's own entrance
+  /// still gets it: the effect and banner widgets mount only once the room has rendered,
+  /// which can be after the join announced it, and a broadcast stream would drop it.
+  Stream<EntryEvent> get entries => Stream<EntryEvent>.multi((sink) {
+    final own = _ownEntry;
+    if (own != null &&
+        DateTime.now().difference(own.at) < _ownEntryReplayWindow) {
+      sink.add(own.event);
+    }
+    final sub = _entries.stream.listen(sink.add, onDone: sink.close);
+    sink.onCancel = sub.cancel;
+  });
+
+  /// This user's own entrance, replayed to [entries] subscribers for a short while.
+  ({EntryEvent event, DateTime at})? _ownEntry;
+  static const _ownEntryReplayWindow = Duration(seconds: 8);
   Stream<PkBattle> get pkInvites => _pkInvites.stream;
   Stream<SeatInvite> get seatInvites => _seatInvites.stream;
 
@@ -325,8 +360,15 @@ class LiveRoomController extends ChangeNotifier {
   bool get isModerator =>
       isHost || (detail?.moderatorIds.contains(myUid) ?? false);
 
-  /// The host, room admins and staff play YouTube songs.
-  bool get canControlYouTube => isModerator || isStaff;
+  /// The host, room admins, platform moderators and `live.moderate` staff play YouTube songs.
+  bool get canControlYouTube => isModerator || isLiveModerator;
+
+  /// May remove people, delete their messages and end this live although they neither host
+  /// nor administer it (a platform moderator or `live.moderate` staff).
+  bool get canModerateLive => isLiveModerator;
+
+  /// A platform moderator may take a seat (or leave it) without anyone's approval.
+  bool get canSelfStage => selfStageEnabled && !isHost;
   Seat? get mySeat => detail?.seats
       .where((s) => s.index > 0 && s.user?.id == myUid)
       .firstOrNull;
@@ -339,10 +381,54 @@ class LiveRoomController extends ChangeNotifier {
   /// drops out at once, before the server frees their seat (its webhook can lag, and a
   /// killed app leaves no goodbye at all). While a guest is swapped into the host spot they
   /// come first and the host takes their place.
-  List<Seat> get stage => _swapped(
-    detail?.seats.where((s) => s.user != null && _present(s)).toList() ??
-        const [],
-  );
+  ///
+  /// Guests keep the order they sat down in ([Seat.seatedAt]), not the seat index: the
+  /// server hands a newcomer the lowest free seat, which would otherwise put a late joiner
+  /// above everyone already on stage.
+  List<Seat> get stage => _swapped(_joinOrder());
+
+  /// The host, then present guests in the order they took their seats.
+  List<Seat> _joinOrder() {
+    final present =
+        detail?.seats.where((s) => s.user != null && _present(s)).toList() ??
+        <Seat>[];
+    present.sort(compareStageOrder);
+    return present;
+  }
+
+  /// Host first, then by [Seat.seatedAt] (older servers send none: seat index decides).
+  @visibleForTesting
+  static int compareStageOrder(Seat a, Seat b) {
+    if (a.index == 0 || b.index == 0) return a.index == 0 ? -1 : 1;
+    final at = a.seatedAt, bt = b.seatedAt;
+    if (at != null && bt != null && at != bt) return at.compareTo(bt);
+    if (at != null && bt == null) return 1;
+    if (at == null && bt != null) return -1;
+    return a.index.compareTo(b.index);
+  }
+
+  /// [uid]'s spot on the stage: 1 for the first guest to sit down, 2 for the next, and so
+  /// on among those present. Null for the host and anyone not on stage. A swap into the
+  /// host spot keeps the guest's number.
+  int? spotOf(String uid) {
+    final guests = _joinOrder().where((s) => s.index > 0).toList();
+    final i = guests.indexWhere((s) => s.user?.id == uid);
+    return i < 0 ? null : i + 1;
+  }
+
+  /// The host's wallet balance, kept current by `balances` seat events (the host sits on
+  /// seat 0, so every change to it reaches the room).
+  int get hostDiamonds =>
+      detail?.seats.where((s) => s.index == 0).firstOrNull?.diamonds ?? 0;
+
+  /// Whether this user may take [seat]'s guest off the stage: the host, a room admin (not
+  /// for another admin; the server refuses that) or staff with `live.moderate`.
+  bool canRemoveFromStage(Seat seat) {
+    final uid = seat.user?.id;
+    if (seat.index == 0 || uid == null || uid == myUid) return false;
+    if (isHost || isLiveModerator) return true;
+    return isModerator && roleOf(uid) != RoomRole.admin;
+  }
 
   /// All seats as they should be drawn: a guest who has left shows as an empty seat. A
   /// swap exchanges the host seat and the guest's seat.
@@ -432,7 +518,12 @@ class LiveRoomController extends ChangeNotifier {
             .where((p) => p.identity == uid)
             .firstOrNull;
 
-  bool isConnected(String uid) => _participant(uid) != null;
+  bool isConnected(String uid) =>
+      debugConnected?.call(uid) ?? _participant(uid) != null;
+
+  /// Stands in for LiveKit's participant list in tests, where no room connects.
+  @visibleForTesting
+  bool Function(String uid)? debugConnected;
 
   VideoTrack? videoOf(String? uid) {
     if (uid == null) return null;
@@ -461,6 +552,7 @@ class LiveRoomController extends ChangeNotifier {
       // start timers or the wakelock that dispose() has already cleaned up.
       if (_disposed) return;
       detail = session.detail;
+      stealth = session.stealth;
       _takeYouTube(session.detail);
       credentials = session.credentials;
       // Before connecting, so the first camera publish already streams the saved look.
@@ -477,6 +569,7 @@ class LiveRoomController extends ChangeNotifier {
       _system(
         'Welcome to ${detail!.room.host.displayName}\'s live. Be kind — harassment gets you removed.',
       );
+      _announceMyJoin(session.entry);
       _wakelock(on: true);
       // LiveKit now holds video decoders: tier badge MP4s get a smaller share.
       VideoBadgeBudget.instance.inLiveRoom = true;
@@ -706,9 +799,15 @@ class LiveRoomController extends ChangeNotifier {
         await Future<void>.delayed(Duration(seconds: attempt * 2));
         if (_disposed) return;
         try {
-          final session = await _repo.join(roomId, password: _password);
+          // `resume`: everyone already saw this user arrive; no second entrance.
+          final session = await _repo.join(
+            roomId,
+            password: _password,
+            resume: true,
+          );
           if (_disposed) return;
           detail = session.detail;
+          stealth = session.stealth;
           _takeYouTube(session.detail);
           credentials = session.credentials;
           micOn = false;
@@ -1177,10 +1276,45 @@ class LiveRoomController extends ChangeNotifier {
     if (chat.length > _maxChat) chat.removeRange(0, chat.length - _maxChat);
   }
 
-  /// Join lines collapse: a burst of arrivals shows only the latest one.
+  /// My own "joined" line, shown once per session as soon as I'm connected; the server's
+  /// copy reaches the room before I am in it (and is skipped on a rejoin). A VIP also sees
+  /// their own entrance banner and effect, which the room got while they were connecting.
+  bool _myJoinShown = false;
+
+  void _announceMyJoin(Json? entry) {
+    // A hidden moderator arrives unannounced, to the room and to themselves.
+    if (isHost || stealth) return;
+    final self = me;
+    if (self != null && !_myJoinShown) _join(self);
+    if (entry != null && !_entries.isClosed) {
+      final EntryEvent event;
+      try {
+        event = EntryEvent.fromJson(entry);
+      } catch (_) {
+        // A malformed entrance is cosmetic: never fail the join over it.
+        return;
+      }
+      _ownEntry = (event: event, at: DateTime.now());
+      _entries.add(event);
+    }
+  }
+
+  /// [_announceMyJoin] for tests, which can't connect a real room.
+  @visibleForTesting
+  void debugAnnounceMyJoin(Json? entry) => _announceMyJoin(entry);
+
+  /// Join lines collapse: a burst of arrivals shows only the latest one. My own line is
+  /// never collapsed away by someone else's, and appears only once.
   void _join(UserBrief u) {
-    if (u.id == myUid) return;
-    if (chat.isNotEmpty && chat.last.kind == ChatKind.join) chat.removeLast();
+    if (u.id == myUid) {
+      if (_myJoinShown) return;
+      _myJoinShown = true;
+    }
+    if (chat.isNotEmpty &&
+        chat.last.kind == ChatKind.join &&
+        chat.last.user?.id != myUid) {
+      chat.removeLast();
+    }
     _addChat(
       ChatLine(
         id: 'j${u.id}-${_systemSeq++}',
@@ -1411,6 +1545,18 @@ class LiveRoomController extends ChangeNotifier {
       _repo.manageSeat(roomId, index, action);
   Future<void> kick(String uid, {int? banMinutes = 60}) =>
       _repo.kick(roomId, uid, banMinutes: banMinutes);
+
+  /// A platform moderator takes a free seat without approval ([onStage]), or leaves it.
+  /// Applied from a fresh room detail; everyone else gets the next `seats` event.
+  Future<void> setPlatformModeratorStage({required bool onStage}) async {
+    final hidden = await _repo.platformModeratorStage(roomId, onStage: onStage);
+    if (_disposed) return;
+    // Seated, this user is visible like any guest; back in the audience, hidden again
+    // when stealth is on. The server says which.
+    stealth = hidden;
+    await refreshDetail();
+  }
+
   Future<void> setAdmin(String uid, bool enabled) =>
       _repo.setModerator(roomId, uid, enabled);
 

@@ -1,6 +1,7 @@
 import type {
   AnimationFormat,
   LevelProgress,
+  MeModeration,
   MeUser,
   PublicUser,
   TierBadge,
@@ -63,18 +64,57 @@ export function activeBadge(vip: UserDoc['vip'], now = new Date()): TierBadge | 
   };
 }
 
+/** The `equipped.*` field prefix of each wearable slot. */
+export const SLOT_PREFIX = {
+  frame: 'frame',
+  entry_animation: 'entryAnimation',
+  room_background: 'roomBackground',
+} as const;
+export type SlotType = keyof typeof SLOT_PREFIX;
+
 /**
- * The avatar frame a user shows: the equipped store frame (one worn through a tier only while
- * that tier is still held). Tiers carry no frame of their own; their artwork is the badge.
+ * Whether what is equipped in `type` may still be shown: worn through a tier only while that
+ * tier is held, and owned only until the ownership expires. Both are checked here at read
+ * time, so nothing lapsed is shown in the hour before `store.sweep` clears the slot.
+ */
+export function slotWearable(
+  e: UserDoc['equipped'] | undefined,
+  type: SlotType,
+  vipTier: number,
+  now = new Date(),
+): boolean {
+  if (!e) return false;
+  const p = SLOT_PREFIX[type];
+  const slot = e as unknown as Record<string, unknown>;
+  if (!slot[`${p}Id`] && !(type === 'frame' && e.frameUrl)) return false;
+  const tier = (slot[`${p}VipTier`] as number | undefined) ?? 0;
+  const expiresAt = slot[`${p}ExpiresAt`] as Date | null | undefined;
+  return tier <= vipTier && (!expiresAt || expiresAt > now);
+}
+
+/**
+ * The avatar frame a user shows: the equipped store frame, while wearable (see
+ * {@link slotWearable}). Tiers carry no frame of their own; their artwork is the badge.
  */
 export function resolveFrame(
   u: { vip: UserDoc['vip']; equipped?: UserDoc['equipped'] },
   now = new Date(),
 ): { frameUrl: string | null; frameFormat: AnimationFormat } {
   const e = u.equipped;
-  if (e?.frameUrl && (e.frameVipTier ?? 0) <= activeVipTier(u.vip, now))
+  if (e?.frameUrl && slotWearable(e, 'frame', activeVipTier(u.vip, now), now))
     return { frameUrl: e.frameUrl, frameFormat: e.frameFormat ?? 'none' };
   return { frameUrl: null, frameFormat: 'none' };
+}
+
+/** The store background shown behind the stage of the user's own lives, or null. */
+export function resolveRoomBackground(
+  u: { vip: UserDoc['vip']; equipped?: UserDoc['equipped'] },
+  now = new Date(),
+): string | null {
+  const e = u.equipped;
+  if (e?.roomBackgroundUrl && slotWearable(e, 'room_background', activeVipTier(u.vip, now), now))
+    return e.roomBackgroundUrl;
+  return null;
 }
 
 export function toPublicUser(u: PublicUserSource, now = new Date()): PublicUser {
@@ -104,6 +144,7 @@ export function toMeUser(
   levelProgress: LevelProgress,
   now = new Date(),
   maintenanceAccess = false,
+  moderation: MeModeration | null = null,
 ): MeUser {
   return {
     ...toPublicUser(u, now),
@@ -116,6 +157,7 @@ export function toMeUser(
     levelProgress,
     vipExpiresAt: activeVipTier(u.vip, now) ? (u.vip.expiresAt?.toISOString() ?? null) : null,
     maintenanceAccess,
+    moderation,
   };
 }
 
