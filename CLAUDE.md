@@ -30,6 +30,10 @@ cd app && flutter analyze && flutter test && dart format lib test
 - **Auth:** `requireAuth` (Firebase ID token → user doc → ban and device-ban checks). Admin access
   comes from the **token's** `adminRole` custom claim, never the Mongo mirror. Permissions live
   in `middleware/rbac.ts` (`PERMISSIONS`). Every admin write calls `audit(...)`.
+- **Admin passwords:** an admin changes their own in the dashboard (profile menu), where Firebase
+  re-authenticates with the current password client-side. A superadmin sets another admin's
+  password with `POST /admin/admins/:uid/password` (`auth.setPassword`, which revokes their
+  sessions). It never targets yourself or a non-admin, and the audit row has no payload.
 - **Routers mounted at `/v1`** must scope `requireAuth` to their own prefixes
   (`r.use(['/gifts', …], requireAuth(ctx))`), or unknown routes turn into 401s instead of 404s.
 - **Infra is behind interfaces** (`infra/*`): Firebase auth, FCM, LiveKit, S3, IAP. Tests swap in

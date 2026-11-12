@@ -17,9 +17,36 @@ export interface VerifiedToken {
 export interface AuthProvider {
   verifyIdToken(token: string): Promise<VerifiedToken>;
   setAdminRole(uid: string, role: AdminRole | null): Promise<void>;
+  /**
+   * Sets the account's email sign-in password and revokes every session.
+   * @throws NoEmailLoginError when the account has no email to sign in with.
+   * @throws WeakPasswordError when Firebase's password policy refuses it.
+   */
+  setPassword(uid: string, password: string): Promise<void>;
   revokeSessions(uid: string): Promise<void>;
   deleteUser(uid: string): Promise<void>;
 }
+
+/** The account has no email, so a password could never be used to sign in. */
+export class NoEmailLoginError extends Error {
+  constructor() {
+    super('Account has no email sign-in');
+    this.name = 'NoEmailLoginError';
+  }
+}
+
+/** The project's password policy refused the password. */
+export class WeakPasswordError extends Error {
+  constructor(message = 'Password does not meet the requirements') {
+    super(message);
+    this.name = 'WeakPasswordError';
+  }
+}
+
+const WEAK_PASSWORD_CODES = new Set([
+  'auth/invalid-password',
+  'auth/password-does-not-meet-requirements',
+]);
 
 export interface PushMessage {
   title: string;
@@ -79,6 +106,21 @@ export function createFirebaseAuth(env: Env): AuthProvider {
       if (role) claims.adminRole = role;
       else delete claims.adminRole;
       await auth.setCustomUserClaims(uid, claims);
+      await auth.revokeRefreshTokens(uid);
+    },
+    async setPassword(uid, password) {
+      const user = await auth.getUser(uid);
+      if (!user.email) throw new NoEmailLoginError();
+      try {
+        await auth.updateUser(uid, { password });
+      } catch (err) {
+        const code = (err as { code?: unknown }).code;
+        if (typeof code === 'string' && WEAK_PASSWORD_CODES.has(code)) {
+          throw new WeakPasswordError();
+        }
+        throw err;
+      }
+      // Old ID tokens fail `verifyIdToken(…, true)` from here on.
       await auth.revokeRefreshTokens(uid);
     },
     revokeSessions: (uid) => auth.revokeRefreshTokens(uid),

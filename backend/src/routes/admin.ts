@@ -3,6 +3,8 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import type { Filter } from 'mongodb';
 import { z } from 'zod';
 import {
+  ADMIN_PASSWORD_MAX_LENGTH,
+  ADMIN_PASSWORD_MIN_LENGTH,
   ADMIN_ROLES,
   ADMIN_UPLOAD_KIND_NAMES,
   ADMIN_UPLOAD_KINDS,
@@ -23,6 +25,7 @@ import {
 } from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 import type { LiveRoomDoc, UserDoc } from '../db/schema.js';
+import { NoEmailLoginError, WeakPasswordError } from '../infra/firebase.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createRateLimiter } from '../middleware/http.js';
 import {
@@ -458,6 +461,41 @@ export function adminRoutes(ctx: Ctx): Router {
     await ctx.auth.setAdminRole(uid, role);
     await ctx.col.users.updateOne({ _id: uid }, { $set: { adminRole: role } });
     await audit(req, 'admin.role', 'user', uid, { role });
+    res.status(204).end();
+  });
+
+  // Sets another admin's dashboard password and signs them out everywhere. Your own password
+  // is changed in the dashboard with the current one (Firebase re-authentication).
+  r.post('/admins/:uid/password', can('admins.manage'), async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    const { password } = parseBody(
+      req,
+      z.object({
+        password: z.string().min(ADMIN_PASSWORD_MIN_LENGTH).max(ADMIN_PASSWORD_MAX_LENGTH),
+      }),
+    );
+    if (uid === currentUser(req).uid) {
+      throw badRequest('Change your own password from your profile menu');
+    }
+    // Only admin accounts: this must never become a way to take over an app user.
+    const target = await ctx.col.users.findOne(
+      { _id: uid, adminRole: { $type: 'string' } },
+      { projection: { _id: 1 } },
+    );
+    if (!target) throw notFound('Admin');
+    try {
+      await ctx.auth.setPassword(uid, password);
+    } catch (err) {
+      if (err instanceof NoEmailLoginError) {
+        throw new AppError(400, 'no_email_login', 'This admin has no email sign-in');
+      }
+      if (err instanceof WeakPasswordError) {
+        throw new AppError(400, 'weak_password', err.message);
+      }
+      throw err;
+    }
+    // No payload: the password is never written anywhere.
+    await audit(req, 'admin.password_reset', 'user', uid);
     res.status(204).end();
   });
 

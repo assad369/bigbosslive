@@ -2,6 +2,10 @@
 export const ADMIN_ROLES = ['support', 'moderator', 'finance', 'admin', 'superadmin'] as const;
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 
+/** Dashboard (Firebase email) password length, enforced by the API and the admin forms. */
+export const ADMIN_PASSWORD_MIN_LENGTH = 10;
+export const ADMIN_PASSWORD_MAX_LENGTH = 128;
+
 /**
  * Public numeric user id ("ID 200"). New accounts are numbered from {@link FIRST_SHORT_ID};
  * accounts created before the switch keep their 8-digit ids, and admins may assign vanity ids.

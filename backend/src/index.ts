@@ -45,6 +45,7 @@ async function main(): Promise<void> {
       : {
           verifyIdToken: () => Promise.reject(new Error('Firebase is not configured')),
           setAdminRole: () => Promise.reject(new Error('Firebase is not configured')),
+          setPassword: () => Promise.reject(new Error('Firebase is not configured')),
           revokeSessions: async () => undefined,
           deleteUser: async () => undefined,
         },

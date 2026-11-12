@@ -177,4 +177,56 @@ describe('admin RBAC', () => {
     expect(res.status).toBe(204);
     expect(h.auth.roles.get('target')).toBe('moderator');
   });
+
+  describe('admin password reset', () => {
+    const PASSWORD = 'correct-horse-battery';
+    const reset = (
+      uid: string,
+      as: string,
+      role: 'superadmin' | 'admin' | 'finance',
+      password = PASSWORD,
+    ) => h.api.post(`/v1/admin/admins/${uid}/password`).set(h.as(as, role)).send({ password });
+
+    beforeAll(async () => {
+      await h.user('pw-admin', { adminRole: 'admin' });
+      await h.user('pw-root2', { adminRole: 'superadmin' });
+      await h.user('pw-plain');
+      await h.user('pw-phone', { adminRole: 'support' });
+      h.auth.noEmail.add('pw-phone');
+    });
+
+    it('is superadmin only', async () => {
+      expect((await reset('pw-admin', 'fin', 'finance')).status).toBe(403);
+      expect((await reset('pw-root2', 'pw-admin', 'admin')).status).toBe(403);
+      expect(h.auth.passwords.has('pw-admin')).toBe(false);
+    });
+
+    it('sets the password, signs the admin out and audits without the password', async () => {
+      const res = await reset('pw-admin', 'root', 'superadmin');
+      expect(res.status).toBe(204);
+      expect(h.auth.passwords.get('pw-admin')).toBe(PASSWORD);
+      expect(h.auth.revoked).toContain('pw-admin');
+      const row = await h.ctx.col.auditLogs.findOne({
+        action: 'admin.password_reset',
+        targetId: 'pw-admin',
+      });
+      expect(row).toMatchObject({ adminId: 'root', adminRole: 'superadmin' });
+      expect(JSON.stringify(row)).not.toContain(PASSWORD);
+    });
+
+    it('resets another superadmin', async () => {
+      expect((await reset('pw-root2', 'root', 'superadmin')).status).toBe(204);
+    });
+
+    it('refuses your own account, non-admins, short passwords and phone-only accounts', async () => {
+      expect((await reset('root', 'root', 'superadmin')).status).toBe(400);
+      expect((await reset('pw-plain', 'root', 'superadmin')).status).toBe(404);
+      expect((await reset('nobody-here', 'root', 'superadmin')).status).toBe(404);
+      expect((await reset('pw-admin', 'root', 'superadmin', 'short')).status).toBe(422);
+      const phone = await reset('pw-phone', 'root', 'superadmin');
+      expect(phone.status).toBe(400);
+      expect(phone.body.error.code).toBe('no_email_login');
+      expect(h.auth.passwords.has('pw-plain')).toBe(false);
+    });
+  });
 });

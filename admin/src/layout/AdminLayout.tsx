@@ -24,6 +24,7 @@ import {
   DashboardOutlined,
   FireOutlined,
   GiftOutlined,
+  KeyOutlined,
   LogoutOutlined,
   MenuOutlined,
   NotificationOutlined,
@@ -38,6 +39,7 @@ import {
   VideoCameraOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
+import { ChangePasswordModal } from '../components/ChangePasswordModal';
 import { useAuth } from '../auth/useAuth';
 import { brand } from '../theme';
 import { Logo } from '../components/Logo';
@@ -174,7 +176,8 @@ const NAV: NavGroup[] = [
 ];
 
 export function AdminLayout() {
-  const { me, can, signOut } = useAuth();
+  const { me, can, signOut, hasPasswordLogin } = useAuth();
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const screens = Grid.useBreakpoint();
@@ -316,6 +319,17 @@ export function AdminLayout() {
             <Dropdown
               menu={{
                 items: [
+                  ...(hasPasswordLogin
+                    ? [
+                        {
+                          key: 'password',
+                          icon: <KeyOutlined />,
+                          label: 'Change password',
+                          onClick: () => setPasswordOpen(true),
+                        },
+                        { type: 'divider' as const },
+                      ]
+                    : []),
                   {
                     key: 'logout',
                     icon: <LogoutOutlined />,
@@ -357,6 +371,7 @@ export function AdminLayout() {
           <Outlet />
         </Content>
       </Layout>
+      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </Layout>
   );
 }

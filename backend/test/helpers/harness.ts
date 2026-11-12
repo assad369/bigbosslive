@@ -10,7 +10,12 @@ import type { Ctx } from '../../src/context.js';
 import { ensureIndexes } from '../../src/db/indexes.js';
 import { wrapDb } from '../../src/db/mongo.js';
 import type { UserDoc } from '../../src/db/schema.js';
-import type { AuthProvider, PushGateway, PushMessage } from '../../src/infra/firebase.js';
+import {
+  NoEmailLoginError,
+  type AuthProvider,
+  type PushGateway,
+  type PushMessage,
+} from '../../src/infra/firebase.js';
 import type { IapGateway } from '../../src/infra/iap.js';
 import type { LiveKitGateway, TokenRequest } from '../../src/infra/livekit.js';
 import {
@@ -78,6 +83,14 @@ export class FakeAuth implements AuthProvider {
   }
   async setAdminRole(uid: string, role: AdminRole | null) {
     this.roles.set(uid, role);
+  }
+  passwords = new Map<string, string>();
+  /** Accounts without an email sign-in. */
+  noEmail = new Set<string>();
+  async setPassword(uid: string, password: string) {
+    if (this.noEmail.has(uid)) throw new NoEmailLoginError();
+    this.passwords.set(uid, password);
+    this.revoked.push(uid);
   }
   async revokeSessions(uid: string) {
     this.revoked.push(uid);

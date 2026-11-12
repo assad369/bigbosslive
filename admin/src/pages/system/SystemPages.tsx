@@ -16,16 +16,25 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
-import { LockOutlined, PlusOutlined, UnlockOutlined } from '@ant-design/icons';
+import { KeyOutlined, LockOutlined, PlusOutlined, UnlockOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ADMIN_ROLES, type StorageSettingsInput, type StorageSettingsView } from '@bigboss/shared';
+import {
+  ADMIN_PASSWORD_MAX_LENGTH,
+  ADMIN_PASSWORD_MIN_LENGTH,
+  ADMIN_ROLES,
+  type StorageSettingsInput,
+  type StorageSettingsView,
+} from '@bigboss/shared';
 import { ApiError, get, send } from '../../lib/api';
 import { ago, dateTime } from '../../lib/format';
 import { ActionButton, FilterBar, PageHeader, UserCell, type Brief } from '../../components/common';
 import { ServerTable } from '../../components/ServerTable';
 import { FormModal } from '../../components/FormModal';
+import { confirmPasswordRules, newPasswordRules } from '../../components/passwordRules';
+import { useAuth } from '../../auth/useAuth';
 
 // ── Settings ───────────────────────────────────────────────────────────────────
 
@@ -542,7 +551,9 @@ const ROLE_HELP: Record<string, string> = {
 };
 
 export function AdminsPage() {
+  const { me } = useAuth();
   const [open, setOpen] = useState(false);
+  const [passwordFor, setPasswordFor] = useState<AdminRow | null>(null);
   const q = useQuery({
     queryKey: ['admins'],
     queryFn: () => get<{ items: AdminRow[] }>('/admin/admins'),
@@ -600,6 +611,24 @@ export function AdminsPage() {
                     options={ADMIN_ROLES.map((r) => ({ value: r, label: r }))}
                     onChange={(r) => void setRole(a._id, r).then(() => q.refetch())}
                   />
+                  <Tooltip
+                    title={
+                      a._id === me?.uid
+                        ? 'Use Change password in your profile menu'
+                        : !a.email
+                          ? 'This admin has no email sign-in'
+                          : undefined
+                    }
+                  >
+                    <Button
+                      size="small"
+                      icon={<KeyOutlined />}
+                      disabled={a._id === me?.uid || !a.email}
+                      onClick={() => setPasswordFor(a)}
+                    >
+                      Set password
+                    </Button>
+                  </Tooltip>
                   <ActionButton
                     danger
                     label="Revoke"
@@ -642,6 +671,44 @@ export function AdminsPage() {
               <Select
                 options={ADMIN_ROLES.map((r) => ({ value: r, label: `${r} — ${ROLE_HELP[r]}` }))}
               />
+            </Form.Item>
+          </>
+        )}
+      </FormModal>
+      <FormModal<{ password: string; confirm: string }>
+        open={Boolean(passwordFor)}
+        title={`Set password for ${passwordFor?.displayName ?? ''}`}
+        okText="Set password"
+        onClose={() => setPasswordFor(null)}
+        submit={(v) =>
+          send('post', `/admin/admins/${encodeURIComponent(passwordFor!._id)}/password`, {
+            password: v.password,
+          })
+        }
+      >
+        {() => (
+          <>
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={`${passwordFor?.email ?? 'This admin'} is signed out everywhere and must sign in with the new password. Share it with them privately.`}
+            />
+            <Form.Item
+              name="password"
+              label="New password"
+              extra={`At least ${ADMIN_PASSWORD_MIN_LENGTH} characters`}
+              rules={newPasswordRules}
+            >
+              <Input.Password autoComplete="new-password" maxLength={ADMIN_PASSWORD_MAX_LENGTH} />
+            </Form.Item>
+            <Form.Item
+              name="confirm"
+              label="Confirm new password"
+              dependencies={['password']}
+              rules={confirmPasswordRules('password')}
+            >
+              <Input.Password autoComplete="new-password" maxLength={ADMIN_PASSWORD_MAX_LENGTH} />
             </Form.Item>
           </>
         )}
