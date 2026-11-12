@@ -149,3 +149,36 @@ body {
     padding-block: 4px !important;
   }
 }
+
+/* Audit log */
+.bb-audit-row {
+  cursor: pointer;
+}
+.bb-audit-chip {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 10px;
+}
+.bb-audit-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.bb-audit-json {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 360px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bb-color-fill-alter);
+}
+.bb-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

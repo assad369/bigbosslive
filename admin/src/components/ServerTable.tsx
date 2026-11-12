@@ -13,6 +13,9 @@ export interface ServerTableProps<T> {
   toolbar?: ReactNode;
   pageSize?: number;
   expandable?: TableProps<T>['expandable'];
+  /** Row props, e.g. `onClick` to open a detail drawer. */
+  onRow?: TableProps<T>['onRow'];
+  rowClassName?: TableProps<T>['rowClassName'];
   title?: ReactNode;
   footer?: (data: (Paged<T> & Record<string, unknown>) | undefined) => ReactNode;
   /** Called whenever a new page of rows arrives (e.g. to enable "export this page"). */
@@ -29,6 +32,8 @@ export function ServerTable<T extends object>({
   toolbar,
   pageSize: initialSize = 20,
   expandable,
+  onRow,
+  rowClassName,
   title,
   footer,
   onData,
@@ -68,6 +73,8 @@ export function ServerTable<T extends object>({
         dataSource={q.data?.items ?? []}
         loading={q.isFetching}
         expandable={expandable}
+        onRow={onRow}
+        rowClassName={rowClassName}
         scroll={{ x: 'max-content' }}
         size={mobile ? 'small' : undefined}
         pagination={{

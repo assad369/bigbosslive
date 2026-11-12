@@ -51,7 +51,9 @@ const BannersPage = lazy(() => engagement().then((m) => ({ default: m.BannersPag
 const system = () => import('./pages/system/SystemPages');
 const SettingsPage = lazy(() => system().then((m) => ({ default: m.SettingsPage })));
 const AdminsPage = lazy(() => system().then((m) => ({ default: m.AdminsPage })));
-const AuditPage = lazy(() => system().then((m) => ({ default: m.AuditPage })));
+const AuditPage = lazy(() =>
+  import('./pages/system/AuditPage').then((m) => ({ default: m.AuditPage })),
+);
 
 const Loading = () => (
   <div style={{ display: 'grid', placeItems: 'center', minHeight: 320 }}>

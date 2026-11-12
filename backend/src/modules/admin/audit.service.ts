@@ -2,6 +2,7 @@ import type { Request } from 'express';
 import type { Filter } from 'mongodb';
 import type { Ctx } from '../../context.js';
 import type { AuditLogDoc } from '../../db/schema.js';
+import { SHORT_ID_PATTERN } from '@bigboss/shared';
 import { clientIp, currentUser } from '../../lib/http.js';
 import { isPlatformModerator } from '../moderation/authority.js';
 
@@ -61,31 +62,79 @@ export class AuditService {
 
   async list(
     filter: {
+      /** Actor uid, or their short id. */
       adminId?: string;
       action?: string;
+      /** Action prefix, e.g. `wallet` matches `wallet.adjust` and `wallet.recharge`. */
+      domain?: string;
       targetId?: string;
       /** `staff`, `platform_moderator` or `system`. */
       actorKind?: 'staff' | 'platform_moderator' | 'system';
+      from?: Date;
+      to?: Date;
     },
     page: number,
     pageSize: number,
   ) {
     const q: Filter<AuditLogDoc> = {};
-    if (filter.adminId) q.adminId = filter.adminId;
+    if (filter.adminId) q.adminId = await this.actorUid(filter.adminId);
     if (filter.action) q.action = filter.action;
+    else if (filter.domain) q.action = { $regex: `^${escapeRegex(filter.domain)}\\.` };
     if (filter.targetId) q.targetId = filter.targetId;
     if (filter.actorKind === 'staff')
       q.adminRole = { $nin: ['system', 'platform_moderator', 'user'] };
     else if (filter.actorKind) q.adminRole = filter.actorKind;
-    const [items, total] = await Promise.all([
+    if (filter.from || filter.to)
+      q.createdAt = {
+        ...(filter.from ? { $gte: filter.from } : {}),
+        ...(filter.to ? { $lte: filter.to } : {}),
+      };
+    const [rows, total] = await Promise.all([
       this.ctx.col.auditLogs
         .find(q)
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip((page - 1) * pageSize)
         .limit(pageSize)
         .toArray(),
       this.ctx.col.auditLogs.countDocuments(q),
     ]);
+    // Names for the dashboard: who acted, and the person the row is about (if any).
+    const briefs = await this.ctx.services.users.briefs(
+      rows.flatMap((r) => [r.adminId, subjectUid(r)]).filter((u): u is string => !!u),
+    );
+    const items = rows.map((r) => {
+      const subject = subjectUid(r);
+      return {
+        ...r,
+        actor: r.adminId === 'system' ? null : (briefs.get(r.adminId) ?? null),
+        subject: subject ? (briefs.get(subject) ?? null) : null,
+      };
+    });
     return { items, total, page, pageSize };
   }
+
+  /** A short id names the account that holds it (any status); anything else is a uid. */
+  private async actorUid(id: string): Promise<string> {
+    const trimmed = id.trim();
+    if (!SHORT_ID_PATTERN.test(trimmed)) return trimmed;
+    const user = await this.ctx.col.users.findOne({ shortId: trimmed }, { projection: { _id: 1 } });
+    return user?._id ?? trimmed;
+  }
+}
+
+/** The user an entry is about: its target, or the user its payload names (kicks, members, lives). */
+function subjectUid(r: AuditLogDoc): string | null {
+  if (r.targetType === 'user') return r.targetId;
+  const p = r.payload;
+  if (!p || typeof p !== 'object') return null;
+  const o = p as Record<string, unknown>;
+  for (const key of ['userId', 'uid', 'hostId']) {
+    const v = o[key];
+    if (typeof v === 'string' && v) return v;
+  }
+  return null;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

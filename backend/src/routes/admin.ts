@@ -1159,10 +1159,17 @@ export function adminRoutes(ctx: Ctx): Router {
     const q = parseQuery(
       req,
       pageQuery.extend({
-        adminId: z.string().optional(),
-        action: z.string().optional(),
-        targetId: z.string().optional(),
+        adminId: z.string().trim().max(128).optional(),
+        action: z.string().trim().max(80).optional(),
+        domain: z
+          .string()
+          .trim()
+          .regex(/^[a-z_]{1,40}$/)
+          .optional(),
+        targetId: z.string().trim().max(128).optional(),
         actorKind: z.enum(['staff', 'platform_moderator', 'system']).optional(),
+        from: z.coerce.date().optional(),
+        to: z.coerce.date().optional(),
       }),
     );
     res.json(await s.audit.list(q, q.page, q.pageSize));

@@ -29,9 +29,8 @@ import {
   type StorageSettingsView,
 } from '@bigboss/shared';
 import { ApiError, get, send } from '../../lib/api';
-import { ago, dateTime } from '../../lib/format';
-import { ActionButton, FilterBar, PageHeader, UserCell, type Brief } from '../../components/common';
-import { ServerTable } from '../../components/ServerTable';
+import { ago } from '../../lib/format';
+import { ActionButton, PageHeader, UserCell, type Brief } from '../../components/common';
 import { FormModal } from '../../components/FormModal';
 import { confirmPasswordRules, newPasswordRules } from '../../components/passwordRules';
 import { useAuth } from '../../auth/useAuth';
@@ -713,95 +712,6 @@ export function AdminsPage() {
           </>
         )}
       </FormModal>
-    </>
-  );
-}
-
-// ── Audit log ──────────────────────────────────────────────────────────────────
-
-interface AuditRow {
-  _id: string;
-  adminId: string;
-  adminRole: string;
-  action: string;
-  targetType: string;
-  targetId: string | null;
-  payload: unknown;
-  ip: string;
-  createdAt: string;
-}
-
-export function AuditPage() {
-  const [action, setAction] = useState('');
-  const [adminId, setAdminId] = useState('');
-  const [actorKind, setActorKind] = useState<string | undefined>();
-  return (
-    <>
-      <PageHeader
-        title="Audit log"
-        subtitle="Append-only record of every admin write and every platform moderator action"
-      />
-      <ServerTable<AuditRow>
-        queryKey="audit"
-        url="/admin/audit"
-        filters={{ action: action || undefined, adminId: adminId || undefined, actorKind }}
-        rowKey="_id"
-        toolbar={
-          <FilterBar>
-            <Input.Search
-              allowClear
-              placeholder="Action (e.g. wallet.adjust)"
-              onSearch={setAction}
-              style={{ width: 220 }}
-            />
-            <Input.Search
-              allowClear
-              placeholder="Admin uid"
-              onSearch={setAdminId}
-              style={{ width: 200 }}
-            />
-            <Select
-              allowClear
-              placeholder="Who"
-              style={{ width: 190 }}
-              value={actorKind}
-              onChange={setActorKind}
-              options={[
-                { value: 'staff', label: 'Staff' },
-                { value: 'platform_moderator', label: 'Platform moderators' },
-                { value: 'system', label: 'Automated' },
-              ]}
-            />
-          </FilterBar>
-        }
-        expandable={{
-          expandedRowRender: (r) => (
-            <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap' }}>
-              {JSON.stringify(r.payload, null, 2)}
-            </pre>
-          ),
-        }}
-        columns={[
-          { title: 'When', dataIndex: 'createdAt', render: dateTime },
-          {
-            title: 'Admin',
-            key: 'a',
-            render: (_, r) => (
-              <Space>
-                <Typography.Text code>{r.adminId}</Typography.Text>
-                <Tag color="gold">{r.adminRole}</Tag>
-              </Space>
-            ),
-          },
-          { title: 'Action', dataIndex: 'action', render: (a: string) => <Tag>{a}</Tag> },
-          {
-            title: 'Target',
-            key: 't',
-            render: (_, r) => `${r.targetType}${r.targetId ? ` · ${r.targetId}` : ''}`,
-          },
-          { title: 'IP', dataIndex: 'ip' },
-        ]}
-      />
     </>
   );
 }
