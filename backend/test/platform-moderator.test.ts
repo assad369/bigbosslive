@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { AdminRole } from '@bigboss/shared';
 import { createHarness, key, type Harness } from './helpers/harness.js';
 
 let h: Harness;
@@ -357,6 +358,7 @@ describe('stealth and self-stage', () => {
     const join = await h.api.post(`/v1/live/${roomId}/join`).set(h.as('mod'));
     expect(join.body.stealth).toBe(true);
     expect(join.body.entry).toBeNull();
+    expect(join.body.room.moderatorIds).not.toContain('mod');
     const token = h.livekit.tokens.filter((t) => t.identity === 'mod').at(-1)!;
     expect(token.hidden).toBe(true);
     expect(token.metadata.stealth).toBe(true);
@@ -389,6 +391,8 @@ describe('stealth and self-stage', () => {
     expect(on.body.onStage).toBe(true);
     let perm = h.livekit.permissions.filter((p) => p.identity === 'mod').at(-1)!;
     expect(perm).toMatchObject({ canPublish: true, hidden: false });
+    // Hidden, they weren't a room admin; visible on a seat, they are.
+    expect((await h.ctx.col.liveRooms.findOne({ livekitRoom }))?.moderatorIds).toContain('mod');
 
     const off = await h.api
       .post(`/v1/live/${roomId}/platform-moderator/stage`)
@@ -397,6 +401,16 @@ describe('stealth and self-stage', () => {
     expect(off.body.onStage).toBe(false);
     perm = h.livekit.permissions.filter((p) => p.identity === 'mod').at(-1)!;
     expect(perm).toMatchObject({ canPublish: false, hidden: true });
+    expect(perm.metadata).toMatchObject({ role: 'audience', stealth: true });
+    expect((await h.ctx.col.liveRooms.findOne({ livekitRoom }))?.moderatorIds).not.toContain('mod');
+    // Leaving the admin list again is quiet: no "no longer a room admin" line.
+    const quiet = h.livekit
+      .topics('bb.system')
+      .filter((d) => d.room === livekitRoom)
+      .map((d) => d.payload as { kind: string; uid?: string; enabled?: boolean; user?: unknown })
+      .filter((p) => p.kind === 'moderator' && p.uid === 'mod' && p.enabled === false);
+    expect(quiet).toHaveLength(1);
+    expect(quiet[0]!.user).toBeUndefined();
     expect(
       await h.ctx.col.auditLogs.countDocuments({ action: 'live.platform_moderator_stage' }),
     ).toBe(2);
@@ -448,5 +462,135 @@ describe('stealth and self-stage', () => {
     expect(me.body.user.moderation).toBeNull();
     await endLive();
     await setConfig({});
+  });
+});
+
+describe('room admin', () => {
+  type SystemPacket = { kind: string; uid?: string; enabled?: boolean; user?: { id: string } };
+  const adminPackets = (livekitRoom: string, uid: string) =>
+    h.livekit
+      .topics('bb.system')
+      .filter((d) => d.room === livekitRoom)
+      .map((d) => d.payload as SystemPacket)
+      .filter((p) => p.kind === 'moderator' && p.uid === uid);
+  const roomOf = (livekitRoom: string) => h.ctx.col.liveRooms.findOne({ livekitRoom });
+  const appoint = (
+    roomId: string,
+    as: string,
+    userId: string,
+    enabled: boolean,
+    role?: AdminRole,
+  ) =>
+    h.api
+      .post(`/v1/live/${roomId}/moderators`)
+      .set(role ? h.as(as, role) : h.as(as))
+      .send({ userId, enabled });
+
+  it('a visible platform moderator becomes a room admin on join, announced once', async () => {
+    await setConfig({});
+    const { roomId, livekitRoom } = await goLive();
+    const join = await h.api.post(`/v1/live/${roomId}/join`).set(h.as('mod'));
+    expect(join.status, JSON.stringify(join.body)).toBe(200);
+    expect(join.body.stealth).toBe(false);
+    expect(join.body.room.moderatorIds).toContain('mod');
+    expect(join.body.credentials.role).toBe('moderator');
+    const token = h.livekit.tokens.filter((t) => t.identity === 'mod').at(-1)!;
+    expect(token.metadata.role).toBe('moderator');
+    expect(token.canPublish).toBe(false);
+
+    // A reconnect announces nothing again.
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('mod')).send({ resume: true }).expect(200);
+    const packets = adminPackets(livekitRoom, 'mod');
+    expect(packets).toHaveLength(1);
+    expect(packets[0]).toMatchObject({ enabled: true, user: { id: 'mod' } });
+
+    // Staff with live.moderate moderate, but are not made admins.
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('liveStaff', 'moderator')).expect(200);
+    expect((await roomOf(livekitRoom))?.moderatorIds).not.toContain('liveStaff');
+    await endLive();
+  });
+
+  it('platform moderators appoint and remove room admins in any live, audited', async () => {
+    const { roomId, livekitRoom } = await goLive();
+    await appoint(roomId, 'mod', 'viewer', true).expect(204);
+    expect((await roomOf(livekitRoom))?.moderatorIds).toContain('viewer');
+    expect(adminPackets(livekitRoom, 'viewer').at(-1)).toMatchObject({
+      enabled: true,
+      user: { id: 'viewer' },
+    });
+    const audit = await h.ctx.col.auditLogs.findOne({
+      action: 'live.moderator_set',
+      adminId: 'mod',
+    });
+    expect(audit?.payload).toMatchObject({ userId: 'viewer', enabled: true });
+
+    // A room admin the host (or a moderator) appointed still can't appoint.
+    const byAdmin = await appoint(roomId, 'viewer', 'plain', true);
+    expect(byAdmin.status).toBe(403);
+    // Nobody appoints the host, and a plain viewer can't appoint at all.
+    expect((await appoint(roomId, 'mod', 'host', true)).status).toBe(400);
+    expect((await appoint(roomId, 'plain', 'alt', true)).status).toBe(403);
+
+    await appoint(roomId, 'mod', 'viewer', false).expect(204);
+    expect((await roomOf(livekitRoom))?.moderatorIds).not.toContain('viewer');
+    expect(
+      await h.ctx.col.auditLogs.countDocuments({ action: 'live.moderator_set', adminId: 'mod' }),
+    ).toBe(2);
+    // The host's own appointments aren't audited.
+    await appoint(roomId, 'host', 'viewer', true).expect(204);
+    expect(
+      await h.ctx.col.auditLogs.countDocuments({ action: 'live.moderator_set', adminId: 'host' }),
+    ).toBe(0);
+    await endLive();
+  });
+
+  it('only staff take the role from a platform moderator', async () => {
+    const { roomId, livekitRoom } = await goLive();
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('mod')).expect(200);
+    const byHost = await appoint(roomId, 'host', 'mod', false);
+    expect(byHost.status).toBe(403);
+    expect(byHost.body.error.code).toBe('target_protected');
+    expect((await appoint(roomId, 'mod2', 'mod', false)).status).toBe(403);
+    await appoint(roomId, 'liveStaff', 'mod', false, 'moderator').expect(204);
+    expect((await roomOf(livekitRoom))?.moderatorIds).not.toContain('mod');
+    await endLive();
+  });
+
+  it('moderator actions in another host’s room stay audited while they are its admin', async () => {
+    const { roomId } = await goLive();
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('mod')).expect(200);
+    const before = await h.ctx.col.auditLogs.countDocuments({
+      action: 'live.kick',
+      adminId: 'mod',
+    });
+    await h.api
+      .post(`/v1/live/${roomId}/kick`)
+      .set(h.as('mod'))
+      .send({ userId: 'plain' })
+      .expect(204);
+    expect(await h.ctx.col.auditLogs.countDocuments({ action: 'live.kick', adminId: 'mod' })).toBe(
+      before + 1,
+    );
+    await h.ctx.col.roomBans.deleteMany({});
+    await endLive();
+  });
+
+  it('revoking the role drops room admin roles in lives', async () => {
+    await h.user('tempMod2', { platformModerator: MOD });
+    const { roomId, livekitRoom } = await goLive();
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('tempMod2')).expect(200);
+    expect((await roomOf(livekitRoom))?.moderatorIds).toContain('tempMod2');
+    await h.api
+      .post('/v1/admin/users/tempMod2/platform-moderator')
+      .set(h.as('boss', 'admin'))
+      .send({ enabled: false })
+      .expect(204);
+    expect((await roomOf(livekitRoom))?.moderatorIds).not.toContain('tempMod2');
+    expect(h.livekit.permissions.filter((p) => p.identity === 'tempMod2').at(-1)).toMatchObject({
+      canPublish: false,
+      hidden: false,
+      metadata: { role: 'audience' },
+    });
+    await endLive();
   });
 });

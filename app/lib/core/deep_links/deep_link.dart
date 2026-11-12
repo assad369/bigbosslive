@@ -72,7 +72,7 @@ const deepLinkPrefixes = ['live', 'u', 'post'];
 final _objectId = RegExp(r'^[a-f0-9]{24}$');
 
 /// `SHORT_ID_PATTERN` in `packages/shared`.
-final _shortId = RegExp(r'^\d{3,12}$');
+final _shortId = RegExp(r'^\d{1,12}$');
 
 /// Whether [uri] points at our link host at all (links elsewhere are none of our business).
 bool isLinkHostUri(Uri uri) =>

@@ -254,7 +254,10 @@ export function liveRoutes(ctx: Ctx): Router {
       req,
       z.object({ userId: z.string().min(1).max(128), enabled: z.boolean() }),
     );
-    await live.setModerator(rid(req), currentUser(req).uid, userId, enabled);
+    const roomId = rid(req);
+    // The host, platform moderators and `live.moderate` staff appoint room admins.
+    const { staffAction } = await live.setModerator(roomId, actor(req), userId, enabled);
+    await auditOutsider(req, staffAction, 'live.moderator_set', roomId, { userId, enabled });
     res.status(204).end();
   });
 

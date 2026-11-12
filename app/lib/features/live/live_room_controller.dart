@@ -363,6 +363,11 @@ class LiveRoomController extends ChangeNotifier {
   /// The host, room admins, platform moderators and `live.moderate` staff play YouTube songs.
   bool get canControlYouTube => isModerator || isLiveModerator;
 
+  /// The host, room admins, platform moderators and `live.moderate` staff see the seat
+  /// queue, accept requests and invite people up (the server's `assertCanModerate`). A
+  /// hidden moderator isn't a room admin, so the queue reaches them only by polling.
+  bool get canManageStage => isModerator || isLiveModerator;
+
   /// May remove people, delete their messages and end this live although they neither host
   /// nor administer it (a platform moderator or `live.moderate` staff).
   bool get canModerateLive => isLiveModerator;
@@ -586,7 +591,7 @@ class LiveRoomController extends ChangeNotifier {
         const Duration(seconds: 30),
         (_) => refreshDetail(),
       );
-      await Future.wait([_loadPk(), _loadSeatRequests(), _loadTopViewers()]);
+      await Future.wait([_loadPk(), refreshSeatRequests(), _loadTopViewers()]);
     } on ApiException catch (e) {
       if (_disposed) return;
       unawaited(_teardown());
@@ -824,7 +829,7 @@ class LiveRoomController extends ChangeNotifier {
           status = LiveStatus.live;
           _notify();
           // Events missed while offline: a PK that ended, requests that came or went.
-          unawaited(Future.wait([_loadPk(), _loadSeatRequests()]));
+          unawaited(Future.wait([_loadPk(), refreshSeatRequests()]));
           return;
         } on ApiException catch (e) {
           if (_disposed) return;
@@ -995,7 +1000,7 @@ class LiveRoomController extends ChangeNotifier {
           ],
         );
       case 'request':
-        if (!isModerator) return;
+        if (!canManageStage) return;
         final user = UserBrief.fromJson(p.obj('user'));
         seatRequests
           ..removeWhere((r) => r.user.id == user.id)
@@ -1058,8 +1063,8 @@ class LiveRoomController extends ChangeNotifier {
         }
         if (uid == myUid) {
           if (enabled) {
-            unawaited(_loadSeatRequests());
-          } else {
+            unawaited(refreshSeatRequests());
+          } else if (!isLiveModerator) {
             seatRequests.clear();
           }
         }
@@ -1226,8 +1231,10 @@ class LiveRoomController extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadSeatRequests() async {
-    if (!isModerator) return;
+  /// The pending seat requests, oldest first. Pushes keep the host and room admins
+  /// current; the participants sheet polls this for a hidden moderator.
+  Future<void> refreshSeatRequests() async {
+    if (!canManageStage || _disposed) return;
     try {
       final rows = await _repo.seatRequests(roomId);
       if (_disposed) return;

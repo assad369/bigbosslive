@@ -17,6 +17,7 @@ void main() {
     test('reads each kind', () {
       expect(parseDeepLink(_link('/live/$_room')), const LiveLink(_room));
       expect(parseDeepLink(_link('/u/200')), const ProfileLink('200'));
+      expect(parseDeepLink(_link('/u/1')), const ProfileLink('1'));
       expect(parseDeepLink(_link('/post/$_room')), const PostLink(_room));
     });
 
@@ -34,7 +35,8 @@ void main() {
         isNull,
       );
       expect(parseDeepLink(_link('/live/not-an-id')), isNull);
-      expect(parseDeepLink(_link('/u/12')), isNull);
+      expect(parseDeepLink(_link('/u/abc')), isNull);
+      expect(parseDeepLink(_link('/u/${'1' * 13}')), isNull);
       expect(parseDeepLink(_link('/live/$_room/extra')), isNull);
       expect(parseDeepLink(_link('/games/$_room')), isNull);
     });

@@ -232,8 +232,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
   void _openUser(UserBrief u) =>
       LiveUserSheet.show(context, c, u, onGift: _openGifts);
 
-  void _openParticipants([int tab = 0]) =>
-      ParticipantsSheet.show(context, c, onTapUser: _openUser, initialTab: tab);
+  void _openParticipants([ParticipantsTab tab = ParticipantsTab.viewers]) =>
+      ParticipantsSheet.show(
+        context,
+        c,
+        onTapUser: _openUser,
+        onStageAction: _stageAction,
+        initialTab: tab,
+      );
 
   /// Long-press on a stage tile: move that guest into the host spot, or restore it.
   Future<void> _swap(String? uid) async {
@@ -495,9 +501,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                                       const [60, 180, 300, 600],
                                 ),
                                 onLock: () => LockSheet.show(context, c),
-                                onRequests: () => _openParticipants(
-                                  ParticipantsSheet.requestsTab,
-                                ),
                                 onShare: _share,
                                 onGames: () => LiveGamesSheet.show(context),
                                 onFilters: () => showFilterSheet(
@@ -530,8 +533,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                           c: c,
                           onCompose: () => setState(() => _composing = true),
                           onGift: _openGifts,
-                          onInvite: () =>
-                              _openParticipants(ParticipantsSheet.stageTab),
+                          onParticipants: () =>
+                              _openParticipants(ParticipantsTab.waiting),
                           onStageAction: _stageAction,
                           onHeart: _heart,
                         ),

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FIRST_SHORT_ID, SHORT_ID_PATTERN } from '@bigboss/shared';
+import { ASSIGNABLE_SHORT_ID_PATTERN, FIRST_SHORT_ID, SHORT_ID_PATTERN } from '@bigboss/shared';
 import type { Filter } from 'mongodb';
 import type { Ctx } from '../../context.js';
 import type { UserDoc } from '../../db/schema.js';
@@ -332,7 +332,8 @@ export class UsersService {
 
   /** Admin: give a user a specific (e.g. vanity) short id, or swap ids between two users. */
   async setShortId(uid: string, shortId: string): Promise<void> {
-    if (!SHORT_ID_PATTERN.test(shortId)) throw badRequest('Short id must be 3–12 digits');
+    if (!ASSIGNABLE_SHORT_ID_PATTERN.test(shortId))
+      throw badRequest('Short id must be 1–12 digits, starting from 1');
     const holder = await this.col.findOne({ shortId }, { projection: { _id: 1 } });
     if (holder && holder._id !== uid) {
       // Swap inside a transaction so neither user is ever left without an id.

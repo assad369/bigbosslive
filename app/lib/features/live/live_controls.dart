@@ -704,10 +704,11 @@ class _PkButton extends StatelessWidget {
   );
 }
 
-/// The right-hand column of controls, top to bottom: Games, PK, Share, Chat, Lock, Stage
-/// requests, Beauty & filters, YouTube, More, and the chevron that folds the rest away. Each
+/// The right-hand column of controls, top to bottom: Games, PK, Share, Chat, Lock, Beauty &
+/// filters, YouTube, More, and the chevron that folds the rest away. Each
 /// shows by role: the host gets most of them, a viewer Games, Share, Chat and More. Mic,
-/// camera and flip are in the [LiveBottomBar]. It scrolls, anchored at the bottom, on a
+/// camera, flip and the seat queue (the phone) are in the [LiveBottomBar]. It scrolls,
+/// anchored at the bottom, on a
 /// short screen.
 class LiveSideRail extends ConsumerStatefulWidget {
   const LiveSideRail({
@@ -715,7 +716,6 @@ class LiveSideRail extends ConsumerStatefulWidget {
     required this.c,
     required this.onPk,
     required this.onLock,
-    required this.onRequests,
     required this.onShare,
     required this.onGames,
     required this.onFilters,
@@ -725,7 +725,6 @@ class LiveSideRail extends ConsumerStatefulWidget {
   final LiveRoomController c;
   final VoidCallback onPk;
   final VoidCallback onLock;
-  final VoidCallback onRequests;
 
   /// Gets the button's context, so the iPad share sheet can anchor to it.
   final void Function(BuildContext anchor) onShare;
@@ -793,13 +792,6 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
           toggled: c.locked,
           onTap: widget.onLock,
         ),
-      if (c.isModerator)
-        LiveRoundButton(
-          icon: Icons.groups_rounded,
-          tooltip: 'Stage requests',
-          badge: c.seatRequests.length,
-          onTap: widget.onRequests,
-        ),
       // Mic, camera and flip live in the bottom bar (`LiveBottomBar`).
       if (camTools) ...[
         // Works with the camera off too: the look applies when it comes back on.
@@ -856,9 +848,10 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
 }
 
 /// The bottom row: the chat field, then (for the host and guests on stage) Mic, Camera and
-/// Flip, then Gift, the stage phone and the heart. The phone depends on the role: the host
-/// invites guests, a viewer asks for a seat (or cancels the request), a guest on stage
-/// leaves it.
+/// Flip, then Gift, the stage phone and the heart. The phone depends on the role: the host,
+/// room admins and platform moderators open the viewers / waiting / stage / admins sheet
+/// (with the queue's count as a badge), a viewer asks for a seat (or cancels the request),
+/// a guest on stage leaves it.
 ///
 /// With the media controls the row gets tight on a phone: their discs shrink to
 /// [stagedButton], the chat field becomes a round chat button when it would be narrower than
@@ -870,7 +863,7 @@ class LiveBottomBar extends StatelessWidget {
     required this.c,
     required this.onCompose,
     required this.onGift,
-    required this.onInvite,
+    required this.onParticipants,
     required this.onStageAction,
     required this.onHeart,
   });
@@ -878,8 +871,10 @@ class LiveBottomBar extends StatelessWidget {
   final VoidCallback onCompose;
   final VoidCallback onGift;
 
-  /// The host's phone: the stage list, to invite someone up.
-  final VoidCallback onInvite;
+  /// The phone of the host, room admins and platform moderators
+  /// ([LiveRoomController.canManageStage]): viewers, the seat queue, the stage and the
+  /// admins, opened on the queue. Their own seat action is in that sheet.
+  final VoidCallback onParticipants;
 
   /// A viewer's or guest's phone: ask for a seat, cancel the request, or leave.
   final VoidCallback onStageAction;
@@ -900,12 +895,13 @@ class LiveBottomBar extends StatelessWidget {
   static const height = button + 14;
 
   Widget _phone(double size) {
-    if (c.isHost) {
+    if (c.canManageStage) {
       return LiveRoundButton(
-        icon: Icons.call_rounded,
-        tooltip: 'Invite guests',
+        icon: Icons.phone_in_talk_rounded,
+        tooltip: 'Guests & requests',
+        badge: c.seatRequests.length,
         size: size,
-        onTap: onInvite,
+        onTap: onParticipants,
       );
     }
     if (c.onSeat) {

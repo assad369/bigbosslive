@@ -138,7 +138,8 @@ export class PlatformModeratorsService {
 
   /**
    * Grant or revoke the flag. A revoke also takes them out of every live they watch hidden,
-   * so a stealth session can't outlive the role. Returns whether anything changed.
+   * so a stealth session can't outlive the role, and off every live's admins. Returns whether
+   * anything changed.
    */
   async setFlag(uid: string, enabled: boolean, by: string): Promise<boolean> {
     const user = await this.ctx.col.users.findOne(
@@ -168,6 +169,9 @@ export class PlatformModeratorsService {
     await this.ctx.services.live
       .dropHidden(uid)
       .catch((err: unknown) => this.ctx.log.warn({ err, uid }, 'drop hidden sessions failed'));
+    await this.ctx.services.live
+      .dropRoomAdmin(uid)
+      .catch((err: unknown) => this.ctx.log.warn({ err, uid }, 'drop room admin roles failed'));
     return true;
   }
 

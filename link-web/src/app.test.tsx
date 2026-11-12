@@ -200,7 +200,8 @@ describe('content pages', () => {
     const before = calls.length;
     assert.equal((await get(app, `/clips/${ROOM}`)).status, 404);
     assert.equal((await get(app, '/live/nope')).status, 404);
-    assert.equal((await get(app, '/u/12')).status, 404);
+    assert.equal((await get(app, '/u/abc')).status, 404);
+    assert.equal((await get(app, `/u/${'1'.repeat(13)}`)).status, 404);
     assert.equal(calls.length, before);
     assert.equal((await get(app, `/live/${'f'.repeat(24)}`)).status, 404);
   });

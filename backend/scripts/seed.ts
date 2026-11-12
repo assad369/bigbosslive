@@ -5,29 +5,11 @@
  *   npm run seed
  */
 import { ObjectId } from 'mongodb';
-import { GAME_KEYS } from '@bigboss/shared';
+import { GAME_KEYS, buildDefaultLevels } from '@bigboss/shared';
 import { GAME_DEFINITIONS } from '../src/modules/games/definitions.js';
 import { withDb } from './_db.js';
 
 const CDN = process.env.SEED_ASSET_BASE_URL ?? 'https://cdn.bigbosslive.app/seed';
-
-const TIERS = [
-  { from: 1, name: 'Ivory', color: '#BFAE8E' },
-  { from: 11, name: 'Bronze', color: '#8C6239' },
-  { from: 21, name: 'Silver', color: '#9C9C9C' },
-  { from: 31, name: 'Gold', color: '#C9A227' },
-  { from: 41, name: 'Champagne', color: '#D8B76A' },
-  { from: 51, name: 'Platinum', color: '#7F8C8D' },
-  { from: 61, name: 'Royal', color: '#6B4826' },
-  { from: 71, name: 'Imperial', color: '#B8860B' },
-  { from: 81, name: 'Sovereign', color: '#8B5A00' },
-  { from: 91, name: 'Big Boss', color: '#5C3A00' },
-];
-
-/** Roughly geometric ladder: level 1 at 1k points, level 100 at ~2B. */
-function pointsFor(level: number): number {
-  return Math.round((1000 * Math.pow(1.1615, level - 1)) / 100) * 100;
-}
 
 const GIFTS: [name: string, price: number, category: string, animated: boolean][] = [
   ['Rose', 1, 'popular', false],
@@ -46,21 +28,11 @@ const GIFTS: [name: string, price: number, category: string, animated: boolean][
 await withDb(async (db) => {
   const now = new Date();
 
-  // Level ladder
+  // Level ladder: the default 500 levels (packages/shared/src/levels.ts).
   if ((await db.col.levelConfigs.countDocuments()) === 0) {
-    const docs = Array.from({ length: 100 }, (_, i) => {
-      const level = i + 1;
-      const tier = [...TIERS].reverse().find((t) => level >= t.from)!;
-      return {
-        _id: level,
-        pointsRequired: pointsFor(level),
-        name: `${tier.name} ${level - tier.from + 1}`,
-        color: tier.color,
-        iconUrl: null,
-      };
-    });
+    const docs = buildDefaultLevels().map(({ level, ...rest }) => ({ _id: level, ...rest }));
     await db.col.levelConfigs.insertMany(docs);
-    console.log('seeded 100 levels');
+    console.log(`seeded ${docs.length} levels`);
   }
 
   // Gifts

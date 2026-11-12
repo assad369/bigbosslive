@@ -375,7 +375,7 @@ export interface RechargePackageDoc {
 }
 
 export interface LevelConfigDoc {
-  /** Level number, 1…100. */
+  /** Level number, 1…MAX_LEVEL (500). */
   _id: number;
   pointsRequired: number;
   name: string;

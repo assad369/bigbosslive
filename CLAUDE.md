@@ -54,8 +54,9 @@ cd app && flutter analyze && flutter test && dart format lib test
   The `_id` tiebreak is required, because rows sharing a timestamp would otherwise be skipped.
 - **Short IDs:** new accounts are numbered from `FIRST_SHORT_ID` (200) on the
   `user_short_id_v2` counter. Older accounts keep their 8-digit ids. Anything that accepts a
-  short id uses `SHORT_ID_PATTERN` (3–12 digits) and resolves it with `users.resolve()`, which
-  also accepts a uid.
+  short id uses `SHORT_ID_PATTERN` (1–12 digits) and resolves it with `users.resolve()`, which
+  also accepts a uid. Admins assign ids (`setShortId`) matching `ASSIGNABLE_SHORT_ID_PATTERN`:
+  from 1 upward, no `0` and no leading zero, so `1` and `01` never both exist.
 
 ## Money and invariants (read before changing)
 
@@ -196,6 +197,12 @@ cd app && flutter analyze && flutter test && dart format lib test
   `bb.seats { kind: 'seats', swappedUid }` and room detail, and `vacateSeatOf` clears it when
   that guest leaves the seat. The app orders `stage`/`displaySeats` by it (`activeSwap`, only
   while the guest is present) and swaps on long-press; PK ignores it.
+- The bottom-bar phone of the host, room admins and platform moderators / `live.moderate`
+  staff (`canManageStage`) opens `ParticipantsSheet` on WAITING (VIEWS / WAITING / STAGE /
+  ADMINS; WAITING only for them, as the server refuses the queue to others). Their own seat
+  action (Join, Cancel request, Go on stage, Leave) is the sheet's pill. Seat-request pushes
+  reach only the host and `moderatorIds`, so the open sheet polls the queue for a hidden
+  moderator.
 - Stage order is join order: `occupySeat` stamps `seats.$.seatedAt` (cleared on vacate) and
   the app sorts guests by it (`LiveRoomController.stage`, falling back to the index for
   rooms without it), because a newcomer gets the lowest free index. Guest tiles show their
@@ -210,9 +217,11 @@ cd app && flutter analyze && flutter test && dart format lib test
   `EntryEffectOverlay` / `EntryBanner` mount only once the room has rendered.
 - No entrance twice: `/join` with `resume: true` (the app's `_recover()`), or by someone who
   already has a `room_presence` row, broadcasts no `bb.entry` and returns `entry: null`.
-- Room admins = `moderatorIds`, appointed by the host only. They manage seats and requests and
-  can remove people, but can't act on the host or other admins, lock the room or appoint admins.
-  Kicking an admin revokes the role.
+- Room admins = `moderatorIds`, appointed by the host, a platform moderator or `live.moderate`
+  staff (`setModerator`; non-hosts audited as `live.moderator_set`). Only staff take the role
+  from a protected account. They manage seats and requests and can remove people, but can't act
+  on the host or other admins, lock the room or appoint admins. Kicking an admin revokes the
+  role.
 - Room lock (`locked`, `passwordHash`) is host-only and enforced at `/join`: staff, room admins
   and seated guests pass; others need the password (scrypt-hashed, guesses rate limited).
   Lock changes push `rooms:upserted` so home cards show the lock.
@@ -256,7 +265,11 @@ cd app && flutter analyze && flutter test && dart format lib test
   admins with `moderators.manage` (user page, or Community → Platform moderators; audited as
   `user.platform_moderator`). The flag never gives dashboard access. `requireAuth` reloads
   the user on every request, so a revoke applies at once; it also calls
-  `LiveService.dropHidden` so a stealth session can't outlive the role.
+  `LiveService.dropHidden` so a stealth session can't outlive the role, and
+  `LiveService.dropRoomAdmin` so it leaves no room-admin role behind in any live.
+- **Room admin everywhere:** a platform moderator who joins a live visibly is added to its
+  `moderatorIds` (`addAutoAdmin`, announced once, token role `moderator`). A hidden one is not,
+  because the admin list would give them away. Staff are never auto-admins.
 - **One rule, in `authority.ts`:** `canModerateLive` = platform moderator **or** staff with
   `live.moderate` (the token claim, never the Mongo mirror); `canModerateUsers` likewise
   with `users.moderate`. `routes/live.ts actor()` uses it for every in-room moderation route,
@@ -273,8 +286,9 @@ cd app && flutter analyze && flutter test && dart format lib test
   any live (`endReason: 'moderator'`). Bans are keyed by `Idempotency-Key` and capped per
   moderator per hour (`platformModerators.banRateLimitPerHour`, counted from audit rows).
   Every write is audited with `adminRole: 'platform_moderator'`. Only staff unban devices.
-- In a room, anything done by someone who neither hosts nor administers it (kick, ban, chat
-  delete, seat actions, swap, YouTube) is audited (`auditOutsider`).
+- In a room, anything a platform moderator or staff member does in a live they don't host
+  (kick, ban, chat delete, seat actions, swap, YouTube, appointing admins) is audited
+  (`auditOutsider`), even while they are one of its admins.
 - **Stealth and self-stage** (both off by default, `platformModerators.stealthEnabled` /
   `selfStageEnabled`; staff never get them):
   - A platform moderator in the audience joins with a **hidden** LiveKit grant
@@ -284,10 +298,12 @@ cd app && flutter analyze && flutter test && dart format lib test
     announcement skip hidden rows.
   - LiveKit replaces the whole permission, so `updateParticipant` always states `hidden`
     (`syncParticipant` → `hiddenIn`): a role change elsewhere in the room never reveals a
-    watching moderator. Seated, they are visible; back in the audience, hidden again.
+    watching moderator. Only the host and guests are always visible: an admin role doesn't
+    reveal one. Seated, they are visible; back in the audience, hidden again.
   - `POST /live/:id/platform-moderator/stage {onStage}` takes the lowest free seat without
-    approval (the seat cap applies) or leaves it, and returns `hidden`. It never touches
-    `moderatorIds`.
+    approval (the seat cap applies) or leaves it, and returns `hidden`. Taking the seat makes
+    them a room admin; leaving it with stealth on takes them off `moderatorIds` quietly (a
+    `moderator` packet without `user`, so no chat line) before the re-mint hides them.
   - Chat from a hidden moderator carries `mod: true` (set by the server); the app draws a
     MOD chip. Turning stealth off doesn't reveal someone already connected.
 

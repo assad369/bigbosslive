@@ -29,7 +29,7 @@ import {
   WalletOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { SHORT_ID_PATTERN, vipTierLabel } from '@bigboss/shared';
+import { ASSIGNABLE_SHORT_ID_PATTERN, vipTierLabel } from '@bigboss/shared';
 import { get, send, useIntentKey } from '../../lib/api';
 import { ago, dateTime, duration, num } from '../../lib/format';
 import { ActionButton, Money, PageHeader, StatusTag } from '../../components/common';
@@ -548,9 +548,16 @@ export function UserDetailPage() {
             <Form.Item
               name="shortId"
               label="Short ID"
-              rules={[{ required: true, pattern: SHORT_ID_PATTERN, message: '3–12 digits' }]}
+              extra="1–12 digits, from 1 (e.g. 1, 7, 888). No leading zero."
+              rules={[
+                {
+                  required: true,
+                  pattern: ASSIGNABLE_SHORT_ID_PATTERN,
+                  message: '1–12 digits, starting from 1 (no leading zero)',
+                },
+              ]}
             >
-              <Input />
+              <Input inputMode="numeric" />
             </Form.Item>
           </>
         )}

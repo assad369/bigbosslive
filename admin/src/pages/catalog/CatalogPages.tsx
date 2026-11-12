@@ -29,6 +29,7 @@ import {
   GiftOutlined,
   PlusOutlined,
   SearchOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -36,8 +37,10 @@ import {
   STORE_COSMETIC_TYPES,
   FRAME_FORMATS,
   MAX_GRANT_DAYS,
+  MAX_LEVEL,
   MEDIA_TYPES,
   VIP_TIERS,
+  buildDefaultLevels,
   vipTierLabel,
   type AdminCosmetic,
   type Cosmetic,
@@ -824,6 +827,17 @@ interface LevelRow {
   iconUrl: string | null;
 }
 
+/** Consecutive levels sharing a name and colour, shown as the ladder's tier bands. */
+function levelBands(rows: LevelRow[]) {
+  const bands: { name: string; color: string; from: number; to: number }[] = [];
+  for (const r of rows) {
+    const last = bands.at(-1);
+    if (last && last.name === r.name && last.color === r.color) last.to = r.level;
+    else bands.push({ name: r.name, color: r.color, from: r.level, to: r.level });
+  }
+  return bands;
+}
+
 export function LevelsPage() {
   const q = useQuery({
     queryKey: ['levels'],
@@ -844,6 +858,9 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
   const qc = useQueryClient();
   const [rows, setRows] = useState<LevelRow[]>(initial);
   const [uploads, tracker] = useUploadTracker();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const bands = useMemo(() => levelBands(rows), [rows]);
 
   const save = useMutation({
     mutationFn: () =>
@@ -866,8 +883,20 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
     onError: (e: Error) => message.error(e.message),
   });
 
-  const update = (i: number, patch: Partial<LevelRow>) =>
-    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  // Keyed by level, not the render index: antd restarts that index on every table page.
+  const update = (level: number, patch: Partial<LevelRow>) =>
+    setRows((rs) => rs.map((r) => (r.level === level ? { ...r, ...patch } : r)));
+  const loadDefaults = () =>
+    modal.confirm({
+      title: `Load the default ${MAX_LEVEL} levels?`,
+      content:
+        'This replaces the table below with the default ladder (Bronze to Supreme). Nothing changes until you press Save ladder.',
+      okText: 'Load defaults',
+      onOk: () => {
+        setRows(buildDefaultLevels());
+        setPage(1);
+      },
+    });
   const invalid = rows.some((r, i) => i > 0 && r.pointsRequired <= rows[i - 1]!.pointsRequired);
 
   return (
@@ -877,8 +906,12 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
         subtitle="Level points = diamonds recharged + gifts received × weight (see Settings → Economy)"
         extra={
           <>
+            <Button icon={<UndoOutlined />} onClick={loadDefaults}>
+              Load default {MAX_LEVEL} levels
+            </Button>
             <Button
               icon={<PlusOutlined />}
+              disabled={rows.length >= MAX_LEVEL}
               onClick={() =>
                 setRows((rs) => [
                   ...rs,
@@ -913,14 +946,53 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
           message="Each level must require more points than the one before it."
         />
       )}
+      {bands.length > 0 && (
+        <Card variant="borderless" size="small" style={{ marginBottom: 16 }} title="Tier bands">
+          <Space wrap>
+            {bands.map((b) => (
+              <Tag key={b.from} color={b.color} style={{ color: '#fff' }}>
+                {b.name} · Lv {b.from === b.to ? b.from : `${b.from}–${b.to}`}
+              </Tag>
+            ))}
+          </Space>
+        </Card>
+      )}
       <UploadTrackerProvider value={tracker}>
-        <Card {...card}>
+        <Card
+          {...card}
+          title={`Levels (${num(rows.length)})`}
+          extra={
+            <InputNumber
+              min={1}
+              max={Math.max(1, rows.length)}
+              precision={0}
+              placeholder="Go to level"
+              style={{ width: 130 }}
+              onPressEnter={(e) => {
+                const v = Number((e.target as HTMLInputElement).value);
+                const i = rows.findIndex((r) => r.level >= v);
+                if (v >= 1 && rows.length) {
+                  setPage(Math.floor((i < 0 ? rows.length - 1 : i) / pageSize) + 1);
+                }
+              }}
+            />
+          }
+        >
           <Table<LevelRow>
             rowKey="level"
             scroll={{ x: 'max-content' }}
             loading={loading}
             dataSource={rows}
-            pagination={{ pageSize: 25 }}
+            pagination={{
+              current: page,
+              pageSize,
+              showSizeChanger: true,
+              pageSizeOptions: [25, 50, 100],
+              onChange: (p, size) => {
+                setPage(size === pageSize ? p : 1);
+                setPageSize(size);
+              },
+            }}
             columns={[
               {
                 title: 'Level',
@@ -935,11 +1007,11 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
               {
                 title: 'Points required',
                 key: 'p',
-                render: (_, r, i) => (
+                render: (_, r) => (
                   <InputNumber
                     min={0}
                     value={r.pointsRequired}
-                    onChange={(v) => update(i, { pointsRequired: v ?? 0 })}
+                    onChange={(v) => update(r.level, { pointsRequired: v ?? 0 })}
                     style={{ width: 180 }}
                     formatter={(v) => num(Number(v))}
                   />
@@ -948,10 +1020,10 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
               {
                 title: 'Name',
                 key: 'n',
-                render: (_, r, i) => (
+                render: (_, r) => (
                   <Input
                     value={r.name}
-                    onChange={(e) => update(i, { name: e.target.value })}
+                    onChange={(e) => update(r.level, { name: e.target.value })}
                     style={{ width: 180 }}
                   />
                 ),
@@ -959,30 +1031,32 @@ function LevelsEditor({ initial, loading }: { initial: LevelRow[]; loading: bool
               {
                 title: 'Icon',
                 key: 'i',
-                render: (_, r, i) => (
+                render: (_, r) => (
                   <MediaUpload
                     compact
                     kind="level-icon"
                     value={r.iconUrl}
-                    onChange={(iconUrl) => update(i, { iconUrl })}
+                    onChange={(iconUrl) => update(r.level, { iconUrl })}
                   />
                 ),
               },
               {
                 title: 'Colour',
                 key: 'c',
-                render: (_, r, i) => (
+                render: (_, r) => (
                   <ColorPicker
                     value={r.color}
-                    onChangeComplete={(c) => update(i, { color: c.toHexString().toUpperCase() })}
+                    onChangeComplete={(c) =>
+                      update(r.level, { color: c.toHexString().toUpperCase() })
+                    }
                   />
                 ),
               },
               {
                 title: '',
                 key: 'd',
-                render: (_, _r, i) =>
-                  i === rows.length - 1 && (
+                render: (_, r) =>
+                  r.level === rows.at(-1)?.level && (
                     <Button
                       size="small"
                       type="text"

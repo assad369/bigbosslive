@@ -1,12 +1,12 @@
 import type { AnyBulkWriteOperation, ClientSession } from 'mongodb';
 import { z } from 'zod';
-import type { LevelProgress } from '@bigboss/shared';
+import { MAX_LEVEL, type LevelProgress } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { LevelConfigDoc, UserDoc } from '../../db/schema.js';
 import { badRequest } from '../../lib/errors.js';
 
 export const levelConfigInput = z.object({
-  level: z.number().int().min(1).max(100),
+  level: z.number().int().min(1).max(MAX_LEVEL),
   pointsRequired: z.number().int().min(0),
   name: z.string().trim().min(1).max(40),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),

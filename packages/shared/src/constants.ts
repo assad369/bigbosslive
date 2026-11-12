@@ -8,9 +8,13 @@ export const ADMIN_PASSWORD_MAX_LENGTH = 128;
 
 /**
  * Public numeric user id ("ID 200"). New accounts are numbered from {@link FIRST_SHORT_ID};
- * accounts created before the switch keep their 8-digit ids, and admins may assign vanity ids.
+ * accounts created before the switch keep their 8-digit ids, and admins may assign vanity ids
+ * from 1 upward ({@link ASSIGNABLE_SHORT_ID_PATTERN}). This is the pattern anything that
+ * *accepts* a short id matches (lookups, search, share links): 1–12 digits.
  */
-export const SHORT_ID_PATTERN = /^\d{3,12}$/;
+export const SHORT_ID_PATTERN = /^\d{1,12}$/;
+/** What an admin may assign: 1–12 digits starting from 1, so no `0` and no leading zero. */
+export const ASSIGNABLE_SHORT_ID_PATTERN = /^[1-9]\d{0,11}$/;
 export const FIRST_SHORT_ID = 200;
 
 export const USER_STATUSES = ['active', 'banned', 'deleted'] as const;

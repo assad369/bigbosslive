@@ -12,6 +12,7 @@ import {
   GAME_KEYS,
   MAX_COSMETICS_PER_BATCH,
   MAX_GRANT_DAYS,
+  MAX_LEVEL,
   MAX_VIP_TIER,
   REPORT_STATUSES,
   REPORT_TARGETS,
@@ -645,7 +646,7 @@ export function adminRoutes(ctx: Ctx): Router {
   });
 
   r.put('/levels', can('catalog.manage'), async (req, res) => {
-    const { items } = parseBody(req, z.object({ items: z.array(levelConfigInput).max(100) }));
+    const { items } = parseBody(req, z.object({ items: z.array(levelConfigInput).max(MAX_LEVEL) }));
     const saved = await s.levels.replaceAll(items);
     await audit(req, 'levels.replace', 'levels', null, { count: saved.length });
     res.json({ items: saved, relevelRecommended: true });

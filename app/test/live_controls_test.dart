@@ -1,12 +1,27 @@
+import 'package:bigboss_live/core/providers.dart';
 import 'package:bigboss_live/data/repositories.dart';
 import 'package:bigboss_live/features/live/live_controls.dart';
 import 'package:bigboss_live/features/live/live_room_controller.dart';
+import 'package:bigboss_live/features/live/live_sheets.dart';
 import 'package:bigboss_live/models/models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeRepo implements LiveRepository {
+  _FakeRepo({this.requests = const []});
+  final List<SeatRequest> requests;
+  var requestLoads = 0;
+
+  @override
+  Future<List<SeatRequest>> seatRequests(String roomId) async {
+    requestLoads++;
+    return requests;
+  }
+
+  @override
+  Future<List<UserBrief>> viewers(String roomId) async => const [];
+
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName}');
@@ -25,8 +40,15 @@ LiveRoomController _controller(
   String me, {
   List<String> mods = const [],
   String type = 'video',
+  bool liveModerator = false,
+  _FakeRepo? repo,
 }) {
-  final c = LiveRoomController(roomId: 'r1', myUid: me, repo: _FakeRepo());
+  final c = LiveRoomController(
+    roomId: 'r1',
+    myUid: me,
+    repo: repo ?? _FakeRepo(),
+    isLiveModerator: liveModerator,
+  );
   c.detail = RoomDetail.fromJson({
     'id': 'r1',
     'type': type,
@@ -63,7 +85,7 @@ LiveBottomBar _bottomBar(LiveRoomController c) => LiveBottomBar(
   c: c,
   onCompose: () {},
   onGift: () {},
-  onInvite: () {},
+  onParticipants: () {},
   onStageAction: () {},
   onHeart: () {},
 );
@@ -73,7 +95,6 @@ Widget _rail(LiveRoomController c) => _wrap(
     c: c,
     onPk: () {},
     onLock: () {},
-    onRequests: () {},
     onShare: (_) {},
     onGames: () {},
     onFilters: () {},
@@ -85,8 +106,21 @@ void main() {
   // LiveKit's Room starts a periodic timer, so controllers are built outside the
   // widget tests' fake-async zone.
   late LiveRoomController host, guest, viewer, railHost, barHost, foldHost;
-  late LiveRoomController coHost, audioGuest;
+  late LiveRoomController coHost, audioGuest, moderator;
+  late LiveRoomController sheetHost, sheetViewer, hiddenMod;
+  late _FakeRepo hiddenModRepo;
+  final waiting = [
+    for (final id in ['w1', 'w2'])
+      SeatRequest(
+        user: UserBrief(id: id, shortId: '3$id', displayName: 'Waiting $id'),
+      ),
+  ];
   setUpAll(() {
+    moderator = _controller('pm', liveModerator: true);
+    sheetHost = _controller('host', repo: _FakeRepo(requests: waiting));
+    sheetViewer = _controller('viewer');
+    hiddenModRepo = _FakeRepo(requests: waiting);
+    hiddenMod = _controller('pm', liveModerator: true, repo: hiddenModRepo);
     coHost = _controller('guest');
     audioGuest = _controller('guest', type: 'audio');
     host = _controller('host')..cameraOn = true;
@@ -127,8 +161,9 @@ void main() {
     for (final w in [320.0, 360.0, 390.0, 430.0]) {
       await width(tester, w);
       for (final (c, phone) in [
-        (host, 'Invite guests'),
-        (guest, 'Leave the stage'),
+        (host, 'Guests & requests'),
+        // A seated room admin opens the queue too; leaving is in that sheet.
+        (guest, 'Guests & requests'),
         (coHost, 'Leave the stage'),
       ]) {
         await tester.pumpWidget(_wrap(_bottomBar(c)));
@@ -159,6 +194,81 @@ void main() {
     expect(find.byTooltip('Send hearts'), findsNothing);
   });
 
+  testWidgets('a platform moderator in the audience gets the queue phone', (
+    tester,
+  ) async {
+    await _narrow(tester);
+    await tester.pumpWidget(_wrap(_bottomBar(moderator)));
+    expect(tester.takeException(), isNull);
+    expect(find.byTooltip('Guests & requests'), findsOneWidget);
+    expect(find.byTooltip('Ask to join the stage'), findsNothing);
+  });
+
+  Widget sheet(
+    LiveRoomController c, {
+    ParticipantsTab tab = ParticipantsTab.viewers,
+    Future<void> Function()? onStageAction,
+  }) => ProviderScope(
+    overrides: [liveRepo.overrideWithValue(_FakeRepo())],
+    child: MaterialApp(
+      home: Scaffold(
+        body: ParticipantsSheet(
+          c: c,
+          onTapUser: (_) {},
+          onStageAction: onStageAction ?? () async {},
+          initialTab: tab,
+        ),
+      ),
+    ),
+  );
+
+  testWidgets('the host\'s sheet opens on the numbered seat queue', (
+    tester,
+  ) async {
+    await tester.pumpWidget(sheet(sheetHost, tab: ParticipantsTab.waiting));
+    await tester.pumpAndSettle();
+    for (final t in ['VIEWS 1200', 'WAITING 2', 'ADMINS 0']) {
+      expect(find.text(t), findsOneWidget);
+    }
+    // Who is on stage counts only connected guests, and this controller isn't connected.
+    expect(find.textContaining('STAGE'), findsOneWidget);
+    expect(find.text('Waiting w1'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.byTooltip('Approve'), findsNWidgets(2));
+    expect(find.byTooltip('Decline'), findsNWidgets(2));
+    // The host has no seat of their own to ask for.
+    expect(find.text('Join'), findsNothing);
+  });
+
+  testWidgets('a viewer sees no queue, and gets the Join pill', (tester) async {
+    var asked = 0;
+    await tester.pumpWidget(
+      sheet(
+        sheetViewer,
+        tab: ParticipantsTab.waiting,
+        onStageAction: () async => asked++,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('WAITING'), findsNothing);
+    expect(find.text('VIEWS 1200'), findsOneWidget);
+    await tester.tap(find.text('Join'));
+    await tester.pump();
+    expect(asked, 1);
+  });
+
+  testWidgets('a hidden moderator\'s sheet polls the queue', (tester) async {
+    await tester.pumpWidget(sheet(hiddenMod, tab: ParticipantsTab.waiting));
+    await tester.pumpAndSettle();
+    expect(find.text('WAITING 2'), findsOneWidget);
+    final loads = hiddenModRepo.requestLoads;
+    await tester.pump(ParticipantsSheet.pollEvery);
+    expect(hiddenModRepo.requestLoads, greaterThan(loads));
+    // Closing the sheet stops the polling.
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('the bar\'s media buttons act, and flip explains itself', (
     tester,
   ) async {
@@ -170,7 +280,7 @@ void main() {
           c: coHost,
           onCompose: () => composed++,
           onGift: () {},
-          onInvite: () {},
+          onParticipants: () {},
           onStageAction: () {},
           onHeart: () {},
         ),

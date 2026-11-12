@@ -204,16 +204,17 @@ export class LiveService {
   }
 
   /**
-   * Whether `user` is hidden in `room` right now: a platform moderator in the audience whose
+   * Whether `user` is hidden in `room` right now: a platform moderator off the stage whose
    * presence row says they connected hidden (stealth). Seated, they are visible; back in the
-   * audience, hidden again. Read from the database, so it survives a redeploy.
+   * audience, hidden again. Being a room admin never reveals them: only the host and guests,
+   * who publish, are always visible. Read from the database, so it survives a redeploy.
    */
   private async hiddenIn(
     room: LiveRoomDoc,
     user: Pick<UserDoc, '_id' | 'platformModerator'>,
     role: LiveRole,
   ): Promise<boolean> {
-    if (role !== 'audience' || !isPlatformModerator(user)) return false;
+    if (role === 'host' || role === 'guest' || !isPlatformModerator(user)) return false;
     const row = await this.ctx.col.roomPresence.findOne(
       { roomId: room._id, identity: user._id },
       { projection: { hidden: 1 } },
@@ -474,7 +475,7 @@ export class LiveService {
         throw forbidden('You cannot join this live');
     }
 
-    const role = this.roleOf(room, uid);
+    let role = this.roleOf(room, uid);
     if (room.locked && role === 'audience' && !opts.isStaff && !opts.canModerate) {
       const hasPassword = Boolean(room.passwordHash);
       if (!room.passwordHash || !opts.password)
@@ -487,6 +488,12 @@ export class LiveService {
       role === 'audience' &&
       isPlatformModerator(user) &&
       (await this.ctx.services.config.get('platformModerators')).stealthEnabled;
+    // A visible platform moderator is a room admin in every live. A hidden one isn't: the
+    // admin list and its announcement would give them away.
+    if (role === 'audience' && isPlatformModerator(user) && !stealth) {
+      await this.addAutoAdmin(room, uid);
+      role = 'moderator';
+    }
     const credentials = await this.tokenFor(room, uid, role, { hidden: stealth });
 
     // Already in the room (a reconnect, or a second join call): no second entrance.
@@ -781,11 +788,12 @@ export class LiveService {
   }
 
   /**
-   * Someone who moderates any live, acting in a room they neither host nor administer. The
-   * route audits what they do.
+   * Someone who moderates any live, acting in a room they don't host. The route audits what
+   * they do. Being one of the room's admins doesn't exempt them: platform moderators are made
+   * admins automatically.
    */
   private outsider(room: LiveRoomDoc, actor: LiveActor): boolean {
-    return actor.isAdmin && room.hostId !== actor.uid && !room.moderatorIds.includes(actor.uid);
+    return actor.isAdmin && room.hostId !== actor.uid;
   }
 
   /**
@@ -876,24 +884,77 @@ export class LiveService {
     }));
   }
 
-  /** Host appoints or removes a room admin (moderator). */
+  /**
+   * Appoint or remove a room admin (moderator): the host, or anyone who moderates every live
+   * (platform moderators, `live.moderate` staff). Room admins can't appoint. Only staff may take
+   * the role from a protected account (staff, platform moderators); anyone may give up their own.
+   */
   async setModerator(
     roomId: ObjectId,
-    hostId: string,
+    actor: LiveActor,
     uid: string,
     enabled: boolean,
-  ): Promise<void> {
-    if (uid === hostId) throw badRequest('The host is already in charge');
+  ): Promise<{ staffAction: boolean }> {
+    const current = await this.getLive(roomId);
+    const isHost = current.hostId === actor.uid;
+    if (!isHost && !actor.isAdmin) throw forbidden('Only the host can appoint room admins');
+    if (uid === current.hostId) throw badRequest('The host is already in charge');
     if (enabled) await this.ctx.services.users.get(uid);
+    else await this.assertNotProtected(uid, actor);
     const room = await this.ctx.col.liveRooms.findOneAndUpdate(
-      { _id: roomId, hostId, status: 'live' },
+      { _id: roomId, status: 'live' },
       enabled ? { $addToSet: { moderatorIds: uid } } : { $pull: { moderatorIds: uid } },
       { returnDocument: 'after' },
     );
-    if (!room) throw notFound('Your live room');
+    if (!room) throw new AppError(410, 'room_ended', 'This live has ended');
     await this.syncParticipant(room, uid, this.roleOf(room, uid));
     const user = (await this.ctx.services.users.briefs([uid])).get(uid) ?? null;
     await this.broadcastSystem(room, { kind: 'moderator', uid, enabled, user });
+    return { staffAction: this.outsider(current, actor) };
+  }
+
+  /**
+   * A platform moderator visible in a live becomes one of its admins. A no-op when they
+   * already are, so a rejoin announces nothing.
+   */
+  private async addAutoAdmin(room: LiveRoomDoc, uid: string): Promise<void> {
+    const updated = await this.ctx.col.liveRooms.findOneAndUpdate(
+      { _id: room._id, status: 'live', moderatorIds: { $ne: uid } },
+      { $addToSet: { moderatorIds: uid } },
+      { returnDocument: 'after' },
+    );
+    if (!updated) return;
+    const user = (await this.ctx.services.users.briefs([uid])).get(uid) ?? null;
+    await this.broadcastSystem(updated, { kind: 'moderator', uid, enabled: true, user });
+  }
+
+  /**
+   * Take `uid` off a room's admins without a chat line (no `user` in the packet), e.g. a
+   * platform moderator going back to hidden. Returns the room as updated, or null.
+   */
+  private async pullAdminQuietly(roomId: ObjectId, uid: string): Promise<LiveRoomDoc | null> {
+    const updated = await this.ctx.col.liveRooms.findOneAndUpdate(
+      { _id: roomId, status: 'live', moderatorIds: uid },
+      { $pull: { moderatorIds: uid } },
+      { returnDocument: 'after' },
+    );
+    if (updated) await this.broadcastSystem(updated, { kind: 'moderator', uid, enabled: false });
+    return updated;
+  }
+
+  /** Someone lost the platform moderator role: they're no longer an admin in any live. */
+  async dropRoomAdmin(uid: string): Promise<number> {
+    const rooms = await this.ctx.col.liveRooms
+      .find({ status: 'live', moderatorIds: uid }, { projection: { _id: 1 } })
+      .toArray();
+    let dropped = 0;
+    for (const { _id } of rooms) {
+      const updated = await this.pullAdminQuietly(_id, uid);
+      if (!updated) continue;
+      dropped++;
+      await this.syncParticipant(updated, uid, this.roleOf(updated, uid));
+    }
+    return dropped;
   }
 
   private async assertNotBanned(room: LiveRoomDoc, uid: string): Promise<void> {
@@ -1357,8 +1418,9 @@ export class LiveService {
 
   /**
    * A platform moderator takes a free seat without the host's approval, or leaves it
-   * (`selfStageEnabled`). On a seat they are visible like any guest; leaving, they go back to
-   * hidden when stealth is on. Never makes them a room admin.
+   * (`selfStageEnabled`). On a seat they are visible like any guest and a room admin; leaving,
+   * they go back to hidden when stealth is on, and stop being an admin (the admin list would
+   * give them away).
    */
   async platformModeratorStage(
     roomId: ObjectId,
@@ -1381,6 +1443,7 @@ export class LiveService {
         { roomId, userId: uid, status: 'pending' },
         { $set: { status: 'cancelled' } },
       );
+      await this.addAutoAdmin(room, uid);
       return { onStage: true, index, hidden: false };
     }
     const hiddenNow = async () =>
@@ -1393,12 +1456,15 @@ export class LiveService {
         )?.hidden,
       );
     if (!seat) return { onStage: false, index: null, hidden: await hiddenNow() };
-    // Back to hidden if stealth is on now, even if they first joined visibly.
-    if (cfg.stealthEnabled)
+    // Back to hidden if stealth is on now, even if they first joined visibly, and off the
+    // admin list (quietly) before the seat re-mint, so they come back as hidden audience.
+    if (cfg.stealthEnabled) {
       await this.ctx.col.roomPresence.updateOne(
         { roomId, identity: uid },
         { $set: { hidden: true } },
       );
+      await this.pullAdminQuietly(roomId, uid);
+    }
     await this.vacateSeatOf(room, uid);
     await this.syncViewerCount(roomId);
     return { onStage: false, index: null, hidden: await hiddenNow() };
