@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Avatar,
   Button,
   Drawer,
@@ -22,6 +23,7 @@ import {
   CrownOutlined,
   SkinOutlined,
   DashboardOutlined,
+  DownloadOutlined,
   FireOutlined,
   GiftOutlined,
   KeyOutlined,
@@ -43,6 +45,7 @@ import { ChangePasswordModal } from '../components/ChangePasswordModal';
 import { useAuth } from '../auth/useAuth';
 import { brand } from '../theme';
 import { Logo } from '../components/Logo';
+import { useInstallPrompt, useOnline } from '../lib/pwa';
 
 const { Sider, Header, Content } = Layout;
 
@@ -183,6 +186,8 @@ export function AdminLayout() {
   const screens = Grid.useBreakpoint();
   const [drawer, setDrawer] = useState(false);
   const mobile = !screens.lg;
+  const online = useOnline();
+  const { canInstall, install } = useInstallPrompt();
 
   const items: MenuProps['items'] = useMemo(
     () =>
@@ -330,6 +335,17 @@ export function AdminLayout() {
                         { type: 'divider' as const },
                       ]
                     : []),
+                  ...(canInstall
+                    ? [
+                        {
+                          key: 'install',
+                          icon: <DownloadOutlined />,
+                          label: 'Install app',
+                          onClick: () => void install(),
+                        },
+                        { type: 'divider' as const },
+                      ]
+                    : []),
                   {
                     key: 'logout',
                     icon: <LogoutOutlined />,
@@ -359,6 +375,14 @@ export function AdminLayout() {
             </Dropdown>
           </Space>
         </Header>
+        {!online && (
+          <Alert
+            type="warning"
+            banner
+            title="You're offline. Data can't load or save until you reconnect."
+            style={{ position: 'sticky', top: 64, zIndex: 9 }}
+          />
+        )}
         <Content
           style={{
             padding: mobile ? 12 : 24,

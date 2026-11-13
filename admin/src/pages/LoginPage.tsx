@@ -3,6 +3,7 @@ import { Alert, Button, Card, Form, Input, Typography } from 'antd';
 import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { useAuth } from '../auth/useAuth';
 import { firebaseConfigured } from '../lib/firebase';
+import { useOnline } from '../lib/pwa';
 import { Logo } from '../components/Logo';
 import { brand } from '../theme';
 
@@ -10,6 +11,7 @@ export function LoginPage() {
   const { signIn, error, status, signOut } = useAuth();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const online = useOnline();
 
   const onFinish = async ({ email, password }: { email: string; password: string }) => {
     setBusy(true);
@@ -58,6 +60,15 @@ export function LoginPage() {
           </Typography.Title>
           <Typography.Text type="secondary">Administration console</Typography.Text>
         </div>
+        {!online && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            title="You're offline"
+            description="Signing in needs a connection."
+          />
+        )}
         {!firebaseConfigured && (
           <Alert
             type="warning"

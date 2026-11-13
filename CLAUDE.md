@@ -453,6 +453,11 @@ the full contract.
   `ServerTable`, and forms use `FormModal`.
 - Gate UI with `useAuth().can(permission)`. The server enforces it regardless.
 - Colours come from `src/theme.ts` (`brand.palette`) only.
+- It is an installable PWA (`vite-plugin-pwa` in `vite.config.ts`). The service worker
+  precaches the app shell and caches Google Fonts, **never** the API, Firebase or uploaded
+  media. Updates wait for the admin's Reload (`PwaUpdater`), so an open form is never lost.
+  Icons come from `public/favicon.svg` via `npm run pwa-assets -w admin` (committed).
+  `sw.js`, `workbox-*.js` and the manifest stay `no-cache` in `nginx.conf` and `vercel.json`.
 
 ## Flutter app (`app/`)
 
