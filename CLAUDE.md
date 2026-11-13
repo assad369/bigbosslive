@@ -73,8 +73,10 @@ cd app && flutter analyze && flutter test && dart format lib test
   inside the same transaction that moved the counter. Thresholds live in `level_configs`.
 - **One currency:** diamonds (`wallet.diamonds`) are bought, spent, earned and withdrawn.
   There are no beans. `agent_stock` is only an agent's resale inventory.
-- **Gift split:** receiver diamonds = cost − platform fee − agency fee, where the agency rate is
-  capped by `economy.maxAgencyRate`. The agency owner's commission is credited in the same
+- **Gift split:** receiver diamonds = cost − platform fee − agency fee. The platform fee
+  (`economy.platformFeeRate`, 2% by default) applies to every receiver. Only a member of an
+  active agency pays the agency fee, whose rate is capped by `economy.maxAgencyRate`, so a
+  non-member loses the platform fee alone. The agency owner's commission is credited in the same
   transaction. PK scoring and broadcasts run *after* commit and must not fail the gift.
 - **Withdrawals** move diamonds out at request time (a hold). Rejection releases them. At most one
   pending request per user (partial unique index). Any diamond can be withdrawn, bought ones
@@ -208,7 +210,9 @@ cd app && flutter analyze && flutter test && dart format lib test
   rooms without it), because a newcomer gets the lowest free index. Guest tiles show their
   spot (`spotOf`, 1-based among present guests) and no level. The tile ✕
   (`canRemoveFromStage`) is for the host, room admins (not on another admin) and
-  `live.moderate` staff. Staff seat actions (`POST /live/:id/seats/:index`) need
+  `canModerateLive` actors. `manageSeat` refuses a room admin on another admin's seat but
+  exempts the host and `canModerateLive` (a visible platform moderator is itself in
+  `moderatorIds`), as `kick` does. Staff seat actions (`POST /live/:id/seats/:index`) need
   `live.moderate` and are audited as `live.seat_manage`.
 - `/join` returns the joiner's own `entry` (the `bb.entry` payload, which goes out before
   they connect), and the app adds the joiner's own "joined" line once on connect
@@ -237,6 +241,12 @@ cd app && flutter analyze && flutter test && dart format lib test
   is saved as a `live_messages` row (`type: 'gift'`, `_id` = the gift transaction id, so never
   twice) and rides inside the `bb.gift` packet as `message`, not as a `bb.chat` packet. Older
   apps would show it twice. The app falls back to a local line when `message` is missing.
+- Reactions are emoji: `LIVE_REACTIONS` (`packages/shared`) is the append-only list and the
+  app's `LiveReaction` mirrors it (`app/test/live_reactions_contract_test.dart`).
+  `POST /live/:id/reactions` takes `{ items: [{type, count}] }` (at most
+  `MAX_REACTIONS_PER_REQUEST` in total, one request per client flush); a bare `{ count }` from
+  older apps means `love`. `bb.reaction` carries both `items` and the total `count`, so older
+  apps still float hearts. The heart opens `ReactionTrayButton`; `ReactionLayer` draws them.
 - Rooms with no heartbeat for `live.staleAfterSec` are ended by the `live.sweep` job.
 - Broadcasting History and the post-live summary are in `LiveSummaryService`
   (`modules/live/live-summary.service.ts`):
@@ -413,7 +423,9 @@ the full contract.
   - Text and most images fail **open**.
   - Avatars and live covers/backgrounds fail **closed**, with 503 `moderation_unavailable`.
   - A reject is 422 `content_rejected`.
-  - The word filter (`assertClean`) still runs first.
+  - The word filter (`assertClean`) still runs first. It refuses phone numbers, links and
+    messenger handles everywhere except inbox messages, which pass `allowNumbers`: phone
+    numbers go through there, links and handles don't.
 - Uploads never pass through the API, so images are checked **by URL** when the URL is saved.
   Profile and room fields are checked only when they change. Platform `admin/` assets are skipped.
 - A `review` verdict publishes now. Each check sends a `ContentRef` (ids allocated *before* the

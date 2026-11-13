@@ -326,6 +326,35 @@ export const DEEP_LINK_ROUTES = [
 ] as const;
 export type DeepLinkKind = (typeof DEEP_LINK_ROUTES)[number]['kind'];
 
+/**
+ * Live room reactions, in tray order. The names are the wire values (`POST /live/:id/reactions`
+ * `items[].type`, `bb.reaction` `items`); the app's `LiveReaction` enum mirrors this list and
+ * `app/test/live_reactions_contract_test.dart` keeps the two in step. Append only: older apps
+ * skip names they don't know. A plain `{ count }` (apps before reactions) means `love`.
+ */
+export const LIVE_REACTIONS = [
+  'like',
+  'love',
+  'care',
+  'haha',
+  'wow',
+  'sad',
+  'angry',
+  'lol',
+  'cry',
+  'kiss',
+  'cool',
+  'fire',
+  'clap',
+  'party',
+  'hundred',
+  'pray',
+] as const;
+export type LiveReactionName = (typeof LIVE_REACTIONS)[number];
+
+/** Most reactions one request (one client flush) may carry. */
+export const MAX_REACTIONS_PER_REQUEST = 20;
+
 /** Topics published on the LiveKit data channel by the server. */
 export const LIVEKIT_TOPICS = {
   gift: 'bb.gift',

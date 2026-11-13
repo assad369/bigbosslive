@@ -556,6 +556,52 @@ describe('room admin', () => {
     await endLive();
   });
 
+  it('a visible platform moderator manages a seated room admin’s seat; room admins don’t', async () => {
+    const { roomId, livekitRoom } = await goLive();
+    const seat = async (uid: string) => {
+      await h.api.post(`/v1/live/${roomId}/seats/request`).set(h.as(uid)).expect(202);
+      await h.api
+        .post(`/v1/live/${roomId}/seats/requests/${uid}`)
+        .set(h.as('host'))
+        .send({ accept: true })
+        .expect(200);
+    };
+    await seat('viewer');
+    await appoint(roomId, 'host', 'viewer', true).expect(204);
+    await appoint(roomId, 'host', 'alt', true).expect(204);
+    await h.api.post(`/v1/live/${roomId}/join`).set(h.as('mod')).expect(200);
+    expect((await roomOf(livekitRoom))?.moderatorIds).toEqual(
+      expect.arrayContaining(['viewer', 'alt', 'mod']),
+    );
+    const seatOf = async (uid: string) =>
+      (await roomOf(livekitRoom))?.seats.find((s) => s.userId === uid);
+    const index = (await seatOf('viewer'))!.index;
+    const manage = (as: string, action: string) =>
+      h.api.post(`/v1/live/${roomId}/seats/${index}`).set(h.as(as)).send({ action });
+
+    // A plain room admin still can't touch another admin's seat.
+    expect((await manage('alt', 'mute')).status).toBe(403);
+
+    await manage('mod', 'mute').expect(204);
+    expect((await seatOf('viewer'))?.muted).toBe(true);
+    await manage('mod', 'unmute').expect(204);
+    expect((await seatOf('viewer'))?.muted).toBe(false);
+    await manage('mod', 'camera_off').expect(204);
+    expect((await seatOf('viewer'))?.videoMuted).toBe(true);
+    await manage('mod', 'camera_on').expect(204);
+    expect((await seatOf('viewer'))?.videoMuted).toBe(false);
+    await manage('mod', 'remove').expect(204);
+    expect(await seatOf('viewer')).toBeUndefined();
+
+    const audited = await h.ctx.col.auditLogs
+      .find({ action: 'live.seat_manage', adminId: 'mod' })
+      .toArray();
+    expect(audited.map((a) => (a.payload as { action: string }).action)).toEqual(
+      expect.arrayContaining(['mute', 'camera_off', 'remove']),
+    );
+    await endLive();
+  });
+
   it('moderator actions in another host’s room stay audited while they are its admin', async () => {
     const { roomId } = await goLive();
     await h.api.post(`/v1/live/${roomId}/join`).set(h.as('mod')).expect(200);

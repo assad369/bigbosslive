@@ -179,8 +179,8 @@ await withDb(async (db) => {
         {
           userId: receiver._id,
           cost,
-          diamonds: Math.floor(cost * 0.7),
-          platformFee: Math.floor(cost * 0.3),
+          diamonds: cost - Math.floor(cost * 0.02),
+          platformFee: Math.floor(cost * 0.02),
           agencyFee: 0,
           agencyId: null,
         },

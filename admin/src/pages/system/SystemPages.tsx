@@ -40,7 +40,7 @@ import { useAuth } from '../../auth/useAuth';
 type Config = Record<string, Record<string, unknown>>;
 
 const LABELS: Record<string, string> = {
-  platformFeeRate: 'Platform fee on gifts (0–0.9)',
+  platformFeeRate: 'Platform fee on gifts, every receiver (0–0.9; 0.02 = 2%)',
   maxAgencyRate: 'Max agency commission (0–0.5)',
   receivedLevelWeight: 'Level points per diamond received',
   diamondsPerUsd: 'Diamonds per 1 USD (withdrawals)',

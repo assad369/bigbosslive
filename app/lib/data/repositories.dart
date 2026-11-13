@@ -239,8 +239,17 @@ class LiveRepository {
 
   Future<void> deleteChat(String roomId, String messageId) =>
       _api.delete('/live/$roomId/chat/$messageId');
-  Future<void> react(String roomId, int count) =>
-      _api.post('/live/$roomId/reactions', body: {'count': count});
+
+  /// One batch of reactions (at most 20 in total, see `MAX_REACTIONS_PER_REQUEST`).
+  Future<void> react(String roomId, Map<LiveReaction, int> counts) => _api.post(
+    '/live/$roomId/reactions',
+    body: {
+      'items': [
+        for (final MapEntry(key: type, value: count) in counts.entries)
+          {'type': type.name, 'count': count},
+      ],
+    },
+  );
 
   /// Host only. Locking without a [password] admits nobody new.
   Future<RoomDetail> setLock(

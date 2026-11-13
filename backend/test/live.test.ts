@@ -326,12 +326,65 @@ describe('live rooms', () => {
         .send({ count: 3 })
         .expect(204);
     }
-    expect(h.livekit.topics('bb.reaction').at(-1)!.payload).toEqual({ uid: 'viewer', count: 3 });
+    // A plain count (apps before the emoji tray) is hearts.
+    expect(h.livekit.topics('bb.reaction').at(-1)!.payload).toEqual({
+      uid: 'viewer',
+      count: 3,
+      items: [{ type: 'love', count: 3 }],
+    });
     const limited = await h.api
       .post(`/v1/live/${roomId}/reactions`)
       .set(h.as('viewer'))
       .send({ count: 1 });
     expect(limited.status).toBe(429);
+  });
+
+  it('fans out emoji reactions with a total for older apps', async () => {
+    // The heart test above spent the viewer's rate limit.
+    await h.user('emoji-fan');
+    const before =
+      (await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) }))!.reactions ?? 0;
+    await h.api
+      .post(`/v1/live/${roomId}/reactions`)
+      .set(h.as('emoji-fan'))
+      .send({
+        items: [
+          { type: 'fire', count: 2 },
+          { type: 'haha', count: 1 },
+        ],
+      })
+      .expect(204);
+    expect(h.livekit.topics('bb.reaction').at(-1)!.payload).toEqual({
+      uid: 'emoji-fan',
+      count: 3,
+      items: [
+        { type: 'fire', count: 2 },
+        { type: 'haha', count: 1 },
+      ],
+    });
+    const room = await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) });
+    expect(room!.reactions).toBe(before + 3);
+
+    const unknown = await h.api
+      .post(`/v1/live/${roomId}/reactions`)
+      .set(h.as('emoji-fan'))
+      .send({ items: [{ type: 'poop', count: 1 }] });
+    expect(unknown.status).toBe(422);
+    const tooMany = await h.api
+      .post(`/v1/live/${roomId}/reactions`)
+      .set(h.as('emoji-fan'))
+      .send({
+        items: [
+          { type: 'like', count: 15 },
+          { type: 'love', count: 6 },
+        ],
+      });
+    expect(tooMany.status).toBe(422);
+    const empty = await h.api
+      .post(`/v1/live/${roomId}/reactions`)
+      .set(h.as('emoji-fan'))
+      .send({ items: [] });
+    expect(empty.status).toBe(422);
   });
 
   it('locks the room: new viewers need the password; staff and moderators pass', async () => {

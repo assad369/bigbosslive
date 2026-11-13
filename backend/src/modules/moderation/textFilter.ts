@@ -68,6 +68,11 @@ const HANDLE = /\b(?:whats\s*app|wh?ats?app|telegram|t\.me|imo|viber|wechat)\b/i
 export interface FilterResult {
   text: string;
   masked: boolean;
+  /** A phone number or a long run of digits. */
+  phone: boolean;
+  /** A URL or a messenger handle. */
+  link: boolean;
+  /** `phone || link`. */
   contactInfo: boolean;
 }
 
@@ -92,6 +97,7 @@ export function filterText(input: string, extraWords: readonly string[] = []): F
       return '*'.repeat(token.length);
     })
     .join('');
-  const contactInfo = PHONE.test(input) || URL.test(input) || HANDLE.test(input);
-  return { text, masked, contactInfo };
+  const phone = PHONE.test(input);
+  const link = URL.test(input) || HANDLE.test(input);
+  return { text, masked, phone, link, contactInfo: phone || link };
 }

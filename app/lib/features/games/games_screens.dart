@@ -87,24 +87,46 @@ class GamesScreen extends ConsumerWidget {
   }
 }
 
-/// The live room's Games button: the live room's games in a picker. A game then opens in a
-/// [GameSheet] over the live, which keeps playing above it.
-class LiveGamesSheet extends ConsumerWidget {
+/// The live room's Games button: the live room's games in a picker. A game opens in a
+/// [GameSheet] on top of the picker, over the live, which keeps playing above it. The
+/// picker stays open while a game is played and after it closes; only its close button or
+/// a swipe down dismisses it.
+class LiveGamesSheet extends ConsumerStatefulWidget {
   const LiveGamesSheet({super.key});
 
-  static Future<void> show(BuildContext context) async {
-    final picked = await showModalBottomSheet<GameInfo>(
-      context: context,
-      showDragHandle: true,
-      builder: (_) => const LiveGamesSheet(),
-    );
-    if (picked != null && context.mounted) {
-      await GameSheet.show(context, picked, inLive: true);
+  static Future<void> show(BuildContext context) => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    // A tap on the live behind it doesn't close it; a swipe down does.
+    isDismissible: false,
+    enableDrag: true,
+    builder: (_) => const LiveGamesSheet(),
+  );
+
+  @override
+  ConsumerState<LiveGamesSheet> createState() => _LiveGamesSheetState();
+}
+
+class _LiveGamesSheetState extends ConsumerState<LiveGamesSheet> {
+  /// One game at a time: a double tap must not push two game sheets.
+  bool _opening = false;
+
+  Future<void> _open(GameInfo game) async {
+    if (_opening) return;
+    _opening = true;
+    try {
+      await GameSheet.show(context, game, inLive: true);
+    } finally {
+      if (mounted) {
+        _opening = false;
+        // A lock may have changed while playing (a level up).
+        ref.invalidate(gamesProvider(true));
+      }
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final games = ref.watch(gamesProvider(true));
     return SafeArea(
       child: Padding(
@@ -113,11 +135,22 @@ class LiveGamesSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Games',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Games',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
             AsyncView(
               value: games,
               onRetry: () => ref.invalidate(gamesProvider(true)),
@@ -139,7 +172,7 @@ class LiveGamesSheet extends ConsumerWidget {
                             game: g,
                             dense: true,
                             onTap: () => g.lock == null
-                                ? Navigator.pop(context, g)
+                                ? unawaited(_open(g))
                                 : showMessage(context, g.lock!.message),
                           ),
                       ],

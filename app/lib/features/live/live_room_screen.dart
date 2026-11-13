@@ -23,6 +23,7 @@ import 'live_effects.dart';
 import 'live_room_controller.dart';
 import 'live_sheets.dart';
 import 'live_stage.dart';
+import 'reaction_layer.dart';
 import 'pk_widgets.dart';
 import 'youtube_player.dart';
 import 'youtube_sheet.dart';
@@ -58,7 +59,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
   LiveRoomController get c => _c!;
   int _lease = 0;
   StreamSubscription<String>? _notices;
-  final _hearts = GlobalKey<HeartLayerState>();
+
+  /// The reaction button, where floating reactions start.
+  final _reactionKey = GlobalKey(debugLabel: 'live-react');
   bool _composing = false;
   ChatLine? _replyTo;
 
@@ -314,10 +317,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
     }
   }
 
-  void _heart() {
-    _hearts.currentState?.burst();
-    c.react();
-  }
+  /// Double-tap on the stage: a ❤️.
+  void _heart() => c.react();
 
   Future<void> _share(BuildContext anchor) {
     final room = c.detail!.room;
@@ -441,7 +442,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                 ),
               ),
               Positioned.fill(
-                child: HeartLayer(key: _hearts, reactions: c.reactions),
+                child: ReactionLayer(
+                  reactions: c.reactions,
+                  anchorKey: _reactionKey,
+                ),
               ),
               SafeArea(
                 bottom: !_composing,
@@ -536,7 +540,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                           onParticipants: () =>
                               _openParticipants(ParticipantsTab.waiting),
                           onStageAction: _stageAction,
-                          onHeart: _heart,
+                          onReact: c.react,
+                          reactionKey: _reactionKey,
                         ),
                     ],
                   ),

@@ -1,6 +1,12 @@
 import { ObjectId, type Filter, type Sort } from 'mongodb';
 import { z } from 'zod';
-import { LIVEKIT_TOPICS, ROOM_TYPES, SOCKET, type RoomType } from '@bigboss/shared';
+import {
+  LIVEKIT_TOPICS,
+  ROOM_TYPES,
+  SOCKET,
+  type LiveReactionName,
+  type RoomType,
+} from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type {
   GiftDoc,
@@ -1133,13 +1139,21 @@ export class LiveService {
     return { staffAction: !own && this.outsider(room, actor) };
   }
 
-  /** Heart reactions. Rate-limited per user at the route; clients coalesce the animation. */
-  async react(roomId: ObjectId, uid: string, count: number): Promise<void> {
+  /**
+   * Emoji reactions (`LIVE_REACTIONS`). Rate-limited per user at the route; clients batch taps.
+   * The packet carries the total as `count` too, so apps from before the emoji tray show hearts.
+   */
+  async react(
+    roomId: ObjectId,
+    uid: string,
+    items: { type: LiveReactionName; count: number }[],
+  ): Promise<void> {
     const room = await this.getLive(roomId);
     await this.assertNotBanned(room, uid);
+    const count = items.reduce((n, i) => n + i.count, 0);
     await this.ctx.col.liveRooms.updateOne({ _id: room._id }, { $inc: { reactions: count } });
     await this.ctx.livekit
-      .sendData(room.livekitRoom, LIVEKIT_TOPICS.reaction, { uid, count })
+      .sendData(room.livekitRoom, LIVEKIT_TOPICS.reaction, { uid, count, items })
       .catch(() => undefined);
   }
 
@@ -1510,8 +1524,12 @@ export class LiveService {
     if (index === 0) throw badRequest('The host seat cannot be changed');
     const seat = room.seats.find((s) => s.index === index);
     if (!seat) throw notFound('Seat');
+    // Room admins can't manage each other's seats; the host and platform moderators / staff can
+    // (a visible platform moderator is itself in moderatorIds), as with kick.
     if (
       seat.userId &&
+      !actor.isAdmin &&
+      room.hostId !== actor.uid &&
       room.moderatorIds.includes(actor.uid) &&
       room.moderatorIds.includes(seat.userId)
     )

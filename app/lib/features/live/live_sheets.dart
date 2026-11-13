@@ -1049,7 +1049,8 @@ class _LockSheetState extends State<LockSheet> {
   );
 }
 
-/// Tapping an empty audio-room seat: viewers ask for it; the host and admins lock or open it.
+/// Tapping an empty audio-room seat: viewers ask for it; anyone who manages the stage (host,
+/// room admins, platform moderators even when hidden) invites to it or locks / opens it.
 Future<void> showEmptySeatSheet(
   BuildContext context,
   LiveRoomController c,
@@ -1060,7 +1061,7 @@ Future<void> showEmptySeatSheet(
   builder: (ctx) => SafeArea(
     child: Wrap(
       children: [
-        if (c.isModerator) ...[
+        if (c.canManageStage) ...[
           if (!seat.locked)
             ListTile(
               leading: const Icon(Icons.person_add_alt_1_outlined),

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ObjectId } from 'mongodb';
+import { CONFIG_SCHEMAS } from '../src/modules/config/config.service.js';
 import { createHarness, key, type Harness } from './helpers/harness.js';
 
 let h: Harness;
@@ -9,7 +10,7 @@ beforeAll(async () => {
   h = await createHarness();
   await h.ctx.services.config.set(
     'economy',
-    { platformFeeRate: 0.3, maxAgencyRate: 0.1, receivedLevelWeight: 1 },
+    { platformFeeRate: 0.02, maxAgencyRate: 0.1, receivedLevelWeight: 1 },
     'test',
   );
   await h.ctx.services.levels.replaceAll([
@@ -66,10 +67,10 @@ describe('gift transactions', () => {
     const r = await h.ctx.col.users.findOne({ _id: receiver });
     expect(s!.wallet.diamonds).toBe(4000);
     expect(s!.stats.totalSent).toBe(1000);
-    expect(r!.wallet.diamonds).toBe(700); // 30% platform fee
+    expect(r!.wallet.diamonds).toBe(980); // 2% platform fee
     expect(r!.stats.totalReceived).toBe(1000);
     expect(await ledgerSum(sender, 'diamonds')).toBe(-1000);
-    expect(await ledgerSum(receiver, 'diamonds')).toBe(700);
+    expect(await ledgerSum(receiver, 'diamonds')).toBe(980);
   });
 
   it('moves level for the receiver only (level rule)', async () => {
@@ -167,19 +168,54 @@ describe('gift transactions', () => {
       .set('Idempotency-Key', key())
       .send({ giftId, quantity: 1, receiverIds: [receiver, other] });
     expect(res.body.totalCost).toBe(1000);
-    // Agency rate is capped at maxAgencyRate (0.1): 500 − 150 platform − 50 agency = 300.
-    expect((await h.ctx.col.users.findOne({ _id: receiver }))!.wallet.diamonds).toBe(300);
-    expect((await h.ctx.col.users.findOne({ _id: other }))!.wallet.diamonds).toBe(350);
+    // Agency rate is capped at maxAgencyRate (0.1): 500 − 10 platform − 50 agency = 440.
+    expect((await h.ctx.col.users.findOne({ _id: receiver }))!.wallet.diamonds).toBe(440);
+    // A non-member pays the 2% platform fee only.
+    expect((await h.ctx.col.users.findOne({ _id: other }))!.wallet.diamonds).toBe(490);
     expect((await h.ctx.col.users.findOne({ _id: owner }))!.wallet.diamonds).toBe(50);
     const member = await h.ctx.col.agencyMembers.findOne({ userId: receiver });
-    expect(member!.periodDiamonds).toBe(300);
+    expect(member!.periodDiamonds).toBe(440);
     const counters = await h.ctx.col.agencies.findOne({ _id: agency._id });
-    expect(counters!.period).toMatchObject({ diamonds: 300, commission: 50, gifts: 1 });
-    expect(counters!.lifetime).toMatchObject({ diamonds: 300, commission: 50, gifts: 1 });
+    expect(counters!.period).toMatchObject({ diamonds: 440, commission: 50, gifts: 1 });
+    expect(counters!.lifetime).toMatchObject({ diamonds: 440, commission: 50, gifts: 1 });
     const day = await h.ctx.col.agencyDailyStats.findOne({ agencyId: agency._id });
-    expect(day).toMatchObject({ userId: receiver, diamonds: 300, commission: 50, gifts: 1 });
+    expect(day).toMatchObject({ userId: receiver, diamonds: 440, commission: 50, gifts: 1 });
     // Agency commission never moves the owner's level.
     expect((await h.ctx.col.users.findOne({ _id: owner }))!.stats.totalReceived).toBe(0);
+  });
+
+  it('a non-member receiver pays only the platform fee, with no agency commission', async () => {
+    const { sender, receiver } = await pair(1000);
+    const res = await h.api
+      .post('/v1/gifts/send')
+      .set(h.as(sender))
+      .set('Idempotency-Key', key())
+      .send({ giftId, quantity: 1, receiverIds: [receiver] });
+    expect(res.status).toBe(200);
+    const tx = await h.ctx.col.giftTransactions.findOne({
+      _id: new ObjectId(res.body.transactionId as string),
+    });
+    expect(tx!.receivers).toEqual([
+      expect.objectContaining({
+        userId: receiver,
+        cost: 500,
+        diamonds: 490,
+        platformFee: 10,
+        agencyFee: 0,
+        agencyId: null,
+      }),
+    ]);
+    expect(await ledgerSum(receiver, 'diamonds')).toBe(490);
+    expect(
+      await h.ctx.col.ledger.countDocuments({
+        refId: res.body.transactionId,
+        reason: 'agency_commission',
+      }),
+    ).toBe(0);
+  });
+
+  it('defaults the platform fee to 2%', () => {
+    expect(CONFIG_SCHEMAS.economy.parse({}).platformFeeRate).toBe(0.02);
   });
 
   it('rejects self-gifting and unknown receivers', async () => {
@@ -221,7 +257,7 @@ describe('gift transactions', () => {
       .set('Idempotency-Key', key())
       .send({ giftId, quantity: 1, receiverIds: [receiver], roomId: room.id });
     const doc = await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(room.id) });
-    expect(doc).toMatchObject({ giftDiamonds: 350, giftCount: 1 });
+    expect(doc).toMatchObject({ giftDiamonds: 490, giftCount: 1 });
     expect(h.livekit.topics('bb.gift')).toHaveLength(1);
   });
 });
@@ -325,7 +361,7 @@ describe('room gifts', () => {
     expect((await send(sender, guest, roomId)).status).toBe(200);
     expect((await send(sender, viewer, roomId)).status).toBe(200);
     const v = await h.ctx.col.users.findOne({ _id: viewer });
-    expect(v!.wallet.diamonds).toBe(700);
+    expect(v!.wallet.diamonds).toBe(980);
     // Only the host's gifts count towards the room total.
     const room = await h.ctx.col.liveRooms.findOne({ _id: oid });
     expect(room!.giftDiamonds).toBe(0);

@@ -29,15 +29,24 @@ export class ModerationService {
   /**
    * Mask profanity and reject contact info. Use on every endpoint that accepts free text
    * (chat, comments, posts, room titles, profile fields).
+   *
+   * `allowNumbers` lets phone numbers through (private inbox messages); links and messenger
+   * handles are still refused.
    */
-  async assertClean(text: string, field = 'text'): Promise<string> {
+  async assertClean(
+    text: string,
+    field = 'text',
+    opts: { allowNumbers?: boolean } = {},
+  ): Promise<string> {
     const cfg = await this.ctx.services.config.get('moderation');
     const res = filterText(text, cfg.blockedWords);
-    if (cfg.blockContactInfo && res.contactInfo) {
+    if (cfg.blockContactInfo && (opts.allowNumbers ? res.link : res.contactInfo)) {
       throw new AppError(
         422,
         'contact_info_blocked',
-        `Contact details and links are not allowed in ${field}`,
+        opts.allowNumbers
+          ? `Links and messenger handles are not allowed in ${field}`
+          : `Contact details and links are not allowed in ${field}`,
       );
     }
     return res.text;

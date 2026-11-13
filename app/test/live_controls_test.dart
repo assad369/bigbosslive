@@ -87,7 +87,7 @@ LiveBottomBar _bottomBar(LiveRoomController c) => LiveBottomBar(
   onGift: () {},
   onParticipants: () {},
   onStageAction: () {},
-  onHeart: () {},
+  onReact: (_) {},
 );
 
 Widget _rail(LiveRoomController c) => _wrap(
@@ -147,12 +147,44 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Say something…'), findsOneWidget);
     expect(find.byTooltip('Send a gift'), findsOneWidget);
-    expect(find.byTooltip('Send hearts'), findsOneWidget);
+    expect(find.byTooltip('Reactions'), findsOneWidget);
     expect(find.byTooltip('Ask to join the stage'), findsOneWidget);
     for (final media in ['Mute', 'Unmute', 'Camera off', 'Camera on']) {
       expect(find.byTooltip(media), findsNothing);
     }
     expect(find.byTooltip('Flip camera'), findsNothing);
+  });
+
+  testWidgets('the heart opens the emoji tray; each tap is one reaction', (
+    tester,
+  ) async {
+    await width(tester, 390);
+    final sent = <LiveReaction>[];
+    await tester.pumpWidget(
+      _wrap(
+        LiveBottomBar(
+          c: viewer,
+          onCompose: () {},
+          onGift: () {},
+          onParticipants: () {},
+          onStageAction: () {},
+          onReact: sent.add,
+        ),
+      ),
+    );
+    expect(find.text('👍'), findsNothing);
+    await tester.tap(find.byTooltip('Reactions'));
+    await tester.pumpAndSettle();
+    expect(find.text('👍'), findsOneWidget);
+    expect(find.text('❤️'), findsOneWidget);
+    await tester.tap(find.text('👍'));
+    await tester.tap(find.text('👍'));
+    await tester.tap(find.text('❤️'));
+    expect(sent, [LiveReaction.like, LiveReaction.like, LiveReaction.love]);
+    // A tap outside closes it.
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(find.text('👍'), findsNothing);
   });
 
   testWidgets('the host and video guests get mic, camera and flip in the bar', (
@@ -185,13 +217,13 @@ void main() {
     await width(tester, 430);
     await tester.pumpWidget(_wrap(_bottomBar(host)));
     expect(find.text('Say something…'), findsOneWidget);
-    expect(find.byTooltip('Send hearts'), findsOneWidget);
+    expect(find.byTooltip('Reactions'), findsOneWidget);
     // On the narrowest phone the field becomes a button and the heart gives way.
     await width(tester, 320);
     await tester.pumpWidget(_wrap(_bottomBar(host)));
     expect(find.text('Say something…'), findsNothing);
     expect(find.byTooltip('Write a message'), findsOneWidget);
-    expect(find.byTooltip('Send hearts'), findsNothing);
+    expect(find.byTooltip('Reactions'), findsNothing);
   });
 
   testWidgets('a platform moderator in the audience gets the queue phone', (
@@ -282,7 +314,7 @@ void main() {
           onGift: () {},
           onParticipants: () {},
           onStageAction: () {},
-          onHeart: () {},
+          onReact: (_) {},
         ),
       ),
     );
@@ -310,7 +342,7 @@ void main() {
     expect(find.byTooltip('Flip camera'), findsNothing);
     // Fewer buttons: the heart stays even on the narrowest phone, and the field is back
     // on a common one.
-    expect(find.byTooltip('Send hearts'), findsOneWidget);
+    expect(find.byTooltip('Reactions'), findsOneWidget);
     await width(tester, 360);
     await tester.pumpWidget(_wrap(_bottomBar(audioGuest)));
     expect(find.text('Say something…'), findsOneWidget);

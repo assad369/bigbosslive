@@ -1,6 +1,6 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
-import { ROOM_TYPES } from '@bigboss/shared';
+import { LIVE_REACTIONS, MAX_REACTIONS_PER_REQUEST, ROOM_TYPES } from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createRateLimiter } from '../middleware/http.js';
@@ -47,6 +47,25 @@ export function liveRoutes(ctx: Ctx): Router {
     prefix: 'live-react',
     byUser: true,
   });
+  const reactionBody = z.union([
+    z
+      .object({
+        items: z
+          .array(
+            z.object({
+              type: z.enum(LIVE_REACTIONS),
+              count: z.number().int().min(1).max(MAX_REACTIONS_PER_REQUEST),
+            }),
+          )
+          .min(1)
+          .max(LIVE_REACTIONS.length),
+      })
+      .refine((b) => b.items.reduce((n, i) => n + i.count, 0) <= MAX_REACTIONS_PER_REQUEST, {
+        message: `At most ${MAX_REACTIONS_PER_REQUEST} reactions per request`,
+        path: ['items'],
+      }),
+    z.object({ count: z.number().int().min(1).max(MAX_REACTIONS_PER_REQUEST) }),
+  ]);
   // Room passwords are short, so guesses are capped per user.
   const passwordLimit = createRateLimiter(ctx.redis, {
     windowMs: 10 * 60_000,
@@ -211,8 +230,10 @@ export function liveRoutes(ctx: Ctx): Router {
   });
 
   r.post('/:id/reactions', reactionLimit, async (req, res) => {
-    const { count } = parseBody(req, z.object({ count: z.number().int().min(1).max(20) }));
-    await live.react(rid(req), currentUser(req).uid, count);
+    const body = parseBody(req, reactionBody);
+    // Apps from before the emoji tray send `{ count }`: hearts.
+    const items = 'items' in body ? body.items : [{ type: 'love' as const, count: body.count }];
+    await live.react(rid(req), currentUser(req).uid, items);
     res.status(204).end();
   });
 

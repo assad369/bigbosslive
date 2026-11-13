@@ -12,6 +12,7 @@ import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/frame_view.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import 'live_controls.dart';
 import 'live_room_controller.dart';
 
 final giftsProvider = FutureProvider<List<Gift>>(
@@ -677,7 +678,10 @@ class _GiftOverlayState extends State<GiftOverlay> {
                     ),
                   Positioned(
                     left: 12,
-                    top: MediaQuery.paddingOf(context).top + 110,
+                    // Over the top bar's stats row, so it never covers the animation.
+                    top:
+                        MediaQuery.paddingOf(context).top +
+                        LiveTopBar.statsRowTop,
                     child: TweenAnimationBuilder<double>(
                       tween: Tween(begin: -1, end: 0),
                       duration: const Duration(milliseconds: 350),

@@ -76,9 +76,9 @@ describe('stage tiles', () => {
       .send({ giftId: gift.id, receiverIds: ['guest'], quantity: 1, roomId })
       .expect(200);
     const sent = balancePackets().slice(before);
-    // The sender isn't seated, so only the guest's tile changes: 40 + 70 (30% platform fee).
+    // The sender isn't seated, so only the guest's tile changes: 40 + 98 (2% platform fee).
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.users).toEqual([{ uid: 'guest', diamonds: 110, level: expect.any(Number) }]);
+    expect(sent[0]!.users).toEqual([{ uid: 'guest', diamonds: 138, level: expect.any(Number) }]);
     const giftPacket = h.livekit.topics('bb.gift').at(-1)!.payload as Record<string, unknown>;
     expect(giftPacket.roomGiftDiamonds).toBe(0); // the gift went to a guest, not the host
   });
@@ -402,6 +402,6 @@ describe('seat balances follow the seated user’s own spending', () => {
       .slice(before)
       .flatMap((p) => p.users);
     expect(users).toContainEqual({ uid: 'bal-guest', diamonds: 200, level: expect.any(Number) });
-    expect(users.find((u) => u.uid === 'bal-host')!.diamonds).toBe(70);
+    expect(users.find((u) => u.uid === 'bal-host')!.diamonds).toBe(98);
   });
 });

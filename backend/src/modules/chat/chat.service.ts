@@ -64,7 +64,10 @@ export class ChatService {
     if (await this.ctx.services.users.isBlockedEitherWay(senderId, input.toUserId))
       throw forbidden('You cannot message this user');
     const text = input.text
-      ? await this.ctx.services.moderation.assertClean(input.text, 'message')
+      ? // Inbox messages may carry phone numbers; links and messenger handles stay blocked.
+        await this.ctx.services.moderation.assertClean(input.text, 'message', {
+          allowNumbers: true,
+        })
       : null;
     const messageId = new ObjectId();
     const ref = { type: 'message', messageId: String(messageId) } as const;

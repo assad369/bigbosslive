@@ -10,8 +10,11 @@ import { badRequest } from '../../lib/errors.js';
  */
 export const CONFIG_SCHEMAS = {
   economy: z.object({
-    /** Share of each gift's diamond value the platform keeps. Receiver gets the rest as diamonds. */
-    platformFeeRate: z.number().min(0).max(0.9).default(0.3),
+    /**
+     * Share of each gift's diamond value the platform keeps, from every receiver (2% by
+     * default). Agency members also pay their agency's commission; nobody else does.
+     */
+    platformFeeRate: z.number().min(0).max(0.9).default(0.02),
     /** Upper bound applied to any agency's commission rate. */
     maxAgencyRate: z.number().min(0).max(0.5).default(0.1),
     /** Level points per diamond of gifts received (recharges always count 1:1). */

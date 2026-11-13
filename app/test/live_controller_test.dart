@@ -22,6 +22,11 @@ class _FakeRepo implements LiveRepository {
   Future<RoomDetail> detail(String roomId) => polling!.future;
 
   final swaps = <String?>[];
+  final reacted = <Map<LiveReaction, int>>[];
+
+  @override
+  Future<void> react(String roomId, Map<LiveReaction, int> counts) async =>
+      reacted.add(counts);
 
   @override
   Future<String?> swapStage(String roomId, String? uid) async {
@@ -661,6 +666,90 @@ void main() {
       repo.polling!.complete(RoomDetail.fromJson(_roomJson(guest: 'g')));
       await poll;
       expect(c.detail!.seats[1].user?.id, 'g');
+    });
+
+    group('reactions', () {
+      Future<List<(LiveReaction, int, bool)>> shows(
+        LiveRoomController c,
+        void Function() act,
+      ) async {
+        final out = <(LiveReaction, int, bool)>[];
+        final sub = c.reactions.listen(
+          (r) => out.add((r.type, r.count, r.mine)),
+        );
+        act();
+        await Future<void>.delayed(Duration.zero);
+        await sub.cancel();
+        return out;
+      }
+
+      test('floats each named emoji and skips unknown names', () async {
+        final c = _controller(me: 'me');
+        final out = await shows(
+          c,
+          () => c.handleServerPacket('bb.reaction', {
+            'uid': 'v',
+            'count': 4,
+            'items': [
+              {'type': 'fire', 'count': 2},
+              {'type': 'from_the_future', 'count': 1},
+              {'type': 'haha', 'count': 1},
+            ],
+          }),
+        );
+        expect(out, [
+          (LiveReaction.fire, 2, false),
+          (LiveReaction.haha, 1, false),
+        ]);
+      });
+
+      test('a heart-only packet is love, and my own echo is ignored', () async {
+        final c = _controller(me: 'me');
+        final out = await shows(c, () {
+          c.handleServerPacket('bb.reaction', {'uid': 'v', 'count': 3});
+          c.handleServerPacket('bb.reaction', {
+            'uid': 'me',
+            'count': 1,
+            'items': [
+              {'type': 'like', 'count': 1},
+            ],
+          });
+        });
+        expect(out, [(LiveReaction.love, 3, false)]);
+      });
+
+      test('my taps float at once and go out as one batch', () async {
+        final repo = _FakeRepo();
+        final c = _controller(me: 'me', repo: repo);
+        final out = await shows(c, () {
+          c
+            ..react(LiveReaction.fire)
+            ..react(LiveReaction.fire)
+            ..react();
+        });
+        expect(out, [
+          (LiveReaction.fire, 1, true),
+          (LiveReaction.fire, 1, true),
+          (LiveReaction.love, 1, true),
+        ]);
+        expect(repo.reacted, isEmpty);
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+        expect(repo.reacted, [
+          {LiveReaction.fire: 2, LiveReaction.love: 1},
+        ]);
+      });
+
+      test('a batch never carries more than the server takes', () async {
+        final repo = _FakeRepo();
+        final c = _controller(me: 'me', repo: repo);
+        for (var i = 0; i < 30; i++) {
+          c.react(LiveReaction.clap);
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+        expect(repo.reacted, [
+          {LiveReaction.clap: LiveRoomController.maxReactionsPerRequest},
+        ]);
+      });
     });
 
     test('stream-only events do not rebuild the room', () {

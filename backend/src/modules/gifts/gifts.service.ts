@@ -210,6 +210,8 @@ export class GiftsService {
       unitPrice: gift.price,
       quantity: input.quantity,
       receivers: receivers.map((r) => {
+        // Everyone pays the platform fee. Only members of an active agency also pay its
+        // commission: a non-member (the agency owner included) loses the platform fee alone.
         const agency = r.agencyId ? agencyById.get(String(r.agencyId)) : undefined;
         const agencyRate = agency ? Math.min(agency.commissionRate, economy.maxAgencyRate) : 0;
         const platformFee = Math.floor(perReceiverCost * economy.platformFeeRate);

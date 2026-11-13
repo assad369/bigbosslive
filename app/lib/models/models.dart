@@ -658,6 +658,36 @@ class Seat {
   );
 }
 
+/// Live room reactions, in tray order. The names are the wire values: `LIVE_REACTIONS` in
+/// packages/shared is the list the server accepts, and test/live_reactions_contract_test.dart
+/// keeps the two in step. Append only (older apps skip names they don't know).
+enum LiveReaction {
+  like('👍', 'Like'),
+  love('❤️', 'Love'),
+  care('🥰', 'Care'),
+  haha('😆', 'Haha'),
+  wow('😮', 'Wow'),
+  sad('😢', 'Sad'),
+  angry('😡', 'Angry'),
+  lol('😂', 'LOL'),
+  cry('😭', 'Cry'),
+  kiss('😘', 'Kiss'),
+  cool('😎', 'Cool'),
+  fire('🔥', 'Fire'),
+  clap('👏', 'Clap'),
+  party('🎉', 'Party'),
+  hundred('💯', '100'),
+  pray('🙏', 'Pray');
+
+  const LiveReaction(this.emoji, this.label);
+  final String emoji;
+  final String label;
+
+  /// Null for unknown names, so a newer server's reactions are skipped instead of crashing.
+  static LiveReaction? fromName(Object? name) =>
+      values.where((r) => r.name == name).firstOrNull;
+}
+
 class RoomDetail {
   const RoomDetail({
     required this.room,

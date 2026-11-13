@@ -96,6 +96,24 @@ describe('chat', () => {
     await h.jobs.drain();
     expect(await h.ctx.col.pushTokens.countDocuments({ userId: 'ben' })).toBe(0);
   });
+
+  it('allows phone numbers but not links or messenger handles', async () => {
+    const send = (text: string) =>
+      h.api
+        .post('/v1/chat/messages')
+        .set(h.as('ann'))
+        .send({ toUserId: 'ben', type: 'text', text });
+    for (const text of ['call me at +880 1711 223344', 'my number 01711223344']) {
+      const ok = await send(text);
+      expect(ok.status).toBe(201);
+      expect(ok.body.message.text).toBe(text);
+    }
+    for (const text of ['add me on whatsapp', 'see bigboss.xyz', 'wa.me/8801711223344']) {
+      const bad = await send(text);
+      expect(bad.status).toBe(422);
+      expect(bad.body.error.code).toBe('contact_info_blocked');
+    }
+  });
 });
 
 describe('feed', () => {

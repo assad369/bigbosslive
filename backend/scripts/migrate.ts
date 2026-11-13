@@ -268,6 +268,26 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    // The platform keeps 2% of every gift (it was 30%). A saved `economy` document holds the
+    // old rate and would hide the new default, so set it there too. Admins can change it later.
+    id: '2026-11-13-platform-fee-2pct',
+    async up(db) {
+      const r = await db.col.appConfig.updateOne(
+        { _id: 'economy' },
+        {
+          $set: {
+            'value.platformFeeRate': 0.02,
+            updatedAt: new Date(),
+            updatedBy: 'migration',
+          },
+        },
+      );
+      console.log(
+        `  economy config ${r.matchedCount ? 'set to 2%' : 'not saved yet (default 2%)'}`,
+      );
+    },
+  },
 ];
 
 const dryRun = process.argv.includes('--dry-run');

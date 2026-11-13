@@ -183,6 +183,14 @@ class EntryEvent {
   }
 }
 
+/// A burst of [count] floating [type] reactions; [mine] when I tapped it.
+class ReactionShow {
+  const ReactionShow(this.type, this.count, {this.mine = false});
+  final LiveReaction type;
+  final int count;
+  final bool mine;
+}
+
 /// A host or room admin asked this user onto a seat.
 class SeatInvite {
   const SeatInvite({required this.from, this.expiresAt});
@@ -283,7 +291,7 @@ class LiveRoomController extends ChangeNotifier {
   final _entries = StreamController<EntryEvent>.broadcast();
   final _pkInvites = StreamController<PkBattle>.broadcast();
   final _seatInvites = StreamController<SeatInvite>.broadcast();
-  final _reactions = StreamController<int>.broadcast();
+  final _reactions = StreamController<ReactionShow>.broadcast();
   final _notices = StreamController<String>.broadcast();
   PkBattle? pk;
 
@@ -324,7 +332,7 @@ class LiveRoomController extends ChangeNotifier {
 
   /// True when automated moderation (not the host or a room admin) removed me.
   bool removedByModeration = false;
-  int _pendingHearts = 0;
+  final _pendingReactions = <LiveReaction, int>{};
 
   Stream<GiftEvent> get gifts => _gifts.stream;
 
@@ -347,8 +355,8 @@ class LiveRoomController extends ChangeNotifier {
   Stream<PkBattle> get pkInvites => _pkInvites.stream;
   Stream<SeatInvite> get seatInvites => _seatInvites.stream;
 
-  /// Heart reactions from others (own taps are drawn locally).
-  Stream<int> get reactions => _reactions.stream;
+  /// Emoji reactions to float up: others' as they arrive, mine the moment I tap.
+  Stream<ReactionShow> get reactions => _reactions.stream;
 
   /// Short messages for the user (snackbars), e.g. "Your seat request was declined".
   Stream<String> get notices => _notices.stream;
@@ -924,8 +932,20 @@ class LiveRoomController extends ChangeNotifier {
         if (!_entries.isClosed) _entries.add(EntryEvent.fromJson(p));
         return;
       case 'bb.reaction':
-        if (p.str('uid') != myUid && !_reactions.isClosed) {
-          _reactions.add(p.integer('count', 1));
+        if (p.str('uid') == myUid || _reactions.isClosed) return;
+        // `items` names each emoji; a server from before the tray sends only a heart count.
+        if (p['items'] is! List) {
+          _reactions.add(
+            ReactionShow(LiveReaction.love, p.integer('count', 1)),
+          );
+          return;
+        }
+        for (final item in p.list('items', (i) => i)) {
+          final type = LiveReaction.fromName(item['type']);
+          final count = item.integer('count');
+          if (type != null && count > 0) {
+            _reactions.add(ReactionShow(type, count));
+          }
         }
         return;
       case 'bb.kick':
@@ -1499,15 +1519,30 @@ class LiveRoomController extends ChangeNotifier {
 
   Future<void> deleteMessage(String id) => _repo.deleteChat(roomId, id);
 
-  /// Own hearts are drawn at once and sent in small batches (the API is rate-limited).
-  void react() {
-    _pendingHearts++;
-    _reactionFlush ??= Timer(const Duration(milliseconds: 800), () {
-      final count = _pendingHearts.clamp(1, 20);
-      _pendingHearts = 0;
-      _reactionFlush = null;
-      unawaited(_repo.react(roomId, count).catchError((Object _) {}));
-    });
+  /// Most reactions one request may carry (`MAX_REACTIONS_PER_REQUEST` on the server).
+  static const maxReactionsPerRequest = 20;
+
+  /// Own reactions are drawn at once and sent in batches, one request per flush (the API
+  /// is rate-limited). Taps beyond [maxReactionsPerRequest] in one batch only float locally.
+  void react([LiveReaction reaction = LiveReaction.love]) {
+    if (_reactions.isClosed) return;
+    _reactions.add(ReactionShow(reaction, 1, mine: true));
+    final total = _pendingReactions.values.fold(0, (a, b) => a + b);
+    if (total < maxReactionsPerRequest) {
+      _pendingReactions.update(reaction, (n) => n + 1, ifAbsent: () => 1);
+    }
+    _reactionFlush ??= Timer(
+      const Duration(milliseconds: 800),
+      _flushReactions,
+    );
+  }
+
+  void _flushReactions() {
+    _reactionFlush = null;
+    if (_pendingReactions.isEmpty) return;
+    final batch = Map.of(_pendingReactions);
+    _pendingReactions.clear();
+    unawaited(_repo.react(roomId, batch).catchError((Object _) {}));
   }
 
   Future<void> requestSeat() async {

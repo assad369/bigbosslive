@@ -13,6 +13,7 @@ import '../../models/models.dart';
 import '../profile/profile_screens.dart';
 import 'camera_filter_channel.dart';
 import 'live_room_controller.dart';
+import 'reaction_tray.dart';
 
 /// The live room's header, two rows:
 ///  1. the host (name, live timer under it, Follow for viewers), the top viewers, the
@@ -34,8 +35,11 @@ class LiveTopBar extends ConsumerWidget {
   static const _rowHeight = 48.0;
   static const _gap = 6.0;
 
+  /// Where the second row (stats card) starts, below the safe-area top.
+  static const statsRowTop = _gap + _rowHeight + _gap;
+
   /// Both rows with their padding; the stage starts below it.
-  static const height = _gap + _rowHeight + _gap + _StatsCard.height + _gap;
+  static const height = statsRowTop + _StatsCard.height + _gap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -850,15 +854,15 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
 }
 
 /// The bottom row: the chat field, then (for the host and guests on stage) Mic, Camera and
-/// Flip, then Gift, the stage phone and the heart. The phone depends on the role: the host,
-/// room admins and platform moderators open the viewers / waiting / stage / admins sheet
-/// (with the queue's count as a badge), a viewer asks for a seat (or cancels the request),
-/// a guest on stage leaves it.
+/// Flip, then Gift, the stage phone and the heart, which opens the emoji reaction tray. The
+/// phone depends on the role: the host, room admins and platform moderators open the
+/// viewers / waiting / stage / admins sheet (with the queue's count as a badge), a viewer
+/// asks for a seat (or cancels the request), a guest on stage leaves it.
 ///
 /// With the media controls the row gets tight on a phone: their discs shrink to
 /// [stagedButton], the chat field becomes a round chat button when it would be narrower than
 /// [minFieldWidth], and on the narrowest screens the heart goes (double-tapping the stage
-/// still sends hearts).
+/// still sends ❤️).
 class LiveBottomBar extends StatelessWidget {
   const LiveBottomBar({
     super.key,
@@ -867,7 +871,8 @@ class LiveBottomBar extends StatelessWidget {
     required this.onGift,
     required this.onParticipants,
     required this.onStageAction,
-    required this.onHeart,
+    required this.onReact,
+    this.reactionKey,
   });
   final LiveRoomController c;
   final VoidCallback onCompose;
@@ -880,7 +885,12 @@ class LiveBottomBar extends StatelessWidget {
 
   /// A viewer's or guest's phone: ask for a seat, cancel the request, or leave.
   final VoidCallback onStageAction;
-  final VoidCallback onHeart;
+
+  /// One tap in the reaction tray.
+  final ValueChanged<LiveReaction> onReact;
+
+  /// On the reaction button, where floating reactions start.
+  final Key? reactionKey;
 
   /// The gift, phone and heart discs for viewers.
   static const button = 48.0;
@@ -976,11 +986,10 @@ class LiveBottomBar extends StatelessWidget {
         final size = staged ? stagedButton : button;
         final slot = math.max(size, LiveRoundButton.minWidth) + _gap;
         final media = staged ? _media(context, size) : const <Widget>[];
-        final heart = LiveRoundButton(
-          icon: Icons.favorite_rounded,
-          tooltip: 'Send hearts',
+        final heart = ReactionTrayButton(
+          key: reactionKey,
           size: size,
-          onTap: onHeart,
+          onReact: onReact,
         );
         final trailing = [
           ...media,

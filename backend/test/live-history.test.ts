@@ -122,15 +122,15 @@ describe('wallet balances', () => {
       h.ctx.realtime.toUser = original;
     }
     const updates = sent.filter((s) => s.event === 'wallet:updated');
-    // 30% platform fee: the host gets 70.
-    expect(updates.find((u) => u.uid === 'wb-host')?.payload).toMatchObject({ diamonds: 1_070 });
+    // 2% platform fee: the host gets 98.
+    expect(updates.find((u) => u.uid === 'wb-host')?.payload).toMatchObject({ diamonds: 1_098 });
     expect(updates.find((u) => u.uid === 'wb-fan')?.payload).toMatchObject({ diamonds: 9_900 });
     expect(updates).toHaveLength(2);
   });
 
   it('shows the balance on public profiles', async () => {
     const res = await h.api.get('/v1/users/wb-host').set(h.as('wb-fan')).expect(200);
-    expect(res.body.user.diamonds).toBe(1_070);
+    expect(res.body.user.diamonds).toBe(1_098);
   });
 });
 
@@ -202,7 +202,7 @@ describe('live history and summary', () => {
       engagement: { chatMessages: 1, reactions: 3 },
       gifts: {
         hostDiamonds: 400,
-        hostEarnings: 280,
+        hostEarnings: 392,
         roomDiamonds: 500,
         giftCount: 5,
         gifters: 2,
@@ -239,8 +239,8 @@ describe('live history and summary', () => {
         {
           userId: 'lh-host',
           cost: 100,
-          diamonds: 70,
-          platformFee: 30,
+          diamonds: 98,
+          platformFee: 2,
           agencyFee: 0,
           agencyId: null,
         },
@@ -277,7 +277,7 @@ describe('live history and summary', () => {
       sessionCount: 2,
       liveDays: 1,
       totalSeconds: 2400,
-      diamonds: 280,
+      diamonds: 392,
       earliestMonth: '2026-03',
     });
     expect(utc.body.days[0].sessions.map((s: { id: string }) => s.id)).toEqual([second, roomId]);
@@ -292,7 +292,7 @@ describe('live history and summary', () => {
       '2026-03-16',
       '2026-03-15',
     ]);
-    expect(dhaka.body.days[1]).toMatchObject({ sessionCount: 1, totalSeconds: 600, diamonds: 280 });
+    expect(dhaka.body.days[1]).toMatchObject({ sessionCount: 1, totalSeconds: 600, diamonds: 392 });
 
     const empty = await h.api
       .get('/v1/users/lh-host/live-history/monthly')
