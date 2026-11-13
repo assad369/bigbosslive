@@ -75,18 +75,23 @@ export function encodeCursor(date: Date, id: string): string {
 export function afterCursor(
   cursor: string | undefined,
   field = 'createdAt',
+  /** The collection's `_id`s are strings (uids, txIds) rather than ObjectIds. */
+  stringIds = false,
 ): Record<string, unknown> {
   const after = decodeCursor(cursor);
   if (!after) return {};
-  if (!ObjectId.isValid(after.id)) throw badRequest('Invalid cursor');
-  const id = new ObjectId(after.id);
+  if (!stringIds && !ObjectId.isValid(after.id)) throw badRequest('Invalid cursor');
+  const id = stringIds ? after.id : new ObjectId(after.id);
   return { $or: [{ [field]: { $lt: after.date } }, { [field]: after.date, _id: { $lt: id } }] };
 }
 
 export function decodeCursor(cursor: string | undefined): { date: Date; id: string } | null {
   if (!cursor) return null;
   const raw = Buffer.from(cursor, 'base64url').toString('utf8');
-  const [iso, id] = raw.split('|');
+  // Split at the first `|` only: a string id (an AsadSoft txId) may contain anything after it.
+  const bar = raw.indexOf('|');
+  const iso = bar > 0 ? raw.slice(0, bar) : '';
+  const id = bar > 0 ? raw.slice(bar + 1) : '';
   const date = iso ? new Date(iso) : null;
   if (!date || Number.isNaN(date.getTime()) || !id) throw badRequest('Invalid cursor');
   return { date, id };

@@ -763,7 +763,9 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
         ((config?.feature('youtubeEnabled') ?? false) ||
             c.youtube?.current != null);
     final controls = <Widget>[
-      if (config?.feature('gamesEnabled') ?? true)
+      // `gamesInLive` is off when games or live-room games are switched off.
+      if ((config?.feature('gamesEnabled') ?? true) &&
+          (config?.feature('gamesInLive') ?? true))
         LiveRoundButton(
           icon: Icons.sports_esports_rounded,
           tooltip: 'Games',

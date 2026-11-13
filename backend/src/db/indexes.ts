@@ -9,7 +9,8 @@ import type { Collections, Database } from './mongo.js';
  * - `live_rooms.hostId` partial-unique on `status: 'live'` — one live room per host.
  * - `gift_transactions.idempotencyKey` unique — a retried gift never double-charges.
  * - `pk_battles.participantUids` partial-unique on `pkLive: true` — one battle per host.
- * - `game_bets.idempotencyKey`, `recharges.idempotencyKey`, `withdrawals.idempotencyKey` unique.
+ * - `recharges.idempotencyKey`, `withdrawals.idempotencyKey` unique.
+ * - `game_wallet_txs._id` is the AsadSoft `txId`: a retried wallet call never moves money twice.
  */
 export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   users: [
@@ -23,6 +24,10 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     {
       key: { 'platformModerator.since': -1, _id: -1 },
       partialFilterExpression: { platformModerator: { $type: 'object' } },
+    },
+    {
+      key: { 'gamesBlock.at': -1, _id: -1 },
+      partialFilterExpression: { gamesBlock: { $type: 'object' } },
     },
     // `store.sweep`: equipped items whose ownership expired.
     ...(['frame', 'entryAnimation', 'roomBackground'] as const).map((slot) => ({
@@ -256,21 +261,20 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { battleId: 1, hostUid: 1, userId: 1 }, unique: true },
     { key: { battleId: 1, hostUid: 1, score: -1 } },
   ],
-  gameRounds: [
-    { key: { game: 1, roundNo: -1 }, unique: true },
-    {
-      key: { game: 1 },
-      unique: true,
-      partialFilterExpression: { status: { $in: ['betting', 'locked'] } },
-      name: 'one_open_round_per_game',
-    },
-    { key: { status: 1, settlesAt: 1 } },
+  gameCatalog: [{ key: { enabled: 1, sortOrder: 1 } }],
+  gameWalletTxs: [
+    { key: { createdAt: -1, _id: -1 } },
+    { key: { uid: 1, createdAt: -1, _id: -1 } },
+    { key: { gameId: 1, createdAt: -1, _id: -1 } },
+    { key: { kind: 1, createdAt: -1, _id: -1 } },
+    { key: { roundId: 1 } },
   ],
-  gameBets: [
-    { key: { idempotencyKey: 1 }, unique: true },
-    { key: { roundId: 1, userId: 1 } },
-    { key: { userId: 1, createdAt: -1 } },
-    { key: { roundId: 1, status: 1 } },
+  gamePlayerDays: [{ key: { day: 1, gameId: 1 } }, { key: { uid: 1, day: -1 } }],
+  gameUserStats: [{ key: { net: 1 } }],
+  gameSessions: [
+    { key: { expiresAt: 1 }, expireAfterSeconds: 0 },
+    { key: { uid: 1, expiresAt: -1 } },
+    { key: { gameId: 1, expiresAt: -1 } },
   ],
   banners: [{ key: { placement: 1, active: 1, sortOrder: 1 } }],
   idempotency: [{ key: { createdAt: 1 }, expireAfterSeconds: 7 * 86400 }],

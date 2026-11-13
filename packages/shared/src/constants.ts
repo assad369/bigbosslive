@@ -76,6 +76,13 @@ export const LEDGER_REASONS = [
   'game_bet',
   'game_payout',
   'game_refund',
+  /** AsadSoft loss cashback and wager rebate credits. */
+  'game_cashback',
+  /** A claw-back of an unsettled game win (or of a game-wallet withdrawal). */
+  'game_reversal',
+  /** AsadSoft transfer wallet: diamonds moved into / back out of the game wallet. */
+  'game_wallet_deposit',
+  'game_wallet_withdraw',
   'withdrawal_hold',
   'withdrawal_release',
   'admin_adjustment',
@@ -111,8 +118,36 @@ export type PkEndReason = (typeof PK_END_REASONS)[number];
 /** Most people on a video stage (host included). The configurable seat count is capped by this. */
 export const MAX_VIDEO_SEATS = 13;
 
-export const GAME_KEYS = ['golden_wheel', 'teen_patti', 'fortune_ferris'] as const;
-export type GameKey = (typeof GAME_KEYS)[number];
+/**
+ * AsadSoft game ids: lowercase letters, digits and dashes (their `Game.gameId` rule).
+ * Games come from the provider's catalogue, so there is no fixed list here.
+ */
+export const GAME_ID_PATTERN = /^[a-z0-9-]{1,64}$/;
+
+/**
+ * What one AsadSoft wallet call was, derived from its `txId` prefix. Stats and the admin
+ * transaction list are keyed on it.
+ */
+export const GAME_TX_KINDS = [
+  'stake',
+  'win',
+  'refund',
+  'cashback',
+  'rebate',
+  'reversal',
+  'transfer_in',
+  'transfer_out',
+  'other_debit',
+  'other_credit',
+] as const;
+export type GameTxKind = (typeof GAME_TX_KINDS)[number];
+
+export const GAME_TX_STATUSES = ['applied', 'reversed', 'rejected', 'tombstone'] as const;
+export type GameTxStatus = (typeof GAME_TX_STATUSES)[number];
+
+/** Why a player can't open a game (or a game is shown locked). */
+export const GAME_LOCK_REASONS = ['disabled', 'level', 'blocked', 'live_off'] as const;
+export type GameLockReason = (typeof GAME_LOCK_REASONS)[number];
 
 export const REPORT_TARGETS = ['user', 'room', 'post', 'comment', 'message'] as const;
 export type ReportTarget = (typeof REPORT_TARGETS)[number];
@@ -251,10 +286,10 @@ export type MessageType = (typeof MESSAGE_TYPES)[number];
 /**
  * Socket.IO namespaces and event names. Keep client and server in lock-step through this file.
  * The app namespace carries everything personal (chat, notifications, wallet) plus the live
- * room directory; the games namespace serves the WebView mini-games.
+ * room directory.
  */
 export const SOCKET = {
-  namespaces: { app: '/', games: '/games' },
+  namespaces: { app: '/' },
   app: {
     /** Client → server: receive live-room directory updates. */
     subscribeRooms: 'rooms:subscribe',
@@ -274,13 +309,6 @@ export const SOCKET = {
      * (shown as a banner in live rooms): `GiftAnnouncement`.
      */
     giftAnnouncement: 'gift:announcement',
-  },
-  games: {
-    subscribe: 'game:subscribe',
-    unsubscribe: 'game:unsubscribe',
-    round: 'game:round',
-    totals: 'game:totals',
-    settled: 'game:settled',
   },
 } as const;
 

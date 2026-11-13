@@ -26,6 +26,10 @@ export const CONFIG_SCHEMAS = {
   }),
   features: z.object({
     pkEnabled: z.boolean().default(true),
+    /**
+     * AsadSoft games, everywhere. Off: the app lists none, launch refuses, open sessions are
+     * ended and every new stake is refused at the wallet callback (wins still pay).
+     */
     gamesEnabled: z.boolean().default(true),
     feedEnabled: z.boolean().default(true),
     audioRoomsEnabled: z.boolean().default(true),
@@ -89,6 +93,18 @@ export const CONFIG_SCHEMAS = {
     selfStageEnabled: z.boolean().default(false),
     /** Account and device bans one platform moderator may issue per hour. */
     banRateLimitPerHour: z.number().int().min(1).max(500).default(30),
+  }),
+  /**
+   * AsadSoft games rules (`features.gamesEnabled` is the master switch). Only
+   * `liveRoomEnabled` reaches the app, as the `gamesInLive` feature of `/config/app`.
+   */
+  games: z.object({
+    /** Lowest user level allowed to play. A game's own `minLevel` overrides it. */
+    minLevel: z.number().int().min(0).max(999).default(0),
+    /** Offer games in the live room's Games sheet. */
+    liveRoomEnabled: z.boolean().default(true),
+    /** List games the player's level doesn't reach yet, with a lock (else hide them). */
+    showLocked: z.boolean().default(true),
   }),
   /** YouTube music in lives (`features.youtubeEnabled`). Private: never sent to the app. */
   youtube: z.object({

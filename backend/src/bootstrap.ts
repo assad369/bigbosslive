@@ -2,6 +2,7 @@ import type { Redis } from 'ioredis';
 import type { Env } from './config/env.js';
 import type { Ctx } from './context.js';
 import type { Database } from './db/mongo.js';
+import type { AsadSoftGateway } from './infra/asadsoft.js';
 import type { AuthProvider, PushGateway } from './infra/firebase.js';
 import type { IapGateway } from './infra/iap.js';
 import type { LiveKitGateway } from './infra/livekit.js';
@@ -28,6 +29,8 @@ export interface ContextDeps {
   sightguard: SightGuardGateway;
   /** YouTube Data API for YouTube music in lives. */
   youtube: YouTubeGateway;
+  /** AsadSoft games provider; `configured: false` when ASADSOFT_* are unset. */
+  asadsoft: AsadSoftGateway;
   jobs: JobQueue;
   clock?: Clock;
 }

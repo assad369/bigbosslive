@@ -1,6 +1,6 @@
 # Local full stack: MongoDB (single-node replica set), Redis, LiveKit (dev mode) and the API.
 #   docker compose -f infra/docker-compose.yml up --build
-# Then: admin dashboard → `npm run dev:admin`, games → `npm run dev:games`.
+# Then: admin dashboard → `npm run dev:admin`.
 name: bigbosslive
 
 services:

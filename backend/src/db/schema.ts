@@ -7,7 +7,8 @@ import type {
   BadgeBlendMode,
   CosmeticType,
   Currency,
-  GameKey,
+  GameTxKind,
+  GameTxStatus,
   LedgerReason,
   LiveEndReason,
   MessageType,
@@ -53,6 +54,11 @@ export interface UserDoc {
    * access). Granted and revoked by admins with `moderators.manage`. Null/absent otherwise.
    */
   platformModerator?: { since: Date; by: string } | null;
+  /**
+   * Blocked from AsadSoft games by staff (`games.block`). Launch refuses, and every new stake
+   * is refused at the wallet callback; wins, refunds and claw-backs still apply.
+   */
+  gamesBlock?: { at: Date; by: string; reason: string } | null;
   isAgent: boolean;
   wallet: { diamonds: number; agentStock: number };
   stats: {
@@ -730,65 +736,125 @@ export interface PkContributionDoc {
   score: number;
 }
 
-export interface GameDoc {
-  _id: GameKey;
-  name: string;
+/**
+ * An AsadSoft game. Provider fields are refreshed by the catalogue sync; the rest are our
+ * own controls, edited in the admin and never touched by a sync.
+ */
+export interface GameCatalogDoc {
+  /** AsadSoft `gameId`. */
+  _id: string;
+  provider: {
+    name: string;
+    category: string;
+    thumbnailUrl: string | null;
+    sortOrder: number;
+    /** False once the provider stops listing it for us (removed, or access revoked). */
+    available: boolean;
+    syncedAt: Date;
+  };
+  /** New games arrive off: an admin opts each one in. */
   enabled: boolean;
-  url: string;
-  iconUrl: string | null;
+  /** Offered in the live room's Games sheet. */
+  liveRoom: boolean;
+  /** Null: the global `games.minLevel` applies. */
+  minLevel: number | null;
   sortOrder: number;
-  config: GameConfig;
+  displayName: string | null;
+  iconUrl: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  updatedBy: string | null;
+}
+
+/**
+ * One AsadSoft wallet call (`/debit` or `/credit`), keyed by its `txId`: the unique `_id` IS
+ * the idempotency. Also holds refusals (so a retry is refused identically) and tombstones
+ * (a reversal that arrived before its original, which is then refused).
+ */
+export interface GameWalletTxDoc {
+  _id: string;
+  type: 'debit' | 'credit';
+  kind: GameTxKind;
+  status: GameTxStatus;
+  uid: string;
+  gameId: string | null;
+  roundId: string | null;
+  gameRoundId: string | null;
+  sessionId: string | null;
+  refTxId: string | null;
+  /** On a reversed row: the txId that reversed it. On a tombstone: the reversal that left it. */
+  reversedBy?: string | null;
+  requested: number;
+  applied: number;
+  shortfall: number;
+  balanceAfter: number | null;
+  code: string | null;
+  httpStatus: number;
+  description: string | null;
+  currency: string | null;
+  /** The day (report timezone) and game this movement counts under in the stats. */
+  statsDay: string | null;
+  createdAt: Date;
+}
+
+/** Stats counters, in diamonds. Reversals are netted out of the kind they reverse. */
+export interface GameCounters {
+  stakes: number;
+  stakeCount: number;
+  wins: number;
+  winCount: number;
+  /** Loss cashback and wager rebates. */
+  cashback: number;
+  /** Stakes refunded or cancelled. */
+  refunds: number;
+  /** Wins (or withdrawals) clawed back. */
+  reversals: number;
+  transfersIn: number;
+  transfersOut: number;
+  otherDebits: number;
+  otherCredits: number;
+  /** Every diamond debited / credited (cash flow, on the day it moved). */
+  debited: number;
+  credited: number;
+  /** stakes − wins − cashback: what the platform won from this player. */
+  net: number;
+}
+
+/**
+ * Per player, per game, per day (report timezone). Written in the same transaction as the
+ * money, so the stats always reconcile to the wallet calls. Per-player rows (rather than one
+ * row per game per day) keep concurrent stakes in a busy room from write-conflicting.
+ */
+export interface GamePlayerDayDoc extends GameCounters {
+  /** `${day}:${uid}:${gameId}` */
+  _id: string;
+  day: string;
+  uid: string;
+  /** `_none` for movements without a game (transfers). */
+  gameId: string;
   updatedAt: Date;
 }
 
-export interface GameConfig {
-  bettingSeconds: number;
-  revealSeconds: number;
-  minBet: number;
-  maxBet: number;
-  /** Per-user cap on the sum of stakes in one round. */
-  maxRoundStake: number;
-  chips: number[];
-  /** Outcome → payout multiplier (stake × multiplier is returned, stake included). */
-  payouts: Record<string, number>;
-  /** Outcome → relative weight for the RNG. */
-  weights: Record<string, number>;
+/** A player's lifetime games figures. */
+export interface GameUserStatsDoc extends GameCounters {
+  _id: string;
+  firstPlayedAt: Date;
+  lastPlayedAt: Date;
+  lastGameId: string | null;
 }
 
-export interface GameRoundDoc {
-  _id: ObjectId;
-  game: GameKey;
-  roundNo: number;
-  status: 'betting' | 'locked' | 'settled';
-  /** sha256(serverSeed) published at round start (commit). */
-  serverSeedHash: string;
-  /** Revealed only after settlement. */
-  serverSeed: string;
-  options: string[];
-  totals: Record<string, number>;
-  betCount: number;
-  outcome: string | null;
-  /** Game-specific reveal payload (e.g. dealt cards). */
-  reveal: Record<string, unknown> | null;
-  payoutTotal: number;
-  bettingEndsAt: Date;
-  settlesAt: Date;
+/**
+ * A launched AsadSoft session. The token lets us end it (AsadSoft has no API-key route for
+ * that) when a player is blocked or a game is turned off. Never returned by any route.
+ */
+export interface GameSessionDoc {
+  _id: string;
+  uid: string;
+  gameId: string;
+  token: string;
+  inLive: boolean;
   createdAt: Date;
-  settledAt: Date | null;
-}
-
-export interface GameBetDoc {
-  _id?: ObjectId;
-  roundId: ObjectId;
-  game: GameKey;
-  userId: string;
-  option: string;
-  amount: number;
-  payout: number;
-  status: 'placed' | 'won' | 'lost' | 'refunded';
-  idempotencyKey: string;
-  createdAt: Date;
-  settledAt: Date | null;
+  expiresAt: Date;
 }
 
 export interface BannerDoc {

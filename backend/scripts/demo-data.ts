@@ -300,8 +300,7 @@ await withDb(async (db) => {
     );
   }
 
-  await db.col.games.updateMany({}, { $set: { enabled: true } });
   console.log(
-    `demo data ready: ${users.length} users, rooms, 300 recharges/gifts, reports, withdrawals, an agency; games enabled`,
+    `demo data ready: ${users.length} users, rooms, 300 recharges/gifts, reports, withdrawals, an agency`,
   );
 });

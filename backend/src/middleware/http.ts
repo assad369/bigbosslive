@@ -86,6 +86,11 @@ export interface RateLimitOpts {
   skipSuccessful?: boolean;
   /** Who a request counts against, when neither the uid nor the IP is the right key. */
   keyGenerator?: (req: Request) => string;
+  /**
+   * With `skipSuccessful`: which responses count as failures (default: status ≥ 400). Lets a
+   * route count only authentication failures, not legitimate refusals.
+   */
+  isFailure?: (status: number) => boolean;
 }
 
 export function createRateLimiter(redis: Redis | null, opts: RateLimitOpts): RequestHandler {
@@ -99,6 +104,11 @@ export function createRateLimiter(redis: Redis | null, opts: RateLimitOpts): Req
       next(new AppError(429, 'rate_limited', 'Too many requests, slow down')),
     ...(opts.byUser ? { keyGenerator: (req: Request) => req.auth?.uid ?? req.ip ?? 'anon' } : {}),
     ...(opts.keyGenerator ? { keyGenerator: opts.keyGenerator } : {}),
+    ...(opts.isFailure
+      ? {
+          requestWasSuccessful: (_req: Request, res: Response) => !opts.isFailure!(res.statusCode),
+        }
+      : {}),
   };
   if (redis) {
     config.store = new RedisStore({

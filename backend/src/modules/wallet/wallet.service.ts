@@ -258,6 +258,8 @@ export class WalletService {
       throw err;
     }
     // `wallet:updated` goes out from `track` once the credit commits.
+    // AsadSoft reports hold against what players bought; reporting only, never fails this.
+    if (doc._id) await this.ctx.services.games.queuePurchase(doc._id);
     return { recharge: doc, replayed: false };
   }
 

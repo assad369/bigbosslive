@@ -5,7 +5,7 @@ bronze as the secondary colour. Immersive surfaces (live rooms, games) sit on a 
 base so video and gold effects glow.
 
 Sources of truth, kept identical:
-- `packages/shared/src/theme.ts` (admin dashboard, games)
+- `packages/shared/src/theme.ts` (admin dashboard)
 - `app/lib/core/theme/bb_colors.dart` (Flutter)
 
 ## Palette

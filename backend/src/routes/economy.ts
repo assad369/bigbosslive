@@ -5,7 +5,7 @@ import {
   CURRENCIES,
   COSMETIC_TYPES,
   EQUIPPABLE_COSMETIC_TYPES,
-  GAME_KEYS,
+  GAME_ID_PATTERN,
   MAX_VIP_TIER,
   SHORT_ID_PATTERN,
 } from '@bigboss/shared';
@@ -26,11 +26,19 @@ import { forbidden, notFound } from '../lib/errors.js';
 import { sendGiftInput } from '../modules/gifts/gifts.service.js';
 import { iapVerifyInput } from '../modules/wallet/iap.service.js';
 import { withdrawalInput } from '../modules/withdrawals/withdrawals.service.js';
-import { placeBetInput } from '../modules/games/games.service.js';
 import { agencyProfileInput, toAgencySummary } from '../modules/agencies/agencies.service.js';
 
 const idParams = z.object({ id: objectIdString });
-const gameParam = z.object({ key: z.enum(GAME_KEYS) });
+const gameParam = z.object({ gameId: z.string().regex(GAME_ID_PATTERN) });
+const gameContext = z.enum(['app', 'live']).default('app');
+const launchBody = z.object({
+  context: gameContext,
+  /** Goes into the provider's game URL as `lang`, so only a plain language tag. */
+  language: z
+    .string()
+    .regex(/^[a-z]{2}(-[A-Z]{2})?$/)
+    .default('en'),
+});
 
 /** Gifts, wallet, store (tier packages/cosmetics), agents, agencies, withdrawals and games. */
 export function economyRoutes(ctx: Ctx): Router {
@@ -392,39 +400,32 @@ export function economyRoutes(ctx: Ctx): Router {
     res.json({ items: await withdrawals.mine(currentUser(req).uid) });
   });
 
-  // ── Games ────────────────────────────────────────────────────────────────
-  r.get('/games', async (_req, res) => {
-    const items = await games.registry();
-    res.json({
-      items: items.map((g) => ({ key: g._id, name: g.name, url: g.url, iconUrl: g.iconUrl })),
-    });
+  // ── Games (AsadSoft) ───────────────────────────────────────────────────────
+  // Launch spends provider quota and a wallet read on their side: a per-user budget.
+  const launchLimit = createRateLimiter(ctx.redis, {
+    windowMs: 60_000,
+    limit: 20,
+    prefix: 'game-launch',
+    byUser: true,
   });
 
-  r.get('/games/:key/state', async (req, res) => {
-    const { key } = parseParams(req, gameParam);
-    res.json(await games.state(key, currentUser(req).uid));
+  r.get('/games', async (req, res) => {
+    const { context } = parseQuery(req, z.object({ context: gameContext }));
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ items: await games.list(currentUser(req).user, { inLive: context === 'live' }) });
   });
 
-  r.post('/games/:key/bets', moneyLimit, async (req, res) => {
-    const { key } = parseParams(req, gameParam);
+  /** A session URL for the game. Money then moves through the AsadSoft wallet callbacks. */
+  r.post('/games/:gameId/launch', launchLimit, async (req, res) => {
+    const { gameId } = parseParams(req, gameParam);
+    // The body is optional: an empty POST launches from the Games screen in English.
+    const { context, language } = parseBody(req, launchBody.optional()) ?? launchBody.parse({});
     res.json(
-      await games.placeBet(
-        currentUser(req).uid,
-        key,
-        idempotencyKey(req),
-        parseBody(req, placeBetInput),
-      ),
+      await games.launch(currentUser(req).user, gameId, {
+        inLive: context === 'live',
+        language,
+      }),
     );
-  });
-
-  r.get('/games/:key/my-bets', async (req, res) => {
-    const { key } = parseParams(req, gameParam);
-    res.json({ items: await games.myBets(currentUser(req).uid, key, 50) });
-  });
-
-  r.get('/games/rounds/:id/verify', async (req, res) => {
-    const { id } = parseParams(req, idParams);
-    res.json(await games.verify(toObjectId(id)));
   });
 
   return r;

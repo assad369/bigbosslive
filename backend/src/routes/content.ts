@@ -41,13 +41,20 @@ export function contentRoutes(ctx: Ctx): Router {
 
   /** Unauthenticated: the app reads this before sign-in (maintenance, force-update). */
   r.get('/config/app', async (_req, res) => {
-    const [app, features, pk] = await Promise.all([
+    const [app, features, pk, games] = await Promise.all([
       config.get('app'),
       config.get('features'),
       config.get('pk'),
+      config.get('games'),
     ]);
     res.set('Cache-Control', 'public, max-age=60');
-    res.json({ app, features, pk: { durationsSec: pk.durationsSec }, livekitUrl: ctx.livekit.url });
+    res.json({
+      app,
+      // `gamesInLive`: the live room shows its Games button.
+      features: { ...features, gamesInLive: features.gamesEnabled && games.liveRoomEnabled },
+      pk: { durationsSec: pk.durationsSec },
+      livekitUrl: ctx.livekit.url,
+    });
   });
 
   r.get('/levels', async (_req, res) => {

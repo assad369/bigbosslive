@@ -19,6 +19,7 @@ import { economyRoutes } from './routes/economy.js';
 import { liveRoutes, livekitWebhookRoute } from './routes/live.js';
 import { moderatorRoutes } from './routes/moderator.js';
 import { shareRoutes } from './routes/share.js';
+import { asadsoftWalletRoutes } from './routes/asadsoft-wallet.js';
 import { sightguardWebhookRoute } from './routes/sightguard.js';
 import { socialRoutes } from './routes/social.js';
 import { docsRoutes } from './routes/docs.js';
@@ -104,6 +105,8 @@ export function createApp(ctx: Ctx): Express {
   // Webhooks need the raw body for signature checks — mount before express.json().
   app.use('/v1/webhooks', livekitWebhookRoute(ctx));
   app.use('/v1/webhooks', sightguardWebhookRoute(ctx));
+  // AsadSoft wallet callbacks: signed over the raw body, and their own failure limiter.
+  app.use('/v1/webhooks/asadsoft', asadsoftWalletRoutes(ctx));
 
   app.use(express.json({ limit: '256kb' }));
   // Share-link previews (public, read by link-web): their own rate limit, see shareRoutes.

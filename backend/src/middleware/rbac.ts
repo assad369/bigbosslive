@@ -28,6 +28,8 @@ export const PERMISSIONS = {
   'notifications.send': ['admin'],
   'games.manage': ['admin'],
   'games.read': ['finance', 'admin'],
+  /** Block or unblock a user from AsadSoft games. */
+  'games.block': ['moderator', 'admin'],
   'config.manage': ['admin'],
   'audit.read': ['admin'],
   /** Grant and revoke the in-app platform moderator role. */

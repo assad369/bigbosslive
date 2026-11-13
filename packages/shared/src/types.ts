@@ -6,7 +6,9 @@ import type {
   BadgeBlendMode,
   CosmeticType,
   Currency,
-  GameKey,
+  GameLockReason,
+  GameTxKind,
+  GameTxStatus,
   LedgerReason,
   MessageType,
   PkEndReason,
@@ -380,21 +382,167 @@ export interface PkBattle {
   serverTime: IsoDate;
 }
 
-export interface GameRound {
-  id: string;
-  game: GameKey;
-  roundNo: number;
-  status: 'betting' | 'locked' | 'settled';
-  serverSeedHash: string;
-  serverSeed: string | null;
-  options: string[];
-  totals: Record<string, number>;
-  outcome: string | null;
-  /** Game-specific reveal (e.g. dealt cards); null while betting is open. */
-  reveal: Record<string, unknown> | null;
-  bettingStartedAt: IsoDate;
-  bettingEndsAt: IsoDate;
-  settlesAt: IsoDate;
+/** Why a game can't be opened right now; null when it can. */
+export interface GameLock {
+  reason: GameLockReason;
+  /** The level needed, when `reason` is `level`. */
+  minLevel?: number;
+}
+
+/** One AsadSoft game as the app lists it (`GET /v1/games`). */
+export interface GameListItem {
+  gameId: string;
+  name: string;
+  iconUrl: string | null;
+  category: string;
+  lock: GameLock | null;
+}
+
+/** `POST /v1/games/:gameId/launch`: the provider URL to open, with its session token. */
+export interface GameLaunch {
+  gameUrl: string;
+  sessionId: string;
+  expiresAt: IsoDate;
+}
+
+/** A catalogue row in the admin: the provider's fields plus our local controls. */
+export interface AdminGame {
+  gameId: string;
+  /** What the app shows: `displayName`, else the provider's name. */
+  name: string;
+  displayName: string | null;
+  iconUrl: string | null;
+  provider: {
+    name: string;
+    category: string;
+    available: boolean;
+    syncedAt: IsoDate | null;
+  };
+  enabled: boolean;
+  liveRoom: boolean;
+  /** Null: the global `games.minLevel` applies. */
+  minLevel: number | null;
+  sortOrder: number;
+  updatedAt: IsoDate | null;
+}
+
+/** Money figures for a period. Amounts are diamonds; positive `ggr` is the platform's win. */
+export interface GameMoney {
+  /** Stakes minus stakes refunded or cancelled. */
+  turnover: number;
+  /** Wins minus wins clawed back. */
+  payouts: number;
+  /** Loss cashback and wager rebates paid. */
+  cashback: number;
+  /** turnover − payouts − cashback. */
+  ggr: number;
+  /** (payouts + cashback) ÷ turnover, or null with no turnover. */
+  rtp: number | null;
+  stakeCount: number;
+  winCount: number;
+  refunds: number;
+  reversals: number;
+  /** Transfer wallet: diamonds moved into game wallets, and back out. */
+  transfersIn: number;
+  transfersOut: number;
+  /** Every diamond debited minus every diamond credited: what actually left players' wallets. */
+  netFlow: number;
+}
+
+export interface GameStatsPeriod extends GameMoney {
+  from: IsoDate;
+  to: IsoDate;
+  /** Distinct players with any wallet movement in the period. */
+  players: number;
+}
+
+export interface GameStatsOverview {
+  timezone: string;
+  today: GameStatsPeriod;
+  yesterday: GameStatsPeriod;
+  last7Days: GameStatsPeriod;
+  last30Days: GameStatsPeriod;
+  allTime: GameMoney;
+  /** Present when `from`/`to` were asked for. */
+  range: GameStatsPeriod | null;
+}
+
+export interface GameStatsDay extends GameMoney {
+  /** YYYY-MM-DD in the report timezone. */
+  day: string;
+  players: number;
+}
+
+export interface GameStatsByGame extends GameMoney {
+  gameId: string;
+  name: string;
+}
+
+export interface GameTopPlayer {
+  user: UserBrief | null;
+  uid: string;
+  /** Positive: the player is up (the platform lost this much to them). */
+  playerNet: number;
+  turnover: number;
+  payouts: number;
+  cashback: number;
+}
+
+export interface GameTransaction {
+  txId: string;
+  type: 'debit' | 'credit';
+  kind: GameTxKind;
+  status: GameTxStatus;
+  uid: string;
+  user: UserBrief | null;
+  gameId: string | null;
+  roundId: string | null;
+  gameRoundId: string | null;
+  sessionId: string | null;
+  refTxId: string | null;
+  /** Set on a reversed row: the txId that reversed it. */
+  reversedBy: string | null;
+  requested: number;
+  applied: number;
+  /** Claw-backs: the part the player no longer held. */
+  shortfall: number;
+  balanceAfter: number | null;
+  /** Refusal code (INSUFFICIENT_BALANCE, PLAYER_RESTRICTED, …) and the HTTP status sent. */
+  code: string | null;
+  httpStatus: number;
+  description: string | null;
+  currency: string | null;
+  createdAt: IsoDate;
+}
+
+export interface GamesBlock {
+  at: IsoDate;
+  by: string;
+  reason: string;
+}
+
+export interface GamePlayerSummary {
+  uid: string;
+  user: UserBrief | null;
+  block: GamesBlock | null;
+  lifetime: GameMoney & {
+    playerNet: number;
+    firstPlayedAt: IsoDate | null;
+    lastPlayedAt: IsoDate | null;
+    lastGameId: string | null;
+  };
+  today: GameMoney & { playerNet: number };
+}
+
+export interface GamesIntegrationStatus {
+  configured: boolean;
+  apiUrl: string | null;
+  /** Paste into AsadSoft → Operators → Wallet callback URL. */
+  walletCallbackUrl: string;
+  lastSyncAt: IsoDate | null;
+  lastCallbackAt: IsoDate | null;
+  catalogSize: number;
+  enabledCount: number;
 }
 
 export interface Cosmetic {

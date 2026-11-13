@@ -79,6 +79,22 @@ const EnvSchema = z.object({
   /** YouTube Data API v3 key for YouTube music in lives (`features.youtubeEnabled`). */
   YOUTUBE_API_KEY: z.string().optional(),
 
+  /**
+   * AsadSoft games (we are their operator). Unset = games unavailable: launch answers 503 and
+   * the wallet callbacks at /v1/webhooks/asadsoft fail closed. See docs/GAMES.md.
+   */
+  ASADSOFT_API_URL: z.url().optional(),
+  /** Operator API key (`ask_live_…`), sent as X-API-Key on launch, catalogue and purchases. */
+  ASADSOFT_API_KEY: z.string().min(8).optional(),
+  /** Operator apiSecret: HMAC-SHA256 key of the X-Signature on every /debit and /credit. */
+  ASADSOFT_API_SECRET: z.string().min(16).optional(),
+  /** The operator's walletAuthToken (auth type bearer), required on every wallet callback. */
+  ASADSOFT_WALLET_TOKEN: z.string().min(16).optional(),
+  /** Optional allowlist of AsadSoft server IPs for the wallet callbacks. Empty = any. */
+  ASADSOFT_CALLBACK_IPS: csv.default([]),
+  /** Day boundaries of the games reports (today / yesterday / daily). */
+  GAMES_REPORT_TIMEZONE: z.string().default('Asia/Dhaka'),
+
   JOBS_ENABLED: bool.default(true),
   AGENCY_RESET_TIMEZONE: z.string().default('Asia/Dhaka'),
 });
@@ -103,6 +119,18 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   ) {
     throw new Error(
       'SIGHTGUARD_API_URL, SIGHTGUARD_API_KEY and SIGHTGUARD_WEBHOOK_SECRET are required when SIGHTGUARD_ENABLED',
+    );
+  }
+  const asadsoft = [
+    'ASADSOFT_API_URL',
+    'ASADSOFT_API_KEY',
+    'ASADSOFT_API_SECRET',
+    'ASADSOFT_WALLET_TOKEN',
+  ] as const;
+  const asadsoftSet = asadsoft.filter((k) => env[k]);
+  if (asadsoftSet.length > 0 && asadsoftSet.length < asadsoft.length) {
+    throw new Error(
+      `AsadSoft games are half configured: set all of ${asadsoft.join(', ')}, or none of them`,
     );
   }
   if (env.NODE_ENV === 'production') {

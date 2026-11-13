@@ -8,8 +8,8 @@
  Admin  ──▶ │ BullMQ worker│      adapter + queues     │ adapter, BullMQ             │
  (React)    └──────┬───────┘                           └─────────────────────────────┘
                    │ server SDK: tokens, sendData, forward, webhooks
- Games  ──▶  REST  ▼
- (WebView)  ┌──────────────┐  WebRTC media + data channel
+ AsadSoft ─▶ wallet  ▼  (signed /v1/webhooks/asadsoft)
+ (games)    ┌──────────────┐  WebRTC media + data channel
             │   LiveKit    │◀────────────────────────────── app (publish/subscribe)
             └──────────────┘
  Firebase: Auth (ID tokens, custom claims for admin roles) · FCM push · Crashlytics
@@ -26,8 +26,8 @@
 | Media | LiveKit | The server mints tokens with metadata and receives webhooks for presence and room end. |
 | In-room events | LiveKit data channel | `bb.*` topics (gift, chat, seats, pk, entry, kick, room ended), sent by the server only. |
 | Personal events | Socket.IO `/` | `user:<uid>` rooms: chat, notifications, wallet updates, live directory. |
-| Game rounds | Socket.IO `/games` | `game:<key>` rooms: round, totals, settled. |
-| Background work | BullMQ | Push fan-out, announcements, plus ticks: games (1s), PK (2s), stale lives (30s), cosmetics/agency (hourly). |
+| Games | AsadSoft | The app opens a provider session; AsadSoft moves diamonds through our signed wallet callbacks ([GAMES.md](GAMES.md)). |
+| Background work | BullMQ | Push fan-out, announcements, plus ticks: PK (2s), stale lives (30s), cosmetics/agency/games catalogue (hourly). |
 | Uploads | R2/S3 | `POST /v1/uploads/presign` → client PUT. Keys are server-generated. |
 | Purchases | Play / App Store | The server verifies, credits once per store transaction id, and consumes on Google. |
 
@@ -45,7 +45,7 @@ central error handler (`{ error: { code, message, details, requestId } }`).
 - **Agent stock**: an agent's resale inventory, moved to users' diamonds by agent recharge.
 
 Each movement is a conditional `$inc` plus a `ledger` row in one transaction, so the ledger
-always reconciles to the balance. The game test suite checks this directly. Idempotency keys
+always reconciles to the balance. The wallet test suites check this directly. Idempotency keys
 make every client-initiated money action safe to retry.
 
 ## Level model

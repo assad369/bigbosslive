@@ -62,6 +62,7 @@ const LABELS: Record<string, string> = {
   blockedWords: 'Extra blocked words',
   maintenanceMessage: 'Maintenance message',
   youtubeEnabled: 'YouTube music in lives (needs YOUTUBE_API_KEY)',
+  gamesEnabled: 'AsadSoft games (levels and per-game switches: Games → Settings)',
   safeSearch: 'Safe search (none, moderate or strict)',
   regionCode: 'Country videos must play in (e.g. BD; empty = any)',
   maxDurationSec: 'Longest song (s)',

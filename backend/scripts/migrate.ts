@@ -8,6 +8,7 @@ import { monthKey } from '../src/lib/time.js';
 import { newAgencyCode } from '../src/modules/agencies/agencies.service.js';
 import { withDb } from './_db.js';
 import { lockAgencyMembers } from './lock-agency-members.js';
+import { removeInhouseGames } from './remove-inhouse-games.js';
 import { migrateToSingleCurrency } from './single-currency.js';
 
 interface Migration {
@@ -254,6 +255,17 @@ const MIGRATIONS: Migration[] = [
         }
       }
       console.log(`  backfilled ${updated} equipped slot(s)`);
+    },
+  },
+  {
+    // The in-house games are replaced by AsadSoft: refund bets of unsettled rounds, then drop
+    // `game_rounds`, `game_bets` and the old `games` registry.
+    id: '2026-11-13-asadsoft-games',
+    async up(db) {
+      const r = await removeInhouseGames(db);
+      console.log(
+        `  refunded ${r.betsRefunded} open bet(s) (${r.diamondsRefunded} diamonds), voided ${r.betsVoided}; dropped ${r.dropped.join(', ') || 'nothing'}`,
+      );
     },
   },
 ];

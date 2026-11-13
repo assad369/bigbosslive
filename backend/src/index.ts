@@ -6,6 +6,7 @@ import { buildContext } from './bootstrap.js';
 import { loadEnv } from './config/env.js';
 import { ensureIndexes } from './db/indexes.js';
 import { connectMongo } from './db/mongo.js';
+import { createAsadSoftGateway } from './infra/asadsoft.js';
 import { createFcmGateway, createFirebaseAuth, noopPush } from './infra/firebase.js';
 import { createIapGateway } from './infra/iap.js';
 import { createLiveKitGateway } from './infra/livekit.js';
@@ -56,6 +57,7 @@ async function main(): Promise<void> {
     iap: createIapGateway(env),
     sightguard: createSightGuardGateway(env),
     youtube: createYouTubeGateway(env),
+    asadsoft: createAsadSoftGateway(env),
     jobs,
   });
   if (ctx.sightguard.enabled)
@@ -64,7 +66,7 @@ async function main(): Promise<void> {
   if (!firebaseConfigured)
     log.warn('FIREBASE_PROJECT_ID not set — authentication will reject every request');
 
-  await ctx.services.games.ensureRegistry();
+  if (!ctx.asadsoft.configured) log.warn('Games disabled: ASADSOFT_* are unset');
 
   const handlers = jobHandlers(ctx);
   const scheduler = new TickScheduler(ctx);

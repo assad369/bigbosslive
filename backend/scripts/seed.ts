@@ -1,12 +1,11 @@
 /**
  * Seed catalog data for a fresh environment: level ladder, gifts, VIP tiers, cosmetics,
- * recharge packages, and the games registry. Idempotent — existing documents are left alone
+ * and recharge packages. (Games come from AsadSoft: Admin → Games → Sync.) Idempotent — existing documents are left alone
  * (matched by natural key), so it is safe to re-run.
  *   npm run seed
  */
 import { ObjectId } from 'mongodb';
-import { GAME_KEYS, buildDefaultLevels } from '@bigboss/shared';
-import { GAME_DEFINITIONS } from '../src/modules/games/definitions.js';
+import { buildDefaultLevels } from '@bigboss/shared';
 import { withDb } from './_db.js';
 
 const CDN = process.env.SEED_ASSET_BASE_URL ?? 'https://cdn.bigbosslive.app/seed';
@@ -151,25 +150,5 @@ await withDb(async (db) => {
     );
   }
 
-  // Games registry (disabled until an admin enables them and sets the hosted URL).
-  for (const [i, key] of GAME_KEYS.entries()) {
-    const def = GAME_DEFINITIONS[key];
-    await db.col.games.updateOne(
-      { _id: key },
-      {
-        $setOnInsert: {
-          _id: key,
-          name: def.name,
-          enabled: false,
-          url: `https://games.bigbosslive.app/${key.replace('_', '-')}/`,
-          iconUrl: null,
-          sortOrder: i,
-          config: def.defaultConfig,
-          updatedAt: now,
-        },
-      },
-      { upsert: true },
-    );
-  }
   console.log('seed complete');
 });

@@ -79,17 +79,6 @@ describe('socket.io', () => {
     expect((await upserted).id).toBe(res.body.room.id);
   });
 
-  it('serves game state on subscribe in the games namespace', async () => {
-    await h.ctx.services.games.ensureRegistry();
-    await h.ctx.services.games.updateMeta('teen_patti', { enabled: true });
-    await h.ctx.services.games.tick();
-    const g = await open('ana', SOCKET.namespaces.games);
-    const state = await new Promise<{ round: { status: string } }>((resolve) =>
-      g.emit(SOCKET.games.subscribe, 'teen_patti', resolve),
-    );
-    expect(state.round.status).toBe('betting');
-  });
-
   it('turns away users not on the maintenance list while maintenance is on', async () => {
     await h.ctx.services.maintenance.add(['ana'], 'admin');
     await h.ctx.services.config.set('app', { maintenance: true }, 'admin');

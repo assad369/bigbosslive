@@ -38,6 +38,7 @@ import { FormModal } from '../../components/FormModal';
 import { useAuth } from '../../auth/useAuth';
 import { brand } from '../../theme';
 import type { AdminUser } from './UsersPage';
+import { GamesPlayerCard } from '../games/GamesPlayers';
 import { activeTierOf, VIP_COLORS } from '../../lib/tiers';
 import { UserDecorations } from './UserDecorations';
 
@@ -200,6 +201,11 @@ export function UserDetailPage() {
               <Descriptions.Item label="Gifts sent">{num(user.stats.totalSent)}</Descriptions.Item>
             </Descriptions>
           </Card>
+          {(can('games.read') || can('games.block')) && (
+            <div style={{ marginTop: 16 }}>
+              <GamesPlayerCard uid={user._id} compact />
+            </div>
+          )}
         </Col>
         <Col xs={24} lg={16}>
           <Card variant="borderless">

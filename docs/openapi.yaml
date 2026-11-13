@@ -3,7 +3,7 @@ info:
   title: BigBoss Live API
   version: 1.0.0
   description: |
-    REST API for the BigBoss Live app, admin dashboard and games.
+    REST API for the BigBoss Live app and admin dashboard, plus the AsadSoft wallet callbacks.
 
     **Auth:** send a Firebase ID token as `Authorization: Bearer <token>`. Call
     `POST /v1/auth/session` once after sign-in to create the profile.
@@ -18,8 +18,7 @@ info:
 
     **Realtime:** Socket.IO at `/socket.io` with `auth: { token }`. Namespace `/`: `chat:message`,
     `chat:read`, `chat:typing`, `notification:new`, `wallet:updated`, `rooms:upserted`,
-    `rooms:ended` (after emitting `rooms:subscribe`). Namespace `/games`: emit
-    `game:subscribe <key>` (ack returns the state), then receive `game:round`, `game:totals`, `game:settled`.
+    `rooms:ended` (after emitting `rooms:subscribe`).
     In-room events arrive on the LiveKit data channel as `{ topic, payload, ts }` with `bb.*` topics.
 servers:
   - url: https://bigbossapi.asadsoft.cloud
@@ -80,11 +79,11 @@ components:
       name: pageSize
       in: query
       schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
-    GameKey:
-      name: key
+    GameId:
+      name: gameId
       in: path
       required: true
-      schema: { type: string, enum: [golden_wheel, teen_patti, fortune_ferris] }
+      schema: { type: string, pattern: '^[a-z0-9-]{1,64}$' }
   responses:
     Error:
       description: Error
@@ -278,22 +277,18 @@ components:
             enum: [completed, timeout, host_ended, host_left, admin, forfeit, null],
           }
         serverTime: { type: string, format: date-time }
-    GameRound:
+    GameListItem:
       type: object
       properties:
-        id: { type: string }
-        game: { type: string }
-        roundNo: { type: integer }
-        status: { type: string, enum: [betting, locked, settled] }
-        serverSeedHash: { type: string }
-        serverSeed: { type: [string, 'null'], description: Revealed after settlement }
-        options: { type: array, items: { type: string } }
-        totals: { type: object, additionalProperties: { type: integer } }
-        outcome: { type: [string, 'null'] }
-        reveal: { type: [object, 'null'] }
-        bettingStartedAt: { type: string, format: date-time }
-        bettingEndsAt: { type: string, format: date-time }
-        settlesAt: { type: string, format: date-time }
+        gameId: { type: string }
+        name: { type: string }
+        iconUrl: { type: [string, 'null'] }
+        category: { type: string }
+        lock:
+          type: [object, 'null']
+          properties:
+            reason: { type: string, enum: [disabled, level, blocked, live_off] }
+            minLevel: { type: integer }
     CursorPage:
       type: object
       properties:
@@ -1564,69 +1559,61 @@ paths:
       }
 
   /v1/games:
-    get: { tags: [Games], summary: Enabled games, responses: { '200': { description: OK } } }
-  /v1/games/{key}/state:
     get:
-      {
-        tags: [Games],
-        summary: Current round,
-        my bets,
-        balance,
-        history,
-        server time,
-        parameters: [{ $ref: '#/components/parameters/GameKey' }],
-        responses: { '200': { description: OK } },
-      }
-  /v1/games/{key}/bets:
+      tags: [Games]
+      summary: AsadSoft games, each with its lock for the caller
+      parameters:
+        [{ name: context, in: query, schema: { type: string, enum: [app, live], default: app } }]
+      responses:
+        '200':
+          description: '{ items: GameListItem[] }'
+  /v1/games/{gameId}/launch:
     post:
       tags: [Games]
-      summary: Place a bet in the open round
-      parameters:
-        [
-          { $ref: '#/components/parameters/GameKey' },
-          { $ref: '#/components/parameters/IdempotencyKey' },
-        ]
+      summary: Open an AsadSoft session; returns the game URL (carries a 4-hour session token)
+      parameters: [{ $ref: '#/components/parameters/GameId' }]
       requestBody:
-        {
-          content:
-            {
-              application/json:
-                {
-                  schema:
-                    {
-                      type: object,
-                      properties:
-                        {
-                          roundId: { type: string },
-                          option: { type: string },
-                          amount: { type: integer },
-                        },
-                    },
-                },
-            },
-        }
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                context: { type: string, enum: [app, live], default: app }
+                language: { type: string, default: en, pattern: '^[a-z]{2}(-[A-Z]{2})?$' }
       responses:
-        {
-          '200': { description: '{ betId, diamonds, replayed }' },
-          '402': { $ref: '#/components/responses/Error' },
-          '409': { $ref: '#/components/responses/Error' },
-        }
-  /v1/games/{key}/my-bets:
+        '200': { description: '{ gameUrl, sessionId, expiresAt }' }
+        '403': { description: 'game_locked (details: { reason, minLevel? }) or game_unavailable' }
+        '503': { description: games_unavailable }
+  /v1/webhooks/asadsoft/balance:
     get:
-      {
-        tags: [Games],
-        summary: My recent bets,
-        parameters: [{ $ref: '#/components/parameters/GameKey' }],
-        responses: { '200': { description: OK } },
-      }
-  /v1/games/rounds/{id}/verify:
-    get:
-      {
-        tags: [Games],
-        summary: Provably-fair verification data for a settled round,
-        parameters: [{ $ref: '#/components/parameters/Id' }],
-        responses: { '200': { description: OK } },
-      }
+      tags: [Games]
+      summary: "AsadSoft wallet callback: a player's diamonds (Authorization: Bearer ASADSOFT_WALLET_TOKEN)"
+      parameters: [{ name: playerId, in: query, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: '{ success: true, balance, data: { playerId, balance, currency } }' }
+        '401': { description: '{ success: false, error: UNAUTHORISED }' }
+        '404': { description: '{ success: false, error: PLAYER_NOT_FOUND }' }
+  /v1/webhooks/asadsoft/{type}:
+    post:
+      tags: [Games]
+      summary: >-
+        AsadSoft wallet callback (type = debit | credit). Bearer token plus X-Signature (hex
+        HMAC-SHA256 of the raw body, keyed on ASADSOFT_API_SECRET). Idempotent on txId; refTxId
+        reverses an earlier call. See docs/GAMES.md.
+      parameters:
+        - { name: type, in: path, required: true, schema: { type: string, enum: [debit, credit] } }
+        - { name: X-Signature, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          {
+            description: '{ success: true, balance, data: { playerId, balance, deducted | credited, roundId } }',
+          }
+        '402': { description: INSUFFICIENT_BALANCE }
+        '403':
+          {
+            description: 'PLAYER_BLOCKED | LEVEL_TOO_LOW | GAME_DISABLED | GAMES_DISABLED | PLAYER_INACTIVE',
+          }
+        '409': { description: 'TX_VOIDED: a cancel for this txId arrived first' }
 
   /v1/chat/conversations:
     get:
@@ -2101,19 +2088,102 @@ paths:
         parameters: [{ $ref: '#/components/parameters/Id' }],
         responses: { '200': { description: OK } },
       }
-  /v1/admin/games/{key}/config:
+  /v1/admin/games:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Games catalogue, settings and integration status (games.read)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/sync:
+    post:
+      {
+        tags: [Admin],
+        summary: 'Pull the AsadSoft catalogue; new games arrive disabled (games.manage)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/settings:
     put:
       {
         tags: [Admin],
-        summary: Replace game config (RTP-checked),
-        parameters: [{ $ref: '#/components/parameters/GameKey' }],
-        responses: { '200': { description: OK }, '400': { $ref: '#/components/responses/Error' } },
+        summary: 'enabled, minLevel, liveRoomEnabled, showLocked (games.manage)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/{gameId}:
+    patch:
+      {
+        tags: [Admin],
+        summary: 'enabled, liveRoom, minLevel, sortOrder, displayName, iconUrl (games.manage)',
+        parameters: [{ $ref: '#/components/parameters/GameId' }],
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/stats/overview:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Today, yesterday, 7d, 30d, all time and an optional from/to range (games.read)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/stats/daily:
+    get:
+      {
+        tags: [Admin],
+        summary: 'One row per day, from/to (YYYY-MM-DD) (games.read)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/stats/by-game:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Per-game figures, from/to (games.read)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/stats/top-players:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Biggest winners or losers, from/to/side (games.read)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/transactions:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Every wallet call, cursor paged; user, gameId, kind, status, roundId, txId, from, to (games.read)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/blocked:
+    get:
+      {
+        tags: [Admin],
+        summary: 'Players blocked from games, cursor paged (games.read)',
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/games/players/{uid}:
+    get:
+      {
+        tags: [Admin],
+        summary: "A player's games P&L and block (games.read or games.block); uid or short id",
+        responses: { '200': { description: OK } },
+      }
+  /v1/admin/users/{uid}/games-block:
+    post:
+      {
+        tags: [Admin],
+        summary: 'Block from games, { reason } (games.block)',
+        responses: { '200': { description: OK } },
+      }
+    delete:
+      {
+        tags: [Admin],
+        summary: 'Unblock (games.block)',
+        responses: { '204': { description: Unblocked } },
       }
   /v1/admin/config/{key}:
     put:
       {
         tags: [Admin],
-        summary: 'Update runtime config: economy | features | app | live | moderation | pk',
+        summary: 'Update runtime config: economy | features | app | live | moderation | pk | games | …',
         parameters: [{ name: key, in: path, required: true, schema: { type: string } }],
         responses: { '200': { description: OK } },
       }

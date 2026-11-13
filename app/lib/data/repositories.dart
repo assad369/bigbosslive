@@ -519,8 +519,24 @@ class EconomyRepository {
   Future<List<Json>> withdrawals() async =>
       (await _api.get('/withdrawals')).list('items', (j) => j);
 
-  Future<List<GameInfo>> games() async =>
-      (await _api.get('/games')).list('items', GameInfo.fromJson);
+  /// AsadSoft games, each with its lock for me. [inLive] lists the live room's games.
+  Future<List<GameInfo>> games({bool inLive = false}) async => (await _api.get(
+    '/games',
+    query: {'context': inLive ? 'live' : 'app'},
+  )).list('items', GameInfo.fromJson);
+
+  /// Opens a provider session. No money moves here (AsadSoft calls our wallet when the
+  /// player stakes), so no idempotency key: a retry just opens a fresh session.
+  Future<GameLaunch> launchGame(
+    String gameId, {
+    bool inLive = false,
+    String language = 'en',
+  }) async => GameLaunch.fromJson(
+    await _api.post(
+      '/games/${Uri.encodeComponent(gameId)}/launch',
+      body: {'context': inLive ? 'live' : 'app', 'language': language},
+    ),
+  );
 }
 
 /// Host agencies: browsing and joining as a host, and running one as its owner or admin.

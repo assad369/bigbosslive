@@ -10,6 +10,10 @@ export interface JobPayloads {
   'sightguard.live': { op: 'start' | 'end'; roomId: string; livekitRoom: string; hostId: string };
   /** Submit an uploaded video for async moderation; the verdict arrives by webhook. */
   'sightguard.video': { url: string; userId: string; metadata: Record<string, string> };
+  /** End open AsadSoft sessions (a block, a game turned off, games turned off). */
+  'games.end_sessions': { uid: string } | { gameId: string } | { all: true };
+  /** Report a committed recharge to AsadSoft (hold against purchases). */
+  'games.purchase': { rechargeId: string };
 }
 export type JobName = keyof JobPayloads;
 export type JobHandlers = { [K in JobName]: (data: JobPayloads[K]) => Promise<void> };

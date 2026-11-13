@@ -7,6 +7,8 @@ import { ChatService } from './modules/chat/chat.service.js';
 import { ConfigService } from './modules/config/config.service.js';
 import { FeedService } from './modules/feed/feed.service.js';
 import { FollowsService } from './modules/follows/follows.service.js';
+import { GameWalletService } from './modules/games/game-wallet.service.js';
+import { GamesStatsService } from './modules/games/games-stats.service.js';
 import { GamesService } from './modules/games/games.service.js';
 import { GiftsService } from './modules/gifts/gifts.service.js';
 import { LevelsService } from './modules/levels/levels.service.js';
@@ -38,6 +40,8 @@ export interface Services {
   feed: FeedService;
   follows: FollowsService;
   games: GamesService;
+  gameWallet: GameWalletService;
+  gamesStats: GamesStatsService;
   gifts: GiftsService;
   iap: IapService;
   levels: LevelsService;
@@ -75,6 +79,8 @@ export function createServices(ctx: Ctx): Services {
     feed: new FeedService(ctx),
     follows: new FollowsService(ctx),
     games: new GamesService(ctx),
+    gameWallet: new GameWalletService(ctx),
+    gamesStats: new GamesStatsService(ctx),
     gifts: new GiftsService(ctx),
     iap: new IapService(ctx),
     levels: new LevelsService(ctx),

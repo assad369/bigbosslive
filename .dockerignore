@@ -1,4 +1,4 @@
-# Build context is the repository root for every image (backend, admin, games).
+# Build context is the repository root for every image (backend, admin).
 .git
 .github
 .idea

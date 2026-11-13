@@ -263,11 +263,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/games', builder: (_, _) => const GamesScreen()),
       GoRoute(
-        path: '/games/play',
-        redirect: (_, s) => s.extra is GameInfo ? null : '/games',
-        builder: (_, s) => GameWebViewScreen(game: s.extra! as GameInfo),
-      ),
-      GoRoute(
         path: '/leaderboard',
         builder: (_, _) => const LeaderboardScreen(),
       ),

@@ -25,11 +25,12 @@ docker build -f backend/Dockerfile -t registry.example.com/bigboss-backend:$(git
 Required environment variables (see `backend/.env.example`):
 
 - `NODE_ENV=production`, `PORT`, `TRUST_PROXY` (number of proxy hops), `CORS_ORIGINS`
-  (admin and games origins), `PUBLIC_BASE_URL`
+  (the admin origin), `PUBLIC_BASE_URL`
 - `MONGODB_URI`, `MONGODB_DB`, `REDIS_URL`
 - `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_BASE64` (base64 of the JSON key)
 - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
 - `S3_*` for uploads. `GOOGLE_PLAY_PACKAGE_NAME` and `APPLE_*` for purchases.
+- `ASADSOFT_*` for games (all four or none; see [GAMES.md](GAMES.md)).
 
 The server refuses to boot in production without Redis, LiveKit and Firebase configuration.
 
@@ -51,8 +52,8 @@ The image ships these scripts compiled, so inside a running API container (workd
 dist/cli/scripts/seed.js` and `node dist/cli/scripts/set-admin.js owner@yourcompany.com
 superadmin`.
 
-Then sign in to the admin dashboard and set Settings (economy, features, app links). Enable
-games and set their hosted URLs. Create recharge packages that match your store product ids.
+Then sign in to the admin dashboard and set Settings (economy, features, app links). Sync and
+enable games in **Admin → Games** (setup in [GAMES.md](GAMES.md)). Create recharge packages that match your store product ids.
 
 ### Scaling and workers
 
@@ -73,9 +74,9 @@ authorised domains.
 
 ## Games
 
-`npm run build -w games` produces `games/dist` with `golden-wheel/`, `fortune-ferris/` and
-`teen-patti/`. Host it on a CDN (or run `games/Dockerfile`) and set each game's URL in **Admin → Games**. The app opens it in
-a WebView and passes the token in the URL fragment.
+Games are hosted by AsadSoft; there is nothing of ours to deploy for them. Set the `ASADSOFT_*`
+env, point the operator's wallet callback at `<PUBLIC_BASE_URL>/v1/webhooks/asadsoft`, and run
+their wallet conformance check against staging. [GAMES.md](GAMES.md) has the steps.
 
 ## Mobile apps
 
@@ -91,4 +92,5 @@ See [`app/README.md`](../app/README.md) for Firebase files, signing and store se
 - **Level ladder or weight changes:** after saving, run *Re-level users* from Admin → Levels.
 - **Monthly agency reset:** automatic, in `AGENCY_RESET_TIMEZONE`. Admin → Agencies can trigger
   it manually; it is idempotent.
-- **Stuck game round:** Admin → Games → Rounds → *Void & refund*.
+- **Games:** every wallet call is in Admin → Games → Transactions. A payout AsadSoft could not
+  deliver is retried by them with the same `txId`; ours never pays twice.

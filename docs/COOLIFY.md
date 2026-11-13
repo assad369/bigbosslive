@@ -1,12 +1,13 @@
 # Deploying on a Hostinger VPS with Coolify
 
-This guide runs the API, Redis, the admin dashboard and the mini-games on a single Hostinger VPS
+This guide runs the API, Redis and the admin dashboard on a single Hostinger VPS
 managed by [Coolify](https://coolify.io) v4. MongoDB runs on **MongoDB Atlas** and media runs on
 **LiveKit Cloud**. Everything else in [DEPLOYMENT.md](DEPLOYMENT.md) still applies; this page covers
 only the Coolify-specific setup.
 
 The API is `bigbossapi.asadsoft.cloud` and the admin dashboard is `bigbosslive.asadsoft.cloud`.
-Replace the remaining `example.com` placeholders (games, Coolify panel) with your own domains.
+Replace the remaining `example.com` placeholders (the Coolify panel) with your own domains.
+Games are hosted by AsadSoft (see [GAMES.md](GAMES.md)); nothing here deploys them.
 
 ## 1. What runs where
 
@@ -15,15 +16,15 @@ Replace the remaining `example.com` placeholders (games, Coolify panel) with you
 | API (Express, Socket.IO, BullMQ workers) | VPS | Application, Dockerfile `backend/Dockerfile` | `https://bigbossapi.asadsoft.cloud` | 3000 |
 | Redis 7 | VPS | Database, Redis | none (internal only) | 6379 |
 | Admin dashboard | VPS | Application, Dockerfile `admin/Dockerfile` | `https://bigbosslive.asadsoft.cloud` | 80 |
-| Mini-games | VPS | Application, Dockerfile `games/Dockerfile` | `https://games.example.com` | 80 |
 | Share links (link-web) | VPS | Application, Dockerfile `link-web/Dockerfile` | `https://bigbosslive.ctll.online` | 3000 |
 | MongoDB (replica set) | MongoDB Atlas | none | none | n/a |
 | LiveKit SFU | LiveKit Cloud | none | `wss://<project>.livekit.cloud` | n/a |
 | Auth, FCM | Firebase | none | none | n/a |
+| Games | AsadSoft | none | `https://games.asadsoft.cloud` | n/a |
 | Uploads | Cloudflare R2 / S3 | none | `S3_PUBLIC_BASE_URL` | n/a |
 
 Coolify's Traefik proxy terminates TLS (Let's Encrypt) and forwards WebSocket upgrades, so
-Socket.IO works without extra configuration. All three images build from the **repository root**
+Socket.IO works without extra configuration. All the images build from the **repository root**
 (the root `.dockerignore` keeps the build context small).
 
 ## 2. Prepare the Hostinger VPS
@@ -43,7 +44,7 @@ Socket.IO works without extra configuration. All three images build from the **r
 4. **Firewall** (hPanel → VPS → *Security* → *Firewall*): allow inbound TCP `22`, `80`, `443`,
    `8000` (Coolify dashboard), `6001` and `6002` (Coolify realtime and terminal). Once the
    dashboard has its own domain (step 6), you can close `8000`.
-5. **DNS:** create `A` records pointing at the VPS IP for `api`, `admin`, `games` and `coolify`.
+5. **DNS:** create `A` records pointing at the VPS IP for `api`, `admin` and `coolify`.
    If you use Cloudflare, start with *DNS only* (grey cloud) until certificates are issued. See
    `TRUST_PROXY` below if you later turn the proxy on.
 6. Open `http://<vps-ip>:8000`, create the admin account, then in *Settings* set the instance
@@ -168,7 +169,7 @@ regardless (`npm ci --include=dev`).
 | `LOG_LEVEL` | `info` |
 | `TRUST_PROXY` | `1` (Traefik). Use `2` if Cloudflare's orange-cloud proxy sits in front. |
 | `PUBLIC_BASE_URL` | `https://bigbossapi.asadsoft.cloud` |
-| `CORS_ORIGINS` | `https://bigbosslive.asadsoft.cloud,https://games.example.com` |
+| `CORS_ORIGINS` | `https://bigbosslive.asadsoft.cloud` |
 | `MONGODB_URI` | Atlas SRV string from §3 |
 | `MONGODB_DB` | `bigbosslive` |
 | `REDIS_URL` | internal Redis URL from §5 |
@@ -184,6 +185,8 @@ regardless (`npm ci --include=dev`).
 | `APPLE_BUNDLE_ID`, `APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY_BASE64`, `APPLE_ENVIRONMENT` | App Store Server API (`base64 -i AuthKey_XXX.p8 \| tr -d '\n'`) |
 | `JOBS_ENABLED` | `true` |
 | `AGENCY_RESET_TIMEZONE` | `Asia/Dhaka` |
+| `ASADSOFT_API_URL`, `ASADSOFT_API_KEY`, `ASADSOFT_API_SECRET`, `ASADSOFT_WALLET_TOKEN` | AsadSoft games: all four or none, see [GAMES.md](GAMES.md) |
+| `GAMES_REPORT_TIMEZONE` | `Asia/Dhaka` (day boundaries of the games reports) |
 | `SIGHTGUARD_ENABLED`, `SIGHTGUARD_API_URL`, `SIGHTGUARD_API_KEY`, `SIGHTGUARD_WEBHOOK_SECRET`, `SIGHTGUARD_LIVEKIT_CONNECTION_ID` | content moderation (optional, off by default), see [sightguard.md](sightguard.md) |
 
 The server validates its environment at boot and refuses to start in production without
@@ -191,36 +194,35 @@ The server validates its environment at boot and refuses to start in production 
 deployment logs, listing every bad variable.
 
 Mark secrets (`*_SECRET`, `*_BASE64`, `MONGODB_URI`, `REDIS_URL`, `S3_SECRET_ACCESS_KEY`,
-`SIGHTGUARD_API_KEY`) as
+`SIGHTGUARD_API_KEY`, `ASADSOFT_API_KEY`, `ASADSOFT_WALLET_TOKEN`) as
 locked in Coolify so they aren't shown in the UI.
 
-## 7. Admin dashboard and games
+## 7. Admin dashboard
 
-Create two more applications from the same repository:
+Create one more application from the same repository:
 
-| Setting | Admin | Games |
-|---|---|---|
-| Build Pack | `Dockerfile` | `Dockerfile` |
-| Base Directory | `/` | `/` |
-| Dockerfile Location | `/admin/Dockerfile` | `/games/Dockerfile` |
-| Ports Exposes | `80` | `80` |
-| Domains | `https://bigbosslive.asadsoft.cloud` | `https://games.example.com` |
+| Setting | Admin |
+|---|---|
+| Build Pack | `Dockerfile` |
+| Base Directory | `/` |
+| Dockerfile Location | `/admin/Dockerfile` |
+| Ports Exposes | `80` |
+| Domains | `https://bigbosslive.asadsoft.cloud` |
 
 Vite bakes `VITE_*` values into the bundle **at build time**. Add them as environment variables
 with **Build Variable** (*Available at Buildtime*) checked. After changing one, **redeploy**:
 a restart isn't enough.
 
-| Variable | Admin | Games |
-|---|---|---|
-| `VITE_API_URL` | `https://bigbossapi.asadsoft.cloud` | `https://bigbossapi.asadsoft.cloud` |
-| `VITE_FIREBASE_API_KEY` | Firebase web config | n/a |
-| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase web config | n/a |
-| `VITE_FIREBASE_PROJECT_ID` | Firebase web config | n/a |
-| `VITE_FIREBASE_APP_ID` | Firebase web config | n/a |
+| Variable | Admin |
+|---|---|
+| `VITE_API_URL` | `https://bigbossapi.asadsoft.cloud` |
+| `VITE_FIREBASE_API_KEY` | Firebase web config |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase web config |
+| `VITE_FIREBASE_PROJECT_ID` | Firebase web config |
+| `VITE_FIREBASE_APP_ID` | Firebase web config |
 
-Both images serve static files with nginx and the same headers as the `vercel.json` files: SPA
-fallback for admin, and multi-page `/golden-wheel/`, `/fortune-ferris/` and `/teen-patti/` for
-games. Hashed `/assets/*` files are cached for a year, and `index.html` is never cached, so a
+The image serves static files with nginx and the same headers as `admin/vercel.json`, with an
+SPA fallback. Hashed `/assets/*` files are cached for a year, and `index.html` is never cached, so a
 redeploy takes effect right away.
 
 ## 7.1 Share links (link-web)
@@ -286,11 +288,11 @@ can take up to a day to pick up a changed association file.
    ```
    The owner account must already exist in Firebase Auth (sign in once from the app or console).
    Never run `demo-data.js` in production.
-3. Deploy **admin** and **games**.
+3. Deploy **admin**.
 4. Sign in at `https://bigbosslive.asadsoft.cloud`, then:
    - set *Settings* (economy, features, app links)
-   - in *Games*, enable each game and set its URL: `https://games.example.com/golden-wheel/`,
-     `https://games.example.com/fortune-ferris/`, `https://games.example.com/teen-patti/`
+   - in *Games*, sync the AsadSoft catalogue, upload icons and switch games on
+     ([GAMES.md](GAMES.md) covers the AsadSoft operator setup and the wallet check)
    - create recharge packages whose ids match your store product ids
 5. Build the mobile apps against the API:
    `flutter build appbundle --dart-define=API_URL=https://bigbossapi.asadsoft.cloud` (see
@@ -304,7 +306,7 @@ curl -s https://bigbossapi.asadsoft.cloud/readyz         # {"mongo":true,"redis"
 curl -si https://bigbossapi.asadsoft.cloud/metrics | head -1   # 404: blocked for proxied traffic
 curl -si "https://bigbossapi.asadsoft.cloud/socket.io/?EIO=4&transport=polling" | head -1   # 200
 curl -sI https://bigbosslive.asadsoft.cloud/some/deep/link | grep -i x-frame-options   # DENY (SPA fallback)
-curl -sI https://games.example.com/golden-wheel/ | head -1                    # 200
+curl -s https://bigbossapi.asadsoft.cloud/v1/webhooks/asadsoft/balance?playerId=x   # 401: needs the wallet token
 ```
 
 Then go live from the app and confirm the room appears in the live list with a viewer count.
@@ -339,9 +341,9 @@ That exercises LiveKit tokens and the webhook end to end.
 | Boot hangs ~30 s, then `MongoServerSelectionError` with `tlsv1 alert internal error` / `SSL alert number 80` and `ReplicaSetNoPrimary` | The VPS IP isn't in Atlas *Network Access*. Find it with `curl -4 -s https://ifconfig.me` on the VPS, add it, wait until the entry is *Active*, then redeploy. |
 | `MongoServerSelectionError` / authentication failed, with the IP allow-listed | The URI or password is wrong. Use the `mongodb+srv://` string and URL-encode the password. |
 | `/readyz` shows `"redis": false` | `REDIS_URL` isn't the **internal** URL, or the password is wrong. |
-| 502 / *no available server* | *Ports Exposes* doesn't match the container (3000 for the API, 80 for admin and games), or the health check is failing. |
+| 502 / *no available server* | *Ports Exposes* doesn't match the container (3000 for the API, 80 for admin), or the health check is failing. |
 | Admin calls `localhost:3000` | `VITE_API_URL` wasn't a build variable, or you restarted instead of redeploying. |
-| Browser CORS error from admin or games | The origin, with exact scheme and no trailing slash, is missing from `CORS_ORIGINS`. |
+| Browser CORS error from admin | The origin, with exact scheme and no trailing slash, is missing from `CORS_ORIGINS`. |
 | Firebase `auth/unauthorized-domain` on admin sign-in | Add `bigbosslive.asadsoft.cloud` to Firebase authorised domains. |
 | Rate limits hit everyone at once or client IPs look wrong | `TRUST_PROXY` doesn't match the number of proxies (1 for Traefik, 2 with the Cloudflare proxy). |
 | Viewer counts stay at 0 | The LiveKit webhook URL is wrong or signed with a different API key. |

@@ -19,6 +19,10 @@ export function jobHandlers(ctx: Ctx): JobHandlers {
       ctx.services.notifications.pushFollowersGoLive(hostId, roomId),
     'sightguard.live': (job) => ctx.services.sightguard.runLiveJob(job),
     'sightguard.video': (job) => ctx.services.sightguard.runVideoJob(job),
+    'games.end_sessions': async (scope) => {
+      await ctx.services.games.runEndSessions(scope);
+    },
+    'games.purchase': ({ rechargeId }) => ctx.services.games.reportPurchase(rechargeId),
   };
 }
 
@@ -27,7 +31,6 @@ export function jobHandlers(ctx: Ctx): JobHandlers {
  * cluster no matter how many replicas run a worker — the deployment is leader-free.
  */
 export const TICKS: { name: string; everyMs: number; run: (ctx: Ctx) => Promise<unknown> }[] = [
-  { name: 'games.tick', everyMs: 1_000, run: (ctx) => ctx.services.games.tick() },
   { name: 'pk.sweep', everyMs: 2_000, run: (ctx) => ctx.services.pk.sweep() },
   // Songs that ended while every player was hidden; deadlines are `youtube.current.endsAt`.
   { name: 'youtube.sweep', everyMs: 2_000, run: (ctx) => ctx.services.youtube.sweep() },
@@ -41,6 +44,8 @@ export const TICKS: { name: string; everyMs: number; run: (ctx: Ctx) => Promise<
       await ctx.services.store.sweepExpired();
     },
   },
+  // The AsadSoft catalogue: games added or withdrawn on their side. Admins can also sync now.
+  { name: 'games.sync', everyMs: 60 * 60_000, run: (ctx) => ctx.services.games.syncTick() },
   // Hourly is enough: members are also rolled lazily on their first earning in a new month.
   {
     name: 'agencies.reset',

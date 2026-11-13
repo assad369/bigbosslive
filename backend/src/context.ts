@@ -1,6 +1,7 @@
 import type { Redis } from 'ioredis';
 import type { Env } from './config/env.js';
 import type { Collections, Database } from './db/mongo.js';
+import type { AsadSoftGateway } from './infra/asadsoft.js';
 import type { AuthProvider, PushGateway } from './infra/firebase.js';
 import type { IapGateway } from './infra/iap.js';
 import type { LiveKitGateway } from './infra/livekit.js';
@@ -31,6 +32,7 @@ export interface Ctx {
   iap: IapGateway;
   sightguard: SightGuardGateway;
   youtube: YouTubeGateway;
+  asadsoft: AsadSoftGateway;
   realtime: RealtimeBus;
   jobs: JobQueue;
   services: Services;

@@ -5,7 +5,7 @@ touching money, live rooms, PK or games: those rules exist because the naive ver
 
 ## Layout
 
-npm workspaces: `packages/shared`, `backend`, `admin`, `games`, `link-web`. The Flutter app in `app/` is
+npm workspaces: `packages/shared`, `backend`, `admin`, `link-web`. The Flutter app in `app/` is
 separate (pub). `packages/shared` must be built (`npm run build:shared`) before the others
 typecheck. It holds the API types, `SOCKET` and `LIVEKIT_TOPICS` names, and the colour tokens.
 
@@ -14,7 +14,7 @@ typecheck. It holds the API types, `SOCKET` and `LIVEKIT_TOPICS` names, and the 
 ```bash
 npm run lint | format:check | typecheck
 npm test -w backend                      # MONGOMS_SYSTEM_BINARY=/path/to/mongod to skip the download
-npm run dev:backend | dev:admin | dev:games | dev:link
+npm run dev:backend | dev:admin | dev:link
 npm test -w link-web                     # node:test via tsx
 cd app && flutter analyze && flutter test && dart format lib test
 ```
@@ -63,7 +63,7 @@ cd app && flutter analyze && flutter test && dart format lib test
 - **Every balance change goes through `WalletService.debit/credit`** inside a transaction
   (`ctx.db.withTransaction`). Each writes a conditional `$inc` (it can never go negative) plus a
   `ledger` row. Nothing else may `$inc` a `wallet.*` field.
-- **Idempotency:** gifts (`gift_transactions.idempotencyKey`), recharges, withdrawals, game bets,
+- **Idempotency:** gifts (`gift_transactions.idempotencyKey`), recharges, withdrawals,
   and VIP/cosmetic purchases (`lib/idempotency.ts` `once()`) are keyed by a client
   `Idempotency-Key`, scoped to the user. A retry returns the original result. Unique indexes are
   the guard, not read-then-write.
@@ -343,13 +343,52 @@ cd app && flutter analyze && flutter test && dart format lib test
 - Cross-room video is SFU forwarding (`livekit.forwardParticipant`). Clients never connect to the
   other room.
 
-## Games
+## Games (AsadSoft)
 
-- Server-authoritative round engine (`modules/games/games.service.ts`), driven by the
-  `games.tick` job. Transitions are conditional updates, and settlement is per bet, conditional
-  on `status: 'placed'`.
-- Commit–reveal RNG (`rng.ts`). Never expose `serverSeed` before settlement (`toRound` hides it).
-- `updateConfig` rejects weighted configs with RTP > 100%.
+Games come from the provider AsadSoft; we are its operator. `docs/GAMES.md` has the setup and
+the full contract.
+
+- **Money moves only through the wallet callbacks** at `/v1/webhooks/asadsoft/{balance,debit,credit}`
+  (`routes/asadsoft-wallet.ts`, `GameWalletService`).
+  - They are mounted before the JSON parser. Auth is a Bearer token plus an HMAC
+    `X-Signature` over the raw bytes, and they fail closed without the `ASADSOFT_*` env.
+  - Replies use the provider's shape (`{ success, balance, data }` / `{ success: false, error }`),
+    not ours.
+  - The top-level `balance` is required: AsadSoft reads it.
+- **`txId` is the idempotency:** `game_wallet_txs._id`, claimed first in the transaction that
+  moves the diamonds.
+  - A replay returns the stored reply, and must be a 200 for an applied call: a 4xx on a
+    retried debit reads as "nothing moved" on their side.
+  - Refusals are stored too.
+  - `refTxId` reverses at most the original, once. An unseen original gets a tombstone and is
+    refused (409) when it arrives.
+  - Credits are floored.
+- **The stake gate:** a debit without `refTxId` (stake, bet, transfer-in) is refused if the
+  player may not play: games off, game off or withdrawn, blocked, level too low, inactive.
+  - Its rule is `gameLock()` (`modules/games/access.ts`), the same one launch and the app's
+    list use.
+  - Credits and reversals are never gated.
+- **Game money never moves level:** it uses the `game_*` ledger reasons.
+- **Stats** (`game_player_days`, `game_user_stats`) are `$inc`'d in the same transaction as the
+  money. A reversal nets out of the kind it reverses.
+  - Keep them per player. A per-game daily row would make every stake in a busy room
+    write-conflict.
+- **Launch** (`GamesService.launch`):
+  - The API key stays on the server.
+  - The playerId is the uid (no `:`, since AsadSoft builds txIds from it).
+  - Each session's token is kept in `game_sessions` (TTL) so a block or switch-off can end it
+    (`games.end_sessions`). AsadSoft has no API-key route for that.
+- **Admin:**
+  - `games.read` reads; `games.manage` changes the catalogue and settings
+    (`PUT /admin/games/settings` writes `features.gamesEnabled` and the `games` config key).
+  - `games.block` (moderators, admins) blocks a player (`users.gamesBlock`).
+  - New catalogue rows sync in disabled.
+- **The app** (`features/games/`):
+  - A game is a 75% bottom sheet (`GameSheet`) on the root navigator.
+  - `game_host_bridge.dart` injects a `message` listener plus a no-op `flutter_inappwebview`
+    stub, because the provider's bridge only knows `postMessage` and flutter_inappwebview.
+  - Every way out goes through `REQUEST_EXIT` (`GameExitController`). Never pop the sheet
+    directly while a game is loaded.
 
 ## Share links
 
@@ -393,7 +432,7 @@ cd app && flutter analyze && flutter test && dart format lib test
 
 ## Realtime & jobs
 
-- Socket.IO namespaces: `/` (personal events and the live directory) and `/games`.
+- Socket.IO namespace: `/` (personal events and the live directory).
 - `wallet:updated` (`{ reason, diamonds }`) goes to every user whose diamonds moved, once
   per transaction after commit (`WalletService.track`). The app applies `diamonds` at once
   and debounces a full `/me` refresh.

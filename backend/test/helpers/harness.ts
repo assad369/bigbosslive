@@ -16,6 +16,13 @@ import {
   type PushGateway,
   type PushMessage,
 } from '../../src/infra/firebase.js';
+import type {
+  AsadSoftGame,
+  AsadSoftGateway,
+  AsadSoftLaunch,
+  AsadSoftLaunchInput,
+  AsadSoftPurchase,
+} from '../../src/infra/asadsoft.js';
 import type { IapGateway } from '../../src/infra/iap.js';
 import type { LiveKitGateway, TokenRequest } from '../../src/infra/livekit.js';
 import {
@@ -278,6 +285,62 @@ export class FakeIap implements IapGateway {
   }
 }
 
+/** Test values for the AsadSoft env: launch and the wallet callbacks are configured. */
+export const ASADSOFT_TEST_ENV = {
+  ASADSOFT_API_URL: 'https://asadsoft.test/api/v1',
+  ASADSOFT_API_KEY: 'ask_live_test_key',
+  ASADSOFT_API_SECRET: 'test-operator-api-secret-0123456789',
+  ASADSOFT_WALLET_TOKEN: 'test-wallet-token-0123456789abcdef',
+};
+
+/** In-memory AsadSoft. Set `failWith` to make launch and listGames throw it. */
+export class FakeAsadSoft implements AsadSoftGateway {
+  configured = true;
+  games: AsadSoftGame[] = [
+    {
+      gameId: 'greedy-star2',
+      name: 'Greedy Star 2',
+      category: 'casual',
+      thumbnailUrl: null,
+      sortOrder: 1,
+    },
+    {
+      gameId: 'royal-teen-patti',
+      name: 'Royal Teen Patti',
+      category: 'card',
+      thumbnailUrl: null,
+      sortOrder: 2,
+    },
+  ];
+  readonly launches: AsadSoftLaunchInput[] = [];
+  readonly ended: { sessionId: string; token: string }[] = [];
+  readonly purchases: AsadSoftPurchase[] = [];
+  failWith: Error | null = null;
+  private seq = 0;
+
+  async listGames() {
+    if (this.failWith) throw this.failWith;
+    return this.games;
+  }
+  async launch(input: AsadSoftLaunchInput): Promise<AsadSoftLaunch> {
+    if (this.failWith) throw this.failWith;
+    this.launches.push(input);
+    const sessionId = `sess-${++this.seq}`;
+    return {
+      sessionId,
+      gameUrl: `https://games.asadsoft.test/${input.gameId}/?token=jwt-${sessionId}&lang=${input.language}`,
+      expiresAt: new Date(Date.now() + 4 * 3600_000),
+    };
+  }
+  async endSession(sessionId: string, token: string) {
+    this.ended.push({ sessionId, token });
+  }
+  async reportPurchases(rows: AsadSoftPurchase[]) {
+    this.purchases.push(...rows);
+    return { recorded: rows.length, duplicates: 0 };
+  }
+}
+
 /** In-memory YouTube. `failing` simulates an outage, `quota` a spent quota. */
 export class FakeYouTube implements YouTubeGateway {
   configured = true;
@@ -334,6 +397,7 @@ export interface Harness {
   iap: FakeIap;
   sightguard: FakeSightGuard;
   youtube: FakeYouTube;
+  asadsoft: FakeAsadSoft;
   jobs: InlineJobQueue;
   client: MongoClient;
   /** Insert a user directly (bypassing the API) with optional overrides. */
@@ -360,6 +424,8 @@ export async function createHarness(): Promise<Harness> {
     MONGODB_URI: uri,
     LOG_LEVEL: 'silent',
     AGENCY_RESET_TIMEZONE: 'UTC',
+    GAMES_REPORT_TIMEZONE: 'UTC',
+    ...ASADSOFT_TEST_ENV,
   });
   const log = createLogger({ level: process.env.LOG_LEVEL ?? 'silent' });
   const clock = new TestClock();
@@ -369,6 +435,7 @@ export async function createHarness(): Promise<Harness> {
   const iap = new FakeIap();
   const sightguard = new FakeSightGuard();
   const youtube = new FakeYouTube();
+  const asadsoft = new FakeAsadSoft();
   const jobs = new InlineJobQueue(log);
 
   const ctx = buildContext({
@@ -383,6 +450,7 @@ export async function createHarness(): Promise<Harness> {
     iap,
     sightguard,
     youtube,
+    asadsoft,
     jobs,
     clock,
   });
@@ -447,6 +515,7 @@ export async function createHarness(): Promise<Harness> {
     iap,
     sightguard,
     youtube,
+    asadsoft,
     jobs,
     client,
     user,

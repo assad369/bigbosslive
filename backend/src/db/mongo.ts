@@ -51,9 +51,11 @@ export interface Collections {
   deviceBans: Collection<S.DeviceBanDoc>;
   pkBattles: Collection<S.PkBattleDoc>;
   pkContributions: Collection<S.PkContributionDoc>;
-  games: Collection<S.GameDoc>;
-  gameRounds: Collection<S.GameRoundDoc>;
-  gameBets: Collection<S.GameBetDoc>;
+  gameCatalog: Collection<S.GameCatalogDoc>;
+  gameWalletTxs: Collection<S.GameWalletTxDoc>;
+  gamePlayerDays: Collection<S.GamePlayerDayDoc>;
+  gameUserStats: Collection<S.GameUserStatsDoc>;
+  gameSessions: Collection<S.GameSessionDoc>;
   banners: Collection<S.BannerDoc>;
   appConfig: Collection<S.AppConfigDoc>;
   auditLogs: Collection<S.AuditLogDoc>;
@@ -105,9 +107,11 @@ const NAMES: Record<keyof Collections, string> = {
   deviceBans: 'device_bans',
   pkBattles: 'pk_battles',
   pkContributions: 'pk_contributions',
-  games: 'games',
-  gameRounds: 'game_rounds',
-  gameBets: 'game_bets',
+  gameCatalog: 'game_catalog',
+  gameWalletTxs: 'game_wallet_txs',
+  gamePlayerDays: 'game_player_days',
+  gameUserStats: 'game_user_stats',
+  gameSessions: 'game_sessions',
   banners: 'banners',
   appConfig: 'app_config',
   auditLogs: 'audit_logs',

@@ -1194,23 +1194,62 @@ class StoreItem {
   );
 }
 
+/// Why a game can't be opened: `disabled`, `level` (with [minLevel]), `blocked` or
+/// `live_off`. Null on [GameInfo.lock] when it can.
+class GameLock {
+  const GameLock({required this.reason, this.minLevel});
+  final String reason;
+  final int? minLevel;
+
+  factory GameLock.fromJson(Json j) => GameLock(
+    reason: j.str('reason', 'disabled'),
+    minLevel: j['minLevel'] == null ? null : j.integer('minLevel'),
+  );
+
+  /// What the player is told.
+  String get message => switch (reason) {
+    'level' => 'Reach level ${minLevel ?? 0} to play this game',
+    'blocked' => 'Games are not available for your account',
+    'live_off' => "This game isn't available in live rooms",
+    _ => 'This game is not available right now',
+  };
+}
+
+/// An AsadSoft game as the app lists it (`GET /games`).
 class GameInfo {
   const GameInfo({
-    required this.key,
+    required this.gameId,
     required this.name,
-    required this.url,
+    required this.category,
     this.iconUrl,
+    this.lock,
   });
-  final String key;
+  final String gameId;
   final String name;
-  final String url;
+  final String category;
   final String? iconUrl;
+  final GameLock? lock;
+
   factory GameInfo.fromJson(Json j) => GameInfo(
-    key: j.str('key'),
+    gameId: j.str('gameId'),
     name: j.str('name'),
-    url: j.str('url'),
+    category: j.str('category', 'casual'),
     iconUrl: j.strOrNull('iconUrl'),
+    lock: switch (j.objOrNull('lock')) {
+      final Json l => GameLock.fromJson(l),
+      null => null,
+    },
   );
+}
+
+/// A launched provider session: the URL to open, carrying a session token.
+class GameLaunch {
+  const GameLaunch({required this.gameUrl, required this.sessionId});
+  final String gameUrl;
+  final String sessionId;
+
+  factory GameLaunch.fromJson(Json j) =>
+      GameLaunch(gameUrl: j.str('gameUrl'), sessionId: j.str('sessionId'));
 }
 
 class PkHost {

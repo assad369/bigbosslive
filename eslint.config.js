@@ -25,7 +25,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['admin/**/*.{ts,tsx}', 'games/**/*.ts'],
+    files: ['admin/**/*.{ts,tsx}'],
     languageOptions: { globals: { ...globals.browser } },
     plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
     rules: {

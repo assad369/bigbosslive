@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server, type Socket } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
-import { GAME_KEYS, SOCKET, type GameKey } from '@bigboss/shared';
+import { SOCKET } from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 
 interface SocketData {
@@ -66,23 +66,6 @@ export function attachSocketServer(ctx: Ctx, http: HttpServer): Server {
           conversationId,
           uid,
         });
-    });
-  });
-
-  // ── Games namespace: round updates for the WebView games ───────────────────────
-  const games = io.of(SOCKET.namespaces.games);
-  games.use(authenticate);
-  games.on('connection', (socket) => {
-    const { uid } = socket.data as SocketData;
-    void socket.join(`user:${uid}`);
-    socket.on(SOCKET.games.subscribe, async (key: unknown, ack?: (state: unknown) => void) => {
-      if (typeof key !== 'string' || !(GAME_KEYS as readonly string[]).includes(key)) return;
-      await socket.join(`game:${key}`);
-      if (typeof ack === 'function')
-        ack(await ctx.services.games.state(key as GameKey, uid).catch(() => null));
-    });
-    socket.on(SOCKET.games.unsubscribe, (key: unknown) => {
-      if (typeof key === 'string') void socket.leave(`game:${key}`);
     });
   });
 

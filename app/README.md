@@ -23,7 +23,7 @@ lib/
   models/models.dart          immutable models with strict-cast-safe fromJson
   features/                   auth, home, live (room, gifts, PK, seats), chat, feed, profile,
                               wallet (IAP, ledger, withdrawals, agent), store/VIP, agency,
-                              games (WebView bridge), leaderboard, notifications
+                              games (AsadSoft in a WebView sheet), leaderboard, notifications
 ```
 
 ## Setup

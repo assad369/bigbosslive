@@ -1,119 +1,111 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
-import '../../core/config/env.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import 'game_sheet.dart';
 
-final _gamesProvider = FutureProvider.autoDispose(
-  (ref) => ref.watch(economyRepo).games(),
+/// AsadSoft games with my lock on each. `true`: the live room's list.
+final gamesProvider = FutureProvider.autoDispose.family<List<GameInfo>, bool>(
+  (ref, inLive) => ref.watch(economyRepo).games(inLive: inLive),
 );
 
+const _responsibleNote =
+    'Games use diamonds, which have no cash value. Play responsibly — 18+ only.';
+
+/// The Games screen (home and profile). A game opens in a [GameSheet] over it.
 class GamesScreen extends ConsumerWidget {
   const GamesScreen({super.key});
 
-  static const _art = {
-    'golden_wheel': ('👑', BBColors.goldGradient),
-    'fortune_ferris': ('🎡', BBColors.bronzeGradient),
-    'teen_patti': (
-      '🂡',
-      LinearGradient(colors: [BBColors.feltGreen, BBColors.feltGreenDeep]),
-    ),
-  };
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final games = ref.watch(_gamesProvider);
+    final games = ref.watch(gamesProvider(false));
     return Scaffold(
       appBar: AppBar(title: const Text('Games')),
-      body: AsyncView(
-        value: games,
-        onRetry: () => ref.invalidate(_gamesProvider),
-        data: (items) => items.isEmpty
-            ? const EmptyState(
-                icon: Icons.casino_outlined,
-                title: 'Games are resting',
-                message: 'Check back soon.',
-              )
-            : ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  for (final g in items)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(22),
-                        onTap: () => context.push('/games/play', extra: g),
-                        child: Container(
-                          height: 120,
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            gradient: _art[g.key]?.$2 ?? BBColors.goldGradient,
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          child: Row(
-                            children: [
-                              Text(
-                                _art[g.key]?.$1 ?? '🎲',
-                                style: const TextStyle(fontSize: 54),
-                              ),
-                              const SizedBox(width: 18),
-                              Expanded(
-                                child: Text(
-                                  g.name,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineSmall
-                                      ?.copyWith(color: BBColors.ivory),
+      body: RefreshIndicator(
+        onRefresh: () => ref.refresh(gamesProvider(false).future),
+        child: AsyncView(
+          value: games,
+          onRetry: () => ref.invalidate(gamesProvider(false)),
+          data: (items) => items.isEmpty
+              ? ListView(
+                  children: const [
+                    SizedBox(height: 80),
+                    EmptyState(
+                      icon: Icons.casino_outlined,
+                      title: 'Games are resting',
+                      message: 'Check back soon.',
+                    ),
+                  ],
+                )
+              : CustomScrollView(
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.all(16),
+                      sliver: SliverGrid.extent(
+                        maxCrossAxisExtent: 180,
+                        mainAxisSpacing: 14,
+                        crossAxisSpacing: 14,
+                        childAspectRatio: 0.82,
+                        children: [
+                          for (final g in items)
+                            GameTile(
+                              game: g,
+                              onTap: () => unawaited(
+                                GameSheet.show(context, g, inLive: false).then(
+                                  // A lock may have changed while playing (a level up).
+                                  (_) => ref.invalidate(gamesProvider(false)),
                                 ),
                               ),
-                              const Icon(
-                                Icons.play_circle_fill_rounded,
-                                color: BBColors.ivory,
-                                size: 40,
-                              ),
-                            ],
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(24, 0, 24, 32),
+                        child: Text(
+                          _responsibleNote,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: BBColors.inkSubtle,
+                            fontSize: 12,
                           ),
                         ),
                       ),
                     ),
-                  const Text(
-                    'Games use diamonds, which have no cash value. Play responsibly — 18+ only.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: BBColors.inkSubtle, fontSize: 12),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+        ),
       ),
     );
   }
 }
 
-/// Hosts a WebView game. The Firebase ID token travels in the URL fragment (never sent to a
-/// server); refreshes are pushed through `window.bbSetToken` when the game asks.
-/// The live room's Games button: the same games in a sheet. A game opens on top of the
-/// live, which keeps running underneath.
+/// The live room's Games button: the live room's games in a picker. A game then opens in a
+/// [GameSheet] over the live, which keeps playing above it.
 class LiveGamesSheet extends ConsumerWidget {
   const LiveGamesSheet({super.key});
 
-  static Future<void> show(BuildContext context) => showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    builder: (_) => const LiveGamesSheet(),
-  );
+  static Future<void> show(BuildContext context) async {
+    final picked = await showModalBottomSheet<GameInfo>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => const LiveGamesSheet(),
+    );
+    if (picked != null && context.mounted) {
+      await GameSheet.show(context, picked, inLive: true);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final games = ref.watch(_gamesProvider);
+    final games = ref.watch(gamesProvider(true));
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -128,7 +120,7 @@ class LiveGamesSheet extends ConsumerWidget {
             const SizedBox(height: 12),
             AsyncView(
               value: games,
-              onRetry: () => ref.invalidate(_gamesProvider),
+              onRetry: () => ref.invalidate(gamesProvider(true)),
               data: (items) => items.isEmpty
                   ? const EmptyState(
                       icon: Icons.casino_outlined,
@@ -137,46 +129,18 @@ class LiveGamesSheet extends ConsumerWidget {
                     )
                   : GridView.extent(
                       shrinkWrap: true,
-                      maxCrossAxisExtent: 92,
-                      mainAxisSpacing: 8,
-                      crossAxisSpacing: 8,
-                      childAspectRatio: 92 / 100,
+                      maxCrossAxisExtent: 96,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: 0.78,
                       children: [
                         for (final g in items)
-                          InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () {
-                              final router = GoRouter.of(context);
-                              Navigator.pop(context);
-                              unawaited(router.push('/games/play', extra: g));
-                            },
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 60,
-                                  height: 60,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    gradient:
-                                        GamesScreen._art[g.key]?.$2 ??
-                                        BBColors.goldGradient,
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  child: Text(
-                                    GamesScreen._art[g.key]?.$1 ?? '🎲',
-                                    style: const TextStyle(fontSize: 32),
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  g.name,
-                                  maxLines: 2,
-                                  textAlign: TextAlign.center,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ],
-                            ),
+                          GameTile(
+                            game: g,
+                            dense: true,
+                            onTap: () => g.lock == null
+                                ? Navigator.pop(context, g)
+                                : showMessage(context, g.lock!.message),
                           ),
                       ],
                     ),
@@ -188,165 +152,131 @@ class LiveGamesSheet extends ConsumerWidget {
   }
 }
 
-class GameWebViewScreen extends ConsumerStatefulWidget {
-  const GameWebViewScreen({super.key, required this.game});
+/// A game's icon and name; locked games are dimmed with what unlocks them.
+class GameTile extends StatelessWidget {
+  const GameTile({
+    super.key,
+    required this.game,
+    required this.onTap,
+    this.dense = false,
+  });
   final GameInfo game;
+  final VoidCallback onTap;
+  final bool dense;
+
+  static Gradient gradientFor(String category) => switch (category) {
+    'card' => const LinearGradient(
+      colors: [BBColors.feltGreen, BBColors.feltGreenDeep],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ),
+    'table' => BBColors.umberGradient,
+    'slots' => BBColors.bronzeGradient,
+    _ => BBColors.goldGradient,
+  };
+
+  static IconData iconFor(String category) => switch (category) {
+    'card' => Icons.style_rounded,
+    'table' => Icons.casino_rounded,
+    'slots' => Icons.attach_money_rounded,
+    _ => Icons.sports_esports_rounded,
+  };
 
   @override
-  ConsumerState<GameWebViewScreen> createState() => _GameWebViewScreenState();
-}
-
-class _GameWebViewScreenState extends ConsumerState<GameWebViewScreen> {
-  WebViewController? _controller;
-  bool _loading = true;
-  Object? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_init());
-  }
-
-  /// The ID token rides in the fragment, but the page's scripts read it, so a page served
-  /// over plain http could be swapped by anyone on the network. Release builds only load
-  /// https (debug builds allow a local dev server).
-  static bool _allowed(Uri uri) =>
-      uri.scheme == 'https' || (!kReleaseMode && uri.scheme == 'http');
-
-  Future<void> _init() async {
-    if (_error != null) {
-      // A retry; the first run comes from initState, where setState isn't allowed.
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
-    try {
-      final base = Uri.parse(widget.game.url);
-      if (!_allowed(base)) {
-        throw const FormatException('This game is unavailable right now.');
-      }
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-      final url = base.replace(
-        fragment:
-            'token=${Uri.encodeComponent(token ?? '')}&api=${Uri.encodeComponent(Env.apiUrl)}',
-      );
-      final c = WebViewController();
-      // Set before loading: the page may post a message as soon as it starts.
-      _controller = c;
-      await c.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await c.setBackgroundColor(BBColors.espresso);
-      await c.addJavaScriptChannel(
-        'BigBossBridge',
-        onMessageReceived: (m) => _onMessage(m.message),
-      );
-      await c.setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) =>
-              mounted ? setState(() => _loading = false) : null,
-          onWebResourceError: (e) {
-            // Only a failed page counts; a missing image inside the game doesn't.
-            if (e.isForMainFrame ?? true) {
-              if (mounted) setState(() => _error = e.description);
-            }
-          },
-          // Keep the WebView on the game's own origin, over an allowed scheme.
-          onNavigationRequest: (r) {
-            final next = Uri.tryParse(r.url);
-            return next != null && next.host == base.host && _allowed(next)
-                ? NavigationDecision.navigate
-                : NavigationDecision.prevent;
-          },
-        ),
-      );
-      await c.loadRequest(url);
-      if (mounted) setState(() {});
-    } catch (e) {
-      if (mounted) setState(() => _error = e);
-    }
-  }
-
-  Future<void> _onMessage(String raw) async {
-    Map<String, dynamic> msg;
-    try {
-      msg = jsonDecode(raw) as Map<String, dynamic>;
-    } catch (_) {
-      return;
-    }
-    switch (msg['type']) {
-      case 'token_expired':
-        try {
-          final token = await FirebaseAuth.instance.currentUser?.getIdToken(
-            true,
-          );
-          await _controller?.runJavaScript(
-            'window.bbSetToken && window.bbSetToken(${jsonEncode(token ?? '')})',
-          );
-        } catch (_) {
-          /* the game shows its own sign-in error */
-        }
-      case 'close':
-        if (mounted) context.pop();
-      case 'recharge':
-        if (mounted) unawaited(context.push('/wallet'));
-      case 'balance':
-        // The page's word is only a hint that the balance moved; the server is the source.
-        if (mounted) unawaited(ref.read(sessionProvider.notifier).refresh());
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: BBColors.espresso,
-    body: SafeArea(
-      child: _error != null
-          ? Column(
-              children: [
-                Align(
-                  alignment: Alignment.topLeft,
-                  child: IconButton(
-                    tooltip: 'Close',
-                    onPressed: () => context.pop(),
-                    icon: const Icon(Icons.close, color: BBColors.ivory),
-                  ),
+  Widget build(BuildContext context) {
+    final lock = game.lock;
+    final radius = BorderRadius.circular(dense ? 16 : 22);
+    final art = Container(
+      decoration: BoxDecoration(
+        gradient: gradientFor(game.category),
+        borderRadius: radius,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: game.iconUrl == null
+          ? Center(
+              child: Icon(
+                iconFor(game.category),
+                color: BBColors.ivory,
+                size: dense ? 32 : 56,
+              ),
+            )
+          : CachedNetworkImage(
+              imageUrl: game.iconUrl!,
+              fit: BoxFit.cover,
+              errorWidget: (_, _, _) => Center(
+                child: Icon(
+                  iconFor(game.category),
+                  color: BBColors.ivory,
+                  size: dense ? 32 : 56,
                 ),
-                Expanded(
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.wifi_off_rounded,
-                            color: BBColors.goldLight,
-                            size: 48,
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'The game didn\'t load',
-                            style: TextStyle(
-                              color: BBColors.ivory,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
+              ),
+            ),
+    );
+    return Semantics(
+      button: true,
+      label: lock == null ? game.name : '${game.name}. ${lock.message}',
+      excludeSemantics: true,
+      child: InkWell(
+        borderRadius: radius,
+        onTap: onTap,
+        child: Column(
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Opacity(opacity: lock == null ? 1 : 0.45, child: art),
+                  if (lock != null)
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: BBColors.espressoShade,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.lock_rounded,
+                              color: BBColors.goldLight,
+                              size: dense ? 12 : 14,
                             ),
-                          ),
-                          const SizedBox(height: 16),
-                          GoldButton(label: 'Try again', onPressed: _init),
-                        ],
+                            if (lock.reason == 'level') ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                'Lv ${lock.minLevel ?? 0}',
+                                style: TextStyle(
+                                  color: BBColors.goldLight,
+                                  fontSize: dense ? 10 : 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ],
-            )
-          : Stack(
-              children: [
-                if (_controller != null)
-                  WebViewWidget(controller: _controller!),
-                if (_loading) const Center(child: CircularProgressIndicator()),
-              ],
+                ],
+              ),
             ),
-    ),
-  );
+            SizedBox(height: dense ? 6 : 8),
+            Text(
+              game.name,
+              maxLines: dense ? 2 : 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: dense ? 12 : 14,
+                fontWeight: dense ? FontWeight.w500 : FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

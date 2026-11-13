@@ -9,7 +9,7 @@ import {
   ADMIN_UPLOAD_KIND_NAMES,
   ADMIN_UPLOAD_KINDS,
   CURRENCIES,
-  GAME_KEYS,
+  GAME_ID_PATTERN,
   MAX_COSMETICS_PER_BATCH,
   MAX_GRANT_DAYS,
   MAX_LEVEL,
@@ -64,12 +64,17 @@ import { resolveFrame } from '../modules/users/users.presenter.js';
 import { agencyInput } from '../modules/agencies/agencies.service.js';
 import { announcementInput } from '../modules/notifications/notifications.service.js';
 import { bannerInput } from '../modules/banners/banners.service.js';
-import { gameConfigInput, gameMetaInput } from '../modules/games/games.service.js';
+import {
+  gamePatchInput,
+  gamesBlockInput,
+  gamesSettingsInput,
+} from '../modules/games/games.service.js';
+import { dayRangeQuery, transactionsQuery } from '../modules/games/games-stats.service.js';
 import { rechargePackageInput } from '../modules/wallet/iap.service.js';
 import { toLiveRoom } from '../modules/live/live.presenter.js';
 
 const idParams = z.object({ id: objectIdString });
-const gameParam = z.object({ key: z.enum(GAME_KEYS) });
+const gameParam = z.object({ gameId: z.string().regex(GAME_ID_PATTERN) });
 const dateRange = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() });
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -1001,46 +1006,94 @@ export function adminRoutes(ctx: Ctx): Router {
     res.status(204).end();
   });
 
-  // ── Games ─────────────────────────────────────────────────────────────────
+  // ── Games (AsadSoft) ──────────────────────────────────────────────────────
   r.get('/games', can('games.read'), async (_req, res) => {
-    res.json({ items: await s.games.registry(true) });
+    const [items, settings, integration] = await Promise.all([
+      s.games.catalog(),
+      s.games.settings(),
+      s.games.integration(),
+    ]);
+    res.json({ items, settings, integration });
   });
 
-  r.patch('/games/:key', can('games.manage'), async (req, res) => {
-    const { key } = parseParams(req, gameParam);
-    const patch = parseBody(req, gameMetaInput);
-    const game = await s.games.updateMeta(key, patch);
-    await audit(req, 'game.update', 'game', key, patch);
+  r.post('/games/sync', can('games.manage'), async (req, res) => {
+    const result = await s.games.syncCatalog(currentUser(req).uid);
+    await audit(req, 'game.sync', 'game', null, result);
+    res.json({ ...result, items: await s.games.catalog() });
+  });
+
+  /** The master switch and global rules. Turning games off ends every open session. */
+  r.put('/games/settings', can('games.manage'), async (req, res) => {
+    const input = parseBody(req, gamesSettingsInput);
+    const settings = await s.games.updateSettings(input, currentUser(req).uid);
+    await audit(req, 'game.settings', 'game', null, input);
+    res.json({ settings });
+  });
+
+  r.patch('/games/:gameId', can('games.manage'), async (req, res) => {
+    const { gameId } = parseParams(req, gameParam);
+    const patch = parsePatch(req, gamePatchInput);
+    const game = await s.games.update(gameId, patch, currentUser(req).uid);
+    await audit(req, 'game.update', 'game', gameId, patch);
     res.json({ game });
   });
 
-  r.put('/games/:key/config', can('games.manage'), async (req, res) => {
-    const { key } = parseParams(req, gameParam);
-    const config = parseBody(req, gameConfigInput);
-    const game = await s.games.updateConfig(key, config);
-    await audit(req, 'game.config', 'game', key, config);
-    res.json({ game });
+  r.get('/games/stats/overview', can('games.read'), async (req, res) => {
+    const q = parseQuery(req, dayRangeQuery.partial());
+    res.json(await s.gamesStats.overview(q.from && q.to ? { from: q.from, to: q.to } : undefined));
   });
 
-  r.get('/games/:key/rounds', can('games.read'), async (req, res) => {
-    const { key } = parseParams(req, gameParam);
-    const q = parseQuery(req, pageQuery);
-    res.json(await s.games.rounds(key, q.page, q.pageSize));
+  r.get('/games/stats/daily', can('games.read'), async (req, res) => {
+    const { from, to } = parseQuery(req, dayRangeQuery);
+    res.json({ items: await s.gamesStats.daily(from, to) });
   });
 
-  r.get('/games/:key/analytics', can('games.read'), async (req, res) => {
-    const { key } = parseParams(req, gameParam);
-    const { days } = parseQuery(
+  r.get('/games/stats/by-game', can('games.read'), async (req, res) => {
+    const { from, to } = parseQuery(req, dayRangeQuery);
+    res.json({ items: await s.gamesStats.byGame(from, to) });
+  });
+
+  r.get('/games/stats/top-players', can('games.read'), async (req, res) => {
+    const { from, to, side, limit } = parseQuery(
       req,
-      z.object({ days: z.coerce.number().int().min(1).max(90).default(14) }),
+      dayRangeQuery.extend({
+        side: z.enum(['winners', 'losers']).default('winners'),
+        limit: z.coerce.number().int().min(1).max(100).default(20),
+      }),
     );
-    res.json(await s.games.analytics(key, days));
+    res.json({ items: await s.gamesStats.topPlayers(from, to, side, limit) });
   });
 
-  r.post('/games/rounds/:id/void', can('games.manage'), async (req, res) => {
-    const result = await s.games.voidRound(oid(req));
-    await audit(req, 'game.void_round', 'game_round', parseParams(req, idParams).id, result);
-    res.json(result);
+  r.get('/games/transactions', can('games.read'), async (req, res) => {
+    res.json(await s.gamesStats.transactions(parseQuery(req, transactionsQuery)));
+  });
+
+  r.get('/games/blocked', can('games.read'), async (req, res) => {
+    res.json(await s.games.blocked(parseQuery(req, cursorQuery)));
+  });
+
+  /** A player's games figures; `:uid` also takes a short id. Also for staff who can block. */
+  r.get('/games/players/:uid', async (req, res) => {
+    const role = currentUser(req).adminRole;
+    if (!hasPermission(role, 'games.read') && !hasPermission(role, 'games.block'))
+      throw forbidden();
+    const { uid } = z.object({ uid: z.string().trim().min(1).max(128) }).parse(req.params);
+    res.json(await s.gamesStats.player(uid));
+  });
+
+  r.post('/users/:uid/games-block', can('games.block'), async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    const { reason } = parseBody(req, gamesBlockInput);
+    const block = await s.games.block(uid, reason, currentUser(req).uid);
+    await audit(req, 'user.games_block', 'user', uid, { reason });
+    res.json({ block });
+  });
+
+  r.delete('/users/:uid/games-block', can('games.block'), async (req, res) => {
+    const { uid } = parseParams(req, uidParam);
+    await s.games.unblock(uid);
+    await audit(req, 'user.games_unblock', 'user', uid);
+    res.status(204).end();
   });
 
   // ── Config & audit ────────────────────────────────────────────────────────────

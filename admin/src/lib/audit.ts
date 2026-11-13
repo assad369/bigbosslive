@@ -313,6 +313,11 @@ export const AUDIT_ACTIONS: Record<string, ActionSpec> = {
 
   // Games
   'game.update': { label: 'Edited game', summary: changed },
+  'game.settings': { label: 'Changed games settings', tone: 'warning', summary: changed },
+  'game.sync': { label: 'Synced games from AsadSoft', tone: 'info' },
+  'user.games_block': { label: 'Blocked from games', tone: 'danger' },
+  'user.games_unblock': { label: 'Unblocked from games', tone: 'success' },
+  // Before AsadSoft (in-house games), kept so old audit rows still read well.
   'game.config': { label: 'Changed game odds', tone: 'warning' },
   'game.void_round': { label: 'Voided game round', tone: 'danger' },
 
