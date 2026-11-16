@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -266,12 +267,7 @@ class LiveCard extends ConsumerWidget {
         fit: StackFit.expand,
         children: [
           if (room.coverUrl != null)
-            CachedNetworkImage(
-              imageUrl: room.coverUrl!,
-              fit: BoxFit.cover,
-              errorWidget: (_, _, _) =>
-                  const ColoredBox(color: BBColors.champagneDeep),
-            )
+            _CoverImage(room.coverUrl!)
           else
             const DecoratedBox(
               decoration: BoxDecoration(gradient: BBColors.champagneGradient),
@@ -396,5 +392,36 @@ class LiveCard extends ConsumerWidget {
         ],
       ),
     ),
+  );
+}
+
+/// A live card's cover, shown whole: the image fitted inside the card over a blurred,
+/// darkened copy of itself filling the rest, so nothing of the host's photo is cropped.
+class _CoverImage extends StatelessWidget {
+  const _CoverImage(this.url);
+  final String url;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      // A tiny decode is enough under a blur, and keeps a grid of cards cheap.
+      ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: CachedNetworkImage(
+          imageUrl: url,
+          fit: BoxFit.cover,
+          memCacheWidth: 96,
+          errorWidget: (_, _, _) =>
+              const ColoredBox(color: BBColors.champagneDeep),
+        ),
+      ),
+      const ColoredBox(color: BBColors.coverVeil),
+      CachedNetworkImage(
+        imageUrl: url,
+        fit: BoxFit.contain,
+        errorWidget: (_, _, _) => const SizedBox.shrink(),
+      ),
+    ],
   );
 }

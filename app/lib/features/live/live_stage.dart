@@ -6,12 +6,14 @@ import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import 'live_controls.dart';
 import 'live_room_controller.dart';
 import 'pk_widgets.dart';
 import 'speaking_indicator.dart';
 
-/// Space the stage leaves for the top bar and info row.
-const stageTopInset = 104.0;
+/// Space the stage leaves for the top bar and stats card, so the grid starts right
+/// under them.
+const stageTopInset = LiveTopBar.height + 2;
 
 /// The room's media: full-screen host, the multi-guest grid, the PK arena, or the audio
 /// seat grid. Tapping a person calls [onTapUser]; tapping an empty audio seat calls
@@ -571,49 +573,78 @@ class StageNamePlate extends StatelessWidget {
   final bool isHost;
   final bool compact;
 
+  /// Below this plate width the avatar gives its room to the name.
+  static const avatarMinWidth = 52.0;
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 3, vertical: 2),
-    decoration: BoxDecoration(
-      color: BBColors.scrim,
-      borderRadius: BorderRadius.circular(6),
-    ),
-    child: Row(
-      children: [
-        // Frames are left off at this size: they would cover the name. The tier badge
-        // shows only from 28 up (`AvatarBadgeSlot.minAvatarSize`).
-        BBAvatar(
-          url: user.avatarUrl,
-          name: user.displayName,
-          badge: user.badge,
-          ring: isHost,
-          size: compact ? 20 : 28,
-        ),
-        SizedBox(width: compact ? 3 : 4),
-        Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) => MediaQuery.withClampedTextScaling(
+    // A tile is tiny: very large system text would push the name off it.
+    maxScaleFactor: 1.15,
+    child: LayoutBuilder(
+      builder: (context, box) {
+        // Sized from the plate itself, so 2 to 13 guests and the PK strip all read well.
+        final w = box.maxWidth.isFinite ? box.maxWidth : (compact ? 64 : 160);
+        final avatar = (w * 0.2).clamp(16.0, 28.0);
+        final font = (w * 0.075).clamp(8.5, 12.0);
+        final showAvatar = w >= avatarMinWidth;
+        return Padding(
+          padding: EdgeInsets.symmetric(horizontal: compact ? 1 : 2),
+          child: Row(
             children: [
-              Text(
-                user.displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: BBColors.ivory,
-                  fontSize: compact ? 9 : 11,
-                  fontWeight: FontWeight.w600,
+              if (showAvatar) ...[
+                // Frames are left off at this size: they would cover the name. The tier
+                // badge shows only from 28 up (`AvatarBadgeSlot.minAvatarSize`).
+                BBAvatar(
+                  url: user.avatarUrl,
+                  name: user.displayName,
+                  badge: user.badge,
+                  ring: isHost,
+                  size: avatar,
+                ),
+                SizedBox(width: compact ? 3 : 4),
+              ],
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.displayName,
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: BBColors.ivory,
+                        fontSize: font,
+                        fontWeight: FontWeight.w600,
+                        height: 1.15,
+                        shadows: stagePlateShadows,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    DiamondChip(
+                      diamonds,
+                      compact: compact,
+                      plain: true,
+                      fontSize: font - 0.5,
+                      shadows: stagePlateShadows,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 1),
-              DiamondChip(diamonds, compact: compact, plain: true),
             ],
           ),
-        ),
-      ],
+        );
+      },
     ),
   );
 }
+
+/// Keeps a plate's text readable straight on the video, without a dark box behind it.
+const stagePlateShadows = [
+  Shadow(color: BBColors.plateShadow, blurRadius: 3),
+  Shadow(color: BBColors.plateShadow, blurRadius: 1, offset: Offset(0, 0.5)),
+];
 
 /// "💎 12,345" under a stage tile's name or an audio seat. [plain] drops the chip's own
 /// background, for use on a surface that already has one.
@@ -623,17 +654,31 @@ class DiamondChip extends StatelessWidget {
     super.key,
     this.compact = false,
     this.plain = false,
+    this.fontSize,
+    this.shadows,
   });
   final int diamonds;
   final bool compact;
   final bool plain;
+
+  /// The number's size; the compact or regular default when null.
+  final double? fontSize;
+
+  /// For a [plain] chip straight on video.
+  final List<Shadow>? shadows;
 
   @override
   Widget build(BuildContext context) {
     final content = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('💎', style: TextStyle(fontSize: compact ? 8 : 10)),
+        Text(
+          '💎',
+          style: TextStyle(
+            fontSize: fontSize != null ? fontSize! - 1 : (compact ? 8 : 10),
+            shadows: shadows,
+          ),
+        ),
         const SizedBox(width: 2),
         // The full number, shrunk to fit a narrow seat rather than cut off.
         Flexible(
@@ -644,9 +689,10 @@ class DiamondChip extends StatelessWidget {
               maxLines: 1,
               style: TextStyle(
                 color: BBColors.goldLight,
-                fontSize: compact ? 9 : 11,
+                fontSize: fontSize ?? (compact ? 9 : 11),
                 fontWeight: FontWeight.w700,
                 fontFeatures: const [FontFeature.tabularFigures()],
+                shadows: shadows,
               ),
             ),
           ),

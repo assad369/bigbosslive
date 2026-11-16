@@ -3,16 +3,20 @@ import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/media/gallery_saver.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
+import '../../core/widgets/media_viewer.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../profile/profile_screens.dart' show ReportSheet;
 
 class InboxScreen extends ConsumerStatefulWidget {
   const InboxScreen({super.key});
@@ -545,45 +549,145 @@ class _Bubble extends StatelessWidget {
     );
   }
 
-  Widget _bubble(BuildContext context) => Align(
-    alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-    child: Container(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * 0.75,
-      ),
-      margin: const EdgeInsets.symmetric(vertical: 3),
-      padding: message.mediaUrl != null
-          ? const EdgeInsets.all(4)
-          : const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        gradient: mine ? BBColors.goldGradient : null,
-        color: mine ? null : BBColors.surface,
-        border: mine ? null : Border.all(color: BBColors.border),
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(18),
-          topRight: const Radius.circular(18),
-          bottomLeft: Radius.circular(mine ? 18 : 4),
-          bottomRight: Radius.circular(mine ? 4 : 18),
+  bool get _settled => !message.pending && !message.failed;
+  bool get _hasText => message.text?.isNotEmpty ?? false;
+  bool get _isVideo =>
+      message.type == 'video' ||
+      (message.mediaUrl != null && looksLikeVideo(message.mediaUrl!));
+  String get _heroTag => 'dm-media-${message.id}';
+
+  void _view(BuildContext context) => unawaited(
+    MediaViewerScreen.open(
+      context,
+      url: message.mediaUrl!,
+      heroTag: _heroTag,
+      isVideo: _isVideo,
+    ),
+  );
+
+  Future<void> _save(BuildContext context) async {
+    try {
+      await GallerySaver.save(message.mediaUrl!, isVideo: _isVideo);
+      if (context.mounted) showMessage(context, 'Saved to gallery');
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  /// Copy, view, save and report. Unsent messages keep their own Retry / Delete.
+  Future<void> _menu(BuildContext context) async {
+    final media = message.mediaUrl != null;
+    final what = _isVideo ? 'video' : 'photo';
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            if (_hasText)
+              ListTile(
+                leading: const Icon(Icons.copy_rounded),
+                title: const Text('Copy'),
+                onTap: () => ctx.pop('copy'),
+              ),
+            if (media) ...[
+              ListTile(
+                leading: const Icon(Icons.open_in_full_rounded),
+                title: Text('View $what'),
+                onTap: () => ctx.pop('view'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.download_rounded),
+                title: Text('Save $what'),
+                onTap: () => ctx.pop('save'),
+              ),
+            ],
+            if (!mine)
+              ListTile(
+                leading: const Icon(Icons.flag_outlined),
+                title: const Text('Report message'),
+                onTap: () => ctx.pop('report'),
+              ),
+          ],
         ),
       ),
-      child: Opacity(
-        opacity: message.pending && !message.failed ? 0.6 : 1,
-        child: message.mediaUrl != null
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: CachedNetworkImage(
-                  imageUrl: message.mediaUrl!,
-                  width: 220,
-                  fit: BoxFit.cover,
-                ),
-              )
-            : Text(
-                message.type == 'image' && message.text == null
-                    ? (message.failed ? '📷 Photo' : '📷 Sending photo…')
-                    : message.text ?? '',
-                style: const TextStyle(color: BBColors.ink, fontSize: 15),
-              ),
+    );
+    if (!context.mounted || action == null) return;
+    switch (action) {
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: message.text!));
+        if (context.mounted) showMessage(context, 'Copied');
+      case 'view':
+        _view(context);
+      case 'save':
+        await _save(context);
+      case 'report':
+        await ReportSheet.show(
+          context,
+          targetType: 'message',
+          targetId: message.id,
+        );
+    }
+  }
+
+  Widget _media(BuildContext context) {
+    Widget image = CachedNetworkImage(
+      imageUrl: message.mediaUrl!,
+      width: 220,
+      fit: BoxFit.cover,
+    );
+    if (_settled) image = Hero(tag: _heroTag, child: image);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Semantics(
+        button: _settled,
+        label: _isVideo ? 'Video' : 'Photo',
+        child: GestureDetector(
+          onTap: _settled ? () => _view(context) : null,
+          child: image,
+        ),
       ),
+    );
+  }
+
+  Widget _bubble(BuildContext context) => Align(
+    alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+    child: GestureDetector(
+      onLongPress: _settled && (_hasText || message.mediaUrl != null)
+          ? () => unawaited(_menu(context))
+          : null,
+      child: _body(context),
+    ),
+  );
+
+  Widget _body(BuildContext context) => Container(
+    constraints: BoxConstraints(
+      maxWidth: MediaQuery.sizeOf(context).width * 0.75,
+    ),
+    margin: const EdgeInsets.symmetric(vertical: 3),
+    padding: message.mediaUrl != null
+        ? const EdgeInsets.all(4)
+        : const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+    decoration: BoxDecoration(
+      gradient: mine ? BBColors.goldGradient : null,
+      color: mine ? null : BBColors.surface,
+      border: mine ? null : Border.all(color: BBColors.border),
+      borderRadius: BorderRadius.only(
+        topLeft: const Radius.circular(18),
+        topRight: const Radius.circular(18),
+        bottomLeft: Radius.circular(mine ? 18 : 4),
+        bottomRight: Radius.circular(mine ? 4 : 18),
+      ),
+    ),
+    child: Opacity(
+      opacity: message.pending && !message.failed ? 0.6 : 1,
+      child: message.mediaUrl != null
+          ? _media(context)
+          : Text(
+              message.type == 'image' && message.text == null
+                  ? (message.failed ? '📷 Photo' : '📷 Sending photo…')
+                  : message.text ?? '',
+              style: const TextStyle(color: BBColors.ink, fontSize: 15),
+            ),
     ),
   );
 }

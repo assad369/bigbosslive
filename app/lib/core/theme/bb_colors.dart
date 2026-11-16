@@ -55,6 +55,12 @@ abstract final class BBColors {
   /// Darkens a room background image under the audio seat grid.
   static const espressoShade = Color(0xAA1D1610);
 
+  /// Darkens the blurred fill around a live card's whole cover image.
+  static const coverVeil = Color(0x551D1610);
+
+  /// Text shadow that keeps stage-tile names readable on bright video.
+  static const plateShadow = Color(0xD91D1610);
+
   /// Translucent gold for system lines and empty-seat outlines on live video.
   static const goldTint = Color(0x33E9CF7A);
   static const goldOutline = Color(0x55E9CF7A);

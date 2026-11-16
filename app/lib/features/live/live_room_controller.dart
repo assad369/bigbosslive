@@ -1522,6 +1522,9 @@ class LiveRoomController extends ChangeNotifier {
   /// Most reactions one request may carry (`MAX_REACTIONS_PER_REQUEST` on the server).
   static const maxReactionsPerRequest = 20;
 
+  /// How long own taps gather before one request carries them.
+  static const reactionBatch = Duration(milliseconds: 350);
+
   /// Own reactions are drawn at once and sent in batches, one request per flush (the API
   /// is rate-limited). Taps beyond [maxReactionsPerRequest] in one batch only float locally.
   void react([LiveReaction reaction = LiveReaction.love]) {
@@ -1531,10 +1534,7 @@ class LiveRoomController extends ChangeNotifier {
     if (total < maxReactionsPerRequest) {
       _pendingReactions.update(reaction, (n) => n + 1, ifAbsent: () => 1);
     }
-    _reactionFlush ??= Timer(
-      const Duration(milliseconds: 800),
-      _flushReactions,
-    );
+    _reactionFlush ??= Timer(reactionBatch, _flushReactions);
   }
 
   void _flushReactions() {

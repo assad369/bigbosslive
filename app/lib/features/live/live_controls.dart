@@ -35,11 +35,14 @@ class LiveTopBar extends ConsumerWidget {
   static const _rowHeight = 48.0;
   static const _gap = 6.0;
 
-  /// Where the second row (stats card) starts, below the safe-area top.
-  static const statsRowTop = _gap + _rowHeight + _gap;
+  /// Between the host row and the stats card: kept tight so the stage starts high.
+  static const _rowGap = 2.0;
 
-  /// Both rows with their padding; the stage starts below it.
-  static const height = statsRowTop + _StatsCard.height + _gap;
+  /// Where the second row (stats card) starts, below the safe-area top.
+  static const statsRowTop = _gap + _rowHeight + _rowGap;
+
+  /// Both rows with their top padding; the stage starts just below it.
+  static const height = statsRowTop + _StatsCard.height;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -50,7 +53,7 @@ class LiveTopBar extends ConsumerWidget {
       child: SizedBox(
         height: height,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, _gap, 8, _gap),
+          padding: const EdgeInsets.fromLTRB(12, _gap, 8, 0),
           child: Column(
             children: [
               SizedBox(
@@ -97,7 +100,7 @@ class LiveTopBar extends ConsumerWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: _gap),
+              const SizedBox(height: _rowGap),
               Padding(
                 padding: const EdgeInsets.only(right: 4),
                 child: _StatsCard(c: c, onViewers: onViewers),
@@ -596,6 +599,7 @@ class LiveRoundButton extends StatelessWidget {
     this.badge = 0,
     this.toggled,
     this.size = disc,
+    this.glyphColor,
   });
   final IconData icon;
   final VoidCallback? onTap;
@@ -603,6 +607,9 @@ class LiveRoundButton extends StatelessWidget {
   final bool gold;
   final bool danger;
   final int badge;
+
+  /// The icon's colour on a plain disc (the heart is pink); [gold] and [danger] win.
+  final Color? glyphColor;
 
   /// For on/off controls: announced as a toggle (true = the "off" state is showing).
   final bool? toggled;
@@ -634,7 +641,7 @@ class LiveRoundButton extends StatelessWidget {
           size: size * 0.6,
           color: gold
               ? BBColors.ink
-              : (danger ? BBColors.danger : BBColors.goldLight),
+              : (danger ? BBColors.danger : glyphColor ?? BBColors.goldLight),
         ),
       ),
     );
@@ -1004,27 +1011,36 @@ class LiveBottomBar extends StatelessWidget {
           heart,
         ];
         final width = box.maxWidth;
-        final Widget chat;
         if (width - trailing.length * slot >= minFieldWidth) {
-          chat = Expanded(child: _ChatField(onTap: onCompose));
-        } else {
-          chat = LiveRoundButton(
-            icon: Icons.chat_bubble_outline_rounded,
-            tooltip: 'Write a message',
-            size: size,
-            onTap: onCompose,
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Expanded(child: _ChatField(onTap: onCompose)),
+              for (final b in trailing) ...[const SizedBox(width: _gap), b],
+            ],
           );
-          // Still too wide: the heart goes (double-tap the stage instead).
-          if ((trailing.length + 1) * slot - _gap > width) {
-            trailing.remove(heart);
-          }
         }
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.end,
+        final row = Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            chat,
+            LiveRoundButton(
+              icon: Icons.chat_bubble_outline_rounded,
+              tooltip: 'Write a message',
+              size: size,
+              onTap: onCompose,
+            ),
             for (final b in trailing) ...[const SizedBox(width: _gap), b],
           ],
+        );
+        // Still too wide on the narrowest phones: the row shrinks a little rather than
+        // losing a control (the heart included).
+        return Align(
+          alignment: Alignment.centerRight,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: row,
+          ),
         );
       },
     ),

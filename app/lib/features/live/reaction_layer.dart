@@ -109,8 +109,8 @@ class _ReactionLayerState extends State<ReactionLayer>
     if (box == null || !box.hasSize) return;
     final anchor =
         widget.anchorKey.currentContext?.findRenderObject() as RenderBox?;
-    // The button is gone on the narrowest phones and while typing: start roughly where
-    // it would be.
+    // The button isn't laid out (the room is still building): start roughly where it
+    // would be.
     final origin = anchor != null && anchor.attached && anchor.hasSize
         ? box.globalToLocal(
                 anchor.localToGlobal(anchor.size.center(Offset.zero)),

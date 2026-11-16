@@ -30,6 +30,8 @@
 	<string>BigBoss Live uses your microphone when you go live, speak on a seat, join a party room or record a voice message.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose photos for your profile, live cover, moments and messages.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save photos and videos from your messages to your library.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Use Bluetooth headsets for live audio.</string>
 	<key>UIBackgroundModes</key>

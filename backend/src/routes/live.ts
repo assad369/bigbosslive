@@ -41,9 +41,10 @@ export function liveRoutes(ctx: Ctx): Router {
     prefix: 'live-chat',
     byUser: true,
   });
+  // The app flushes taps every 350 ms, so steady tapping is about 28 requests per window.
   const reactionLimit = createRateLimiter(ctx.redis, {
     windowMs: 10_000,
-    limit: 10,
+    limit: 30,
     prefix: 'live-react',
     byUser: true,
   });

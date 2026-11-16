@@ -125,6 +125,7 @@ class _ReactionTrayButtonState extends State<ReactionTrayButton>
         icon: Icons.favorite_rounded,
         tooltip: 'Reactions',
         size: widget.size,
+        glyphColor: BBColors.heart,
         onTap: _toggle,
       ),
     ),

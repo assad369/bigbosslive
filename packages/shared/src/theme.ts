@@ -39,6 +39,10 @@ export const palette = {
   scrim: 'rgba(43, 33, 24, 0.55)',
   /** Darkens a room background image under the audio seat grid. */
   espressoShade: 'rgba(29, 22, 16, 0.67)',
+  /** Darkens the blurred fill around a live card's whole cover image. */
+  coverVeil: 'rgba(29, 22, 16, 0.33)',
+  /** Text shadow that keeps stage-tile names readable on bright video. */
+  plateShadow: 'rgba(29, 22, 16, 0.85)',
   goldTint: 'rgba(233, 207, 122, 0.2)',
   goldOutline: 'rgba(233, 207, 122, 0.33)',
   champagneTint: 'rgba(243, 229, 195, 0.13)',

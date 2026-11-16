@@ -319,7 +319,7 @@ describe('live rooms', () => {
   });
 
   it('fans out heart reactions with a per-user rate limit', async () => {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 30; i++) {
       await h.api
         .post(`/v1/live/${roomId}/reactions`)
         .set(h.as('viewer'))

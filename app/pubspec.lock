@@ -587,6 +587,14 @@ packages:
       relative: true
     source: path
     version: "1.6.3"
+  gal:
+    dependency: "direct main"
+    description:
+      name: gal
+      sha256: "5bd6542d6a387b76b50a803ad87573f3f505baea7c7153054f6d8fac7fc46d98"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.1"
   go_router:
     dependency: "direct main"
     description:
@@ -1044,7 +1052,7 @@ packages:
     source: hosted
     version: "1.1.0"
   path_provider:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: path_provider
       sha256: a7f4874f987173da295a61c181b8ee71dab59b332a486b391babf26a1b884825

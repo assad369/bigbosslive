@@ -1,4 +1,5 @@
 import 'package:bigboss_live/core/providers.dart';
+import 'package:bigboss_live/core/theme/bb_colors.dart';
 import 'package:bigboss_live/data/repositories.dart';
 import 'package:bigboss_live/features/live/live_controls.dart';
 import 'package:bigboss_live/features/live/live_room_controller.dart';
@@ -218,12 +219,22 @@ void main() {
     await tester.pumpWidget(_wrap(_bottomBar(host)));
     expect(find.text('Say something…'), findsOneWidget);
     expect(find.byTooltip('Reactions'), findsOneWidget);
-    // On the narrowest phone the field becomes a button and the heart gives way.
+    // On the narrowest phone the field becomes a button, and the row shrinks a little
+    // rather than losing the heart.
     await width(tester, 320);
     await tester.pumpWidget(_wrap(_bottomBar(host)));
+    expect(tester.takeException(), isNull);
     expect(find.text('Say something…'), findsNothing);
     expect(find.byTooltip('Write a message'), findsOneWidget);
-    expect(find.byTooltip('Reactions'), findsNothing);
+    expect(find.byTooltip('Reactions'), findsOneWidget);
+    // The heart is pink, as in the sibling app, not gold like the other discs.
+    final heart = tester.widget<Icon>(
+      find.descendant(
+        of: find.byTooltip('Reactions'),
+        matching: find.byIcon(Icons.favorite_rounded),
+      ),
+    );
+    expect(heart.color, BBColors.heart);
   });
 
   testWidgets('a platform moderator in the audience gets the queue phone', (

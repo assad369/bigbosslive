@@ -261,8 +261,10 @@ cd app && flutter analyze && flutter test && dart format lib test
   - The app's `/history` is `BroadcastHistoryScreen`. Ending a live opens
     `/live-summary/:id`.
 - Mic, camera and flip are in the bottom bar (`LiveBottomBar`) for the host and seated guests;
-  on a narrow phone the chat field becomes a button and the heart goes. The rail keeps the
-  rest. Speaking shows as `SpeakingBars` on tiles and `SpeakingGlow` on camera-off avatars
+  on a narrow phone the chat field becomes a button and the row scales down, never
+  dropping the heart (pink, `BBColors.heart`). The rail keeps the rest. Own reaction taps
+  flush every 350 ms (`LiveRoomController.reactionBatch`), within the server's limit of
+  30 requests per 10 s. Speaking shows as `SpeakingBars` on tiles and `SpeakingGlow` on camera-off avatars
   (`speaking_indicator.dart`), driven by `c.speakers`; they animate only while active.
 - Gift and entrance effects keep the clip's own sound (`EffectView(sound: true)`), mixed with
   LiveKit (`mixWithOthers`, never taking the audio session). Everything else (frames, looping
