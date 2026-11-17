@@ -384,6 +384,128 @@ describe('room gifts', () => {
   });
 });
 
+describe('group gifts', () => {
+  beforeEach(() => {
+    h.livekit.data = [];
+  });
+  afterAll(async () => {
+    await h.ctx.services.config.set(
+      'economy',
+      { platformFeeRate: 0.02, maxAgencyRate: 0.1, receivedLevelWeight: 1 },
+      'test',
+    );
+  });
+
+  /** A live with [watching] viewers who have a presence row. */
+  async function crowd(diamonds: number, watching: number) {
+    const { sender, receiver: host } = await pair(diamonds);
+    const { room } = await h.ctx.services.live.start(host, {
+      type: 'video',
+      title: 'Crowd',
+      coverUrl: null,
+      tags: [],
+    });
+    const oid = new ObjectId(room.id);
+    const viewers: string[] = [];
+    for (let i = 0; i < watching; i++) {
+      const v = (await h.user(`crowd${n}-${i}`, { displayName: `Viewer ${i}` }))._id;
+      await h.ctx.col.roomPresence.insertOne({
+        roomId: oid,
+        identity: v,
+        joinedAt: h.ctx.clock.now(),
+      });
+      viewers.push(v);
+    }
+    return { sender, host, roomId: room.id, oid, viewers };
+  }
+
+  const group = (
+    sender: string,
+    receiverIds: string[],
+    roomId: string,
+    opts: { skipAbsent?: boolean; k?: string } = {},
+  ) =>
+    h.api
+      .post('/v1/gifts/send')
+      .set(h.as(sender))
+      .set('Idempotency-Key', opts.k ?? key())
+      .send({ giftId, quantity: 1, receiverIds, roomId, skipAbsent: opts.skipAbsent ?? true });
+
+  it('gifts everyone in the room in one transaction, naming the first few', async () => {
+    const { sender, host, roomId, oid, viewers } = await crowd(100_000, 14);
+    const everyone = [host, ...viewers];
+    const res = await group(sender, everyone, roomId);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ totalCost: 7500, receiverCount: 15, diamonds: 92_500 });
+    for (const uid of everyone) {
+      expect((await h.ctx.col.users.findOne({ _id: uid }))!.wallet.diamonds).toBe(490);
+    }
+    const tx = await h.ctx.col.giftTransactions.findOne({
+      _id: new ObjectId(res.body.transactionId as string),
+    });
+    // The sender's order is kept: the host first.
+    expect(tx!.receivers.map((r) => r.userId)).toEqual(everyone);
+
+    const packet = h.livekit.topics('bb.gift')[0]!.payload as {
+      receivers: { id: string }[];
+      receiverCount: number;
+      message: { text: string; gift: { receivers: unknown[]; receiverCount: number } };
+    };
+    expect(packet.receivers).toHaveLength(10);
+    expect(packet.receiverCount).toBe(15);
+    expect(packet.message.gift.receivers).toHaveLength(10);
+    expect(packet.message.gift.receiverCount).toBe(15);
+    expect(packet.message.text).toMatch(/ and 12 others$/);
+    const row = await h.ctx.col.liveMessages.findOne({ roomId: oid });
+    expect(row!.gift).toMatchObject({ receiverCount: 15 });
+  });
+
+  it('skips who left and charges only for the people still there', async () => {
+    const { sender, host, roomId, oid, viewers } = await crowd(10_000, 3);
+    await h.ctx.col.roomPresence.deleteOne({ roomId: oid, identity: viewers[1]! });
+    const k = key();
+    const res = await group(sender, [host, ...viewers, sender], roomId, { k });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ totalCost: 1500, receiverCount: 3 });
+    expect((await h.ctx.col.users.findOne({ _id: viewers[1]! }))!.wallet.diamonds).toBe(0);
+    expect((await h.ctx.col.users.findOne({ _id: sender }))!.wallet.diamonds).toBe(8500);
+
+    const again = await group(sender, [host, ...viewers], roomId, { k });
+    expect(again.body).toMatchObject({ replayed: true, receiverCount: 3, diamonds: 8500 });
+  });
+
+  it('refuses when everyone picked has left, without charging', async () => {
+    const { sender, roomId, oid, viewers } = await crowd(10_000, 2);
+    await h.ctx.col.roomPresence.deleteMany({ roomId: oid });
+    const res = await group(sender, viewers, roomId);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('receiver_not_in_room');
+    expect((await h.ctx.col.users.findOne({ _id: sender }))!.wallet.diamonds).toBe(10_000);
+  });
+
+  it('without skipAbsent, one absent receiver still fails the whole gift', async () => {
+    const { sender, host, roomId, oid, viewers } = await crowd(10_000, 2);
+    await h.ctx.col.roomPresence.deleteOne({ roomId: oid, identity: viewers[0]! });
+    const res = await group(sender, [host, ...viewers], roomId, { skipAbsent: false });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('receiver_not_in_room');
+    expect((await h.ctx.col.users.findOne({ _id: sender }))!.wallet.diamonds).toBe(10_000);
+  });
+
+  it('caps receivers at economy.maxGiftReceivers', async () => {
+    await h.ctx.services.config.set(
+      'economy',
+      { platformFeeRate: 0.02, maxAgencyRate: 0.1, receivedLevelWeight: 1, maxGiftReceivers: 3 },
+      'test',
+    );
+    const { sender, host, roomId, viewers } = await crowd(10_000, 3);
+    const res = await group(sender, [host, ...viewers], roomId);
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('A gift can go to at most 3 people');
+    expect((await group(sender, [host, ...viewers.slice(1)], roomId)).status).toBe(200);
+  });
+});
+
 describe('platform-wide gift announcement', () => {
   type Emit = [namespace: string, event: string, payload: Record<string, unknown>];
   let emits: Emit[] = [];
@@ -432,6 +554,7 @@ describe('platform-wide gift announcement', () => {
       roomId: room.id,
       sender: expect.objectContaining({ id: sender }),
       receivers: [{ id: host, displayName: expect.any(String) }],
+      receiverCount: 1,
       gift: { id: giftId, name: 'Crown', iconUrl: 'https://cdn.test/crown.png' },
       quantity: 3,
       totalCost: 1500,

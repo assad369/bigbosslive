@@ -76,6 +76,10 @@ abstract final class BBColors {
   static const pkBlue = Color(0xFF3D7BD9);
   static const heart = Color(0xFFE5486B);
 
+  /// Stage tiles: the border of someone whose camera is off, and the wave around their
+  /// avatar while they talk.
+  static const liveRed = Color(0xFFF03E3E);
+
   /// Tier ladder: VIP purple, VVIP gold, Crown rose, King crimson. Pills, chat tints,
   /// entrance banners. Mirrors `palette` in `packages/shared/src/theme.ts`.
   static const vip = Color(0xFFA855F7);

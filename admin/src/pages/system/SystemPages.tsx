@@ -46,6 +46,7 @@ const LABELS: Record<string, string> = {
   diamondsPerUsd: 'Diamonds per 1 USD (withdrawals)',
   minWithdrawDiamonds: 'Minimum withdrawal (diamonds)',
   maxGiftQuantity: 'Max gift quantity per send',
+  maxGiftReceivers: 'Max receivers per gift send (Everyone in a live)',
   diamondsPerStar: 'Diamonds per star shown next to wallet balances',
   staleAfterSec: 'Close lives with no heartbeat after (s)',
   audioSeatCount: 'Audio room seats',

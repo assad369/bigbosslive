@@ -50,6 +50,8 @@ export const palette = {
   pkRed: '#D64545',
   pkBlue: '#3D7BD9',
   heart: '#E5486B',
+  /** Stage tiles: the camera-off border and the speaking wave around the avatar. */
+  liveRed: '#F03E3E',
   /** Tier ladder: VIP purple, VVIP gold, Crown rose, King crimson. Pills, chat tints, banners. */
   vip: '#A855F7',
   vipDeep: '#7E22CE',

@@ -415,7 +415,7 @@ class _GiftContent extends StatelessWidget {
     if (gift == null) {
       return Text('🎁 ${line.text}', style: _style);
     }
-    final receivers = gift.receiverNames.join(', ');
+    final receivers = gift.receivers;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

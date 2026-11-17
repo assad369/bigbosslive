@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_VIDEO_SEATS } from '@bigboss/shared';
+import { MAX_GIFT_RECEIVERS, MAX_VIDEO_SEATS } from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import { badRequest } from '../../lib/errors.js';
 
@@ -26,6 +26,8 @@ export const CONFIG_SCHEMAS = {
     diamondsPerUsd: z.number().int().positive().default(10_000),
     minWithdrawDiamonds: z.number().int().positive().default(50_000),
     maxGiftQuantity: z.number().int().min(1).max(9999).default(999),
+    /** Most receivers in one gift send ("Everyone" in a live is capped here). */
+    maxGiftReceivers: z.number().int().min(1).max(MAX_GIFT_RECEIVERS).default(100),
   }),
   features: z.object({
     pkEnabled: z.boolean().default(true),

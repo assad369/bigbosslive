@@ -21,7 +21,8 @@ class _FakeRepo implements LiveRepository {
   }
 
   @override
-  Future<List<UserBrief>> viewers(String roomId) async => const [];
+  Future<List<UserBrief>> viewers(String roomId, {int? limit}) async =>
+      const [];
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>

@@ -1452,6 +1452,16 @@ class LeaderboardEntry {
   }
 }
 
+/// Who a gift went to: "A, B, C", or past three names "A, B, C and 97 others". [count] is
+/// everyone gifted; a group gift's packet names only the first few.
+String receiversLabel(List<String> names, [int? count]) {
+  final shown = names.take(3).toList();
+  final total = count == null || count < names.length ? names.length : count;
+  final others = total - shown.length;
+  if (others <= 0) return shown.join(', ');
+  return '${shown.join(', ')} and $others ${others == 1 ? 'other' : 'others'}';
+}
+
 class AppConfig {
   const AppConfig({
     required this.maintenance,
@@ -1464,10 +1474,14 @@ class AppConfig {
     required this.privacyUrl,
     required this.supportEmail,
     this.diamondsPerStar = defaultDiamondsPerStar,
+    this.maxGiftReceivers = defaultMaxGiftReceivers,
   });
 
   /// One lakh diamonds make a star unless the admin sets another rate.
   static const defaultDiamondsPerStar = 100000;
+
+  /// The server's default for `economy.maxGiftReceivers`.
+  static const defaultMaxGiftReceivers = 100;
 
   final bool maintenance;
   final String maintenanceMessage;
@@ -1481,6 +1495,9 @@ class AppConfig {
 
   /// A wallet shows one star per this many diamonds (`app.diamondsPerStar`).
   final int diamondsPerStar;
+
+  /// Most people one gift send may reach: the gift panel's "Everyone" stops here.
+  final int maxGiftReceivers;
 
   bool feature(String key) => features[key] ?? true;
 
@@ -1505,6 +1522,10 @@ class AppConfig {
       diamondsPerStar: switch (app.integer('diamondsPerStar')) {
         final n when n > 0 => n,
         _ => defaultDiamondsPerStar,
+      },
+      maxGiftReceivers: switch (j.obj('gifts').integer('maxReceivers')) {
+        final n when n > 0 => n,
+        _ => defaultMaxGiftReceivers,
       },
     );
   }

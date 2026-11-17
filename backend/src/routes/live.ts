@@ -1,6 +1,11 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
-import { LIVE_REACTIONS, MAX_REACTIONS_PER_REQUEST, ROOM_TYPES } from '@bigboss/shared';
+import {
+  LIVE_REACTIONS,
+  MAX_GIFT_RECEIVERS,
+  MAX_REACTIONS_PER_REQUEST,
+  ROOM_TYPES,
+} from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createRateLimiter } from '../middleware/http.js';
@@ -254,7 +259,12 @@ export function liveRoutes(ctx: Ctx): Router {
   });
 
   r.get('/:id/viewers', async (req, res) => {
-    res.json({ items: await live.viewers(rid(req)) });
+    // The gift panel's "Everyone" asks for up to the gift receiver cap.
+    const { limit } = parseQuery(
+      req,
+      z.object({ limit: z.coerce.number().int().min(1).max(MAX_GIFT_RECEIVERS).default(100) }),
+    );
+    res.json({ items: await live.viewers(rid(req), limit) });
   });
 
   r.post('/:id/kick', async (req, res) => {

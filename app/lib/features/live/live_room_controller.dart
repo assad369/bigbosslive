@@ -46,21 +46,34 @@ class ChatGift {
     required this.iconUrl,
     required this.quantity,
     required this.receiverNames,
-  });
+    int? receiverCount,
+  }) : receiverCount = receiverCount ?? receiverNames.length;
   final String name;
   final String iconUrl;
   final int quantity;
+
+  /// The first few receivers; a gift to a whole room names only some of them.
   final List<String> receiverNames;
+
+  /// Everyone gifted.
+  final int receiverCount;
+
+  /// "Alice, Bob and 12 others".
+  String get receivers => receiversLabel(receiverNames, receiverCount);
 
   /// How a reply quotes it; the server sends the same text in `replyTo`.
   String get preview => '🎁 $name ×$quantity';
 
-  factory ChatGift.fromJson(Json j) => ChatGift(
-    name: j.str('name'),
-    iconUrl: j.str('iconUrl'),
-    quantity: j.integer('quantity', 1),
-    receiverNames: j.list('receivers', (r) => r.str('displayName', 'User')),
-  );
+  factory ChatGift.fromJson(Json j) {
+    final names = j.list('receivers', (r) => r.str('displayName', 'User'));
+    return ChatGift(
+      name: j.str('name'),
+      iconUrl: j.str('iconUrl'),
+      quantity: j.integer('quantity', 1),
+      receiverNames: names,
+      receiverCount: j.integer('receiverCount', names.length),
+    );
+  }
 }
 
 class ChatLine {
@@ -149,12 +162,16 @@ class GiftEvent {
     required this.gift,
     required this.quantity,
     required this.receiverNames,
-  });
+    int? receiverCount,
+  }) : receiverCount = receiverCount ?? receiverNames.length;
   final String id;
   final UserBrief? sender;
   final Gift gift;
   final int quantity;
+
+  /// The first few receivers ([receiverCount] counts them all).
   final List<String> receiverNames;
+  final int receiverCount;
 }
 
 /// Someone with a VIP tier or an entrance effect joined. [effectUrl] plays full-screen.
@@ -552,6 +569,11 @@ class LiveRoomController extends ChangeNotifier {
   bool isMicOn(String uid) =>
       _participant(uid)?.audioTrackPublications.any((t) => !t.muted) ?? false;
 
+  /// Whether [uid] has an unmuted video track published. Unlike [videoOf] it doesn't wait
+  /// for the subscription, so a remote camera that is starting doesn't flash as "off".
+  bool isCameraOn(String uid) =>
+      _participant(uid)?.videoTrackPublications.any((t) => !t.muted) ?? false;
+
   bool isSpeaking(String uid) => _participant(uid)?.isSpeaking ?? false;
 
   /// Who is speaking right now. Changes several times a second, so it has its own
@@ -888,15 +910,14 @@ class LiveRoomController extends ChangeNotifier {
         _addChat(ChatLine.fromServer(p));
       case 'bb.gift':
         final sender = p.objOrNull('sender');
+        final names = p.list('receivers', (r) => r.str('displayName', 'Host'));
         final event = GiftEvent(
           id: p.str('transactionId'),
           sender: sender == null ? null : UserBrief.fromJson(sender),
           gift: Gift.fromJson(p.obj('gift')),
           quantity: p.integer('quantity', 1),
-          receiverNames: p.list(
-            'receivers',
-            (r) => r.str('displayName', 'Host'),
-          ),
+          receiverNames: names,
+          receiverCount: p.integer('receiverCount', names.length),
         );
         if (!_gifts.isClosed) _gifts.add(event);
         // The committed room total, so the "diamonds this live" counter never drifts.
@@ -916,13 +937,14 @@ class LiveRoomController extends ChangeNotifier {
                   id: event.id,
                   kind: ChatKind.gift,
                   text:
-                      'sent ${event.gift.name} ×${event.quantity} to ${event.receiverNames.join(', ')}',
+                      'sent ${event.gift.name} ×${event.quantity} to ${receiversLabel(event.receiverNames, event.receiverCount)}',
                   user: event.sender,
                   gift: ChatGift(
                     name: event.gift.name,
                     iconUrl: event.gift.iconUrl,
                     quantity: event.quantity,
                     receiverNames: event.receiverNames,
+                    receiverCount: event.receiverCount,
                   ),
                 ),
         );

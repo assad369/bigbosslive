@@ -355,6 +355,18 @@ export type LiveReactionName = (typeof LIVE_REACTIONS)[number];
 /** Most reactions one request (one client flush) may carry. */
 export const MAX_REACTIONS_PER_REQUEST = 20;
 
+/**
+ * Hard ceiling on receivers in one gift send. The admin cap `economy.maxGiftReceivers`
+ * (100 by default) sits below it: "Everyone" in a live is the stage plus viewers up to it.
+ */
+export const MAX_GIFT_RECEIVERS = 200;
+
+/**
+ * How many receivers a gift's `bb.gift` packet, chat row and announcement name. The rest are
+ * counted in `receiverCount`, so a gift to a whole room stays well inside a LiveKit packet.
+ */
+export const GIFT_BROADCAST_RECEIVERS = 10;
+
 /** Topics published on the LiveKit data channel by the server. */
 export const LIVEKIT_TOPICS = {
   gift: 'bb.gift',

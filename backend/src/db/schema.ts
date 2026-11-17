@@ -294,7 +294,10 @@ export interface LiveGiftMessage {
   iconUrl: string;
   quantity: number;
   totalCost: number;
+  /** The first `GIFT_BROADCAST_RECEIVERS` receivers; [receiverCount] counts them all. */
   receivers: { id: string; displayName: string }[];
+  /** Absent on rows from before group gifts: read as `receivers.length`. */
+  receiverCount?: number;
 }
 
 export interface SeatRequestDoc {

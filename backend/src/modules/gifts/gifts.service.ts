@@ -2,7 +2,9 @@ import { ObjectId, type Filter } from 'mongodb';
 import { z } from 'zod';
 import {
   ANIMATION_FORMATS,
+  GIFT_BROADCAST_RECEIVERS,
   LIVEKIT_TOPICS,
+  MAX_GIFT_RECEIVERS,
   MAX_VIP_TIER,
   SOCKET,
   vipTierLabel,
@@ -17,6 +19,7 @@ import {
   isDuplicateKeyError,
   notFound,
   receiverNotInRoom,
+  receiversNotInRoom,
 } from '../../lib/errors.js';
 import { activeVipTier, type UserBrief } from '../users/users.presenter.js';
 
@@ -26,7 +29,9 @@ export interface GiftAnnouncement {
   id: string;
   roomId: string | null;
   sender: UserBrief;
+  /** The first `GIFT_BROADCAST_RECEIVERS`; [receiverCount] counts them all. */
   receivers: { id: string; displayName: string }[];
+  receiverCount: number;
   gift: { id: string; name: string; iconUrl: string };
   quantity: number;
   totalCost: number;
@@ -48,7 +53,12 @@ export const giftInput = z.object({
 export const sendGiftInput = z.object({
   giftId: z.string().regex(/^[a-f0-9]{24}$/i),
   quantity: z.number().int().min(1).max(9999),
-  receiverIds: z.array(z.string().min(1).max(128)).min(1).max(10),
+  receiverIds: z.array(z.string().min(1).max(128)).min(1).max(MAX_GIFT_RECEIVERS),
+  /**
+   * A group send ("All on stage", "Everyone"): receivers who left the room, or can't receive,
+   * are dropped and not charged for, instead of failing the whole gift.
+   */
+  skipAbsent: z.boolean().default(false),
   roomId: z
     .string()
     .regex(/^[a-f0-9]{24}$/i)
@@ -61,6 +71,8 @@ export interface SendGiftResult {
   transactionId: string;
   totalCost: number;
   diamonds: number;
+  /** How many people were gifted (and charged for). */
+  receiverCount: number;
   replayed: boolean;
 }
 
@@ -145,12 +157,18 @@ export class GiftsService {
     const replay = await this.replay(senderId, idempotencyKey);
     if (replay) return replay;
 
-    const receiverIds = [...new Set(input.receiverIds)];
-    if (receiverIds.includes(senderId)) throw badRequest('You cannot send a gift to yourself');
+    const skip = input.skipAbsent && input.roomId !== null;
+    let receiverIds = [...new Set(input.receiverIds)];
+    if (receiverIds.includes(senderId)) {
+      if (!skip) throw badRequest('You cannot send a gift to yourself');
+      receiverIds = receiverIds.filter((id) => id !== senderId);
+    }
 
     const economy = await this.ctx.services.config.get('economy');
     if (input.quantity > economy.maxGiftQuantity)
       throw badRequest(`Quantity cannot exceed ${economy.maxGiftQuantity}`);
+    if (receiverIds.length > economy.maxGiftReceivers)
+      throw badRequest(`A gift can go to at most ${economy.maxGiftReceivers} people`);
 
     const gift = await this.ctx.col.gifts.findOne({ _id: new ObjectId(input.giftId) });
     if (!gift?.active) throw notFound('Gift');
@@ -164,13 +182,13 @@ export class GiftsService {
       );
     }
 
-    const receivers = await this.ctx.col.users
+    let receivers = await this.ctx.col.users
       .find(
         { _id: { $in: receiverIds }, status: 'active' },
         { projection: { _id: 1, agencyId: 1 } },
       )
       .toArray();
-    if (receivers.length !== receiverIds.length) throw notFound('Receiver');
+    if (receivers.length !== receiverIds.length && !skip) throw notFound('Receiver');
 
     let room: LiveRoomDoc | null = null;
     if (input.roomId) {
@@ -180,12 +198,25 @@ export class GiftsService {
       });
       if (!room) throw notFound('Live room');
       // Only people in the room: the host, guests on stage and viewers watching right now.
-      const absent = await this.ctx.services.live.firstAbsent(room, receiverIds);
-      if (absent) {
-        const brief = (await this.ctx.services.users.briefs([absent])).get(absent);
-        throw receiverNotInRoom(brief?.displayName ?? 'This user');
+      if (skip) {
+        // A group send charges only for the people still here, so never more than confirmed.
+        const here = await this.ctx.services.live.presentOf(
+          room,
+          receivers.map((r) => r._id),
+        );
+        receivers = receivers.filter((r) => here.has(r._id));
+        if (!receivers.length) throw receiversNotInRoom();
+      } else {
+        const absent = await this.ctx.services.live.firstAbsent(room, receiverIds);
+        if (absent) {
+          const brief = (await this.ctx.services.users.briefs([absent])).get(absent);
+          throw receiverNotInRoom(brief?.displayName ?? 'This user');
+        }
       }
     }
+    // Keep the order the sender gave (the stage first), not the database's.
+    const order = new Map(receiverIds.map((id, i) => [id, i]));
+    receivers.sort((a, b) => order.get(a._id)! - order.get(b._id)!);
 
     // Resolve agency commission rates up front (reads outside the transaction are fine:
     // rates are configuration, not balances).
@@ -300,7 +331,13 @@ export class GiftsService {
     await this.afterSend(doc, room, gift).catch((err: unknown) =>
       this.ctx.log.error({ err, txId: String(txId) }, 'post-gift side effects failed'),
     );
-    return { transactionId: String(txId), totalCost, diamonds, replayed: false };
+    return {
+      transactionId: String(txId),
+      totalCost,
+      diamonds,
+      receiverCount: doc.receivers.length,
+      replayed: false,
+    };
   }
 
   private async replay(senderId: string, idempotencyKey: string): Promise<SendGiftResult | null> {
@@ -311,6 +348,7 @@ export class GiftsService {
       transactionId: String(existing._id),
       totalCost: existing.totalCost,
       diamonds,
+      receiverCount: existing.receivers.length,
       replayed: true,
     };
   }
@@ -329,9 +367,11 @@ export class GiftsService {
         await this.ctx.services.pk.addScore(tx.pkBattleId, r.userId, tx.senderId, r.cost);
       }
     }
+    // Packets and the chat row name only the first few receivers of a group gift.
+    const named = tx.receivers.slice(0, GIFT_BROADCAST_RECEIVERS);
     const briefs = await this.ctx.services.users.briefs([
       tx.senderId,
-      ...tx.receivers.map((r) => r.userId),
+      ...named.map((r) => r.userId),
     ]);
     if (room) {
       // The committed total, so clients set (not add to) the "diamonds this live" counter.
@@ -350,7 +390,8 @@ export class GiftsService {
         .sendData(room.livekitRoom, LIVEKIT_TOPICS.gift, {
           transactionId: String(tx._id),
           sender: briefs.get(tx.senderId) ?? null,
-          receivers: tx.receivers.map((r) => briefs.get(r.userId) ?? { id: r.userId }),
+          receivers: named.map((r) => briefs.get(r.userId) ?? { id: r.userId }),
+          receiverCount: tx.receivers.length,
           gift: toGift(gift),
           quantity: tx.quantity,
           totalCost: tx.totalCost,
@@ -382,10 +423,11 @@ export class GiftsService {
       id: String(tx._id),
       roomId: tx.roomId ? String(tx.roomId) : null,
       sender,
-      receivers: tx.receivers.map((r) => ({
+      receivers: tx.receivers.slice(0, GIFT_BROADCAST_RECEIVERS).map((r) => ({
         id: r.userId,
         displayName: briefs.get(r.userId)?.displayName ?? 'User',
       })),
+      receiverCount: tx.receivers.length,
       gift: { id: String(gift._id), name: gift.name, iconUrl: gift.iconUrl },
       quantity: tx.quantity,
       totalCost: tx.totalCost,

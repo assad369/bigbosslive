@@ -264,9 +264,11 @@ class LiveRepository {
   );
   Future<Json> end(String roomId) async =>
       (await _api.post('/live/$roomId/end')).obj('summary');
-  Future<List<UserBrief>> viewers(String roomId) async =>
-      (await _api.get('/live/$roomId/viewers'))
-          .list('items', UserBrief.fromJson);
+  Future<List<UserBrief>> viewers(String roomId, {int? limit}) async =>
+      (await _api.get(
+        '/live/$roomId/viewers',
+        query: {if (limit != null) 'limit': '$limit'},
+      )).list('items', UserBrief.fromJson);
   Future<void> kick(String roomId, String uid, {int? banMinutes = 60}) =>
       _api.post(
         '/live/$roomId/kick',
@@ -378,11 +380,14 @@ class EconomyRepository {
   // Money-moving calls take the caller's [idempotencyKey] (one per user intent, reused on a
   // manual retry). Without one, a key is minted per call, which only covers network retries.
 
-  Future<int> sendGift({
+  /// One gift to [receiverIds]. With [skipAbsent] (a group send in a room) the server
+  /// drops who left and charges only for the rest: `receiverCount` says how many it reached.
+  Future<({int diamonds, int receiverCount})> sendGift({
     required String giftId,
     required int quantity,
     required List<String> receiverIds,
     String? roomId,
+    bool skipAbsent = false,
     String? idempotencyKey,
   }) async {
     final j = await _api.post(
@@ -394,9 +399,13 @@ class EconomyRepository {
         'quantity': quantity,
         'receiverIds': receiverIds,
         'roomId': roomId,
+        if (skipAbsent) 'skipAbsent': true,
       },
     );
-    return j.integer('diamonds');
+    return (
+      diamonds: j.integer('diamonds'),
+      receiverCount: j.integer('receiverCount', receiverIds.length),
+    );
   }
 
   Future<Wallet> wallet() async => Wallet.fromJson(await _api.get('/wallet'));

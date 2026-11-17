@@ -241,6 +241,14 @@ cd app && flutter analyze && flutter test && dart format lib test
   is saved as a `live_messages` row (`type: 'gift'`, `_id` = the gift transaction id, so never
   twice) and rides inside the `bb.gift` packet as `message`, not as a `bb.chat` packet. Older
   apps would show it twice. The app falls back to a local line when `message` is missing.
+- Group gifts: one send can reach many people (`GiftPanel`: multi-select chips, "All on
+  stage", "Everyone" = the stage plus `/live/:id/viewers?limit=`), up to
+  `economy.maxGiftReceivers` (default 100, ceiling `MAX_GIFT_RECEIVERS`; the app reads it as
+  `/config/app` `gifts.maxReceivers`). A group send passes `skipAbsent`: the server drops
+  who left (`LiveService.presentOf`) and charges only the rest, so never more than the user
+  confirmed, and returns `receiverCount`. The app confirms a group send once per combo.
+  `bb.gift`, the chat row and the announcement name the first `GIFT_BROADCAST_RECEIVERS`
+  plus `receiverCount`, so a whole-room gift stays inside a LiveKit packet.
 - Reactions are emoji: `LIVE_REACTIONS` (`packages/shared`) is the append-only list and the
   app's `LiveReaction` mirrors it (`app/test/live_reactions_contract_test.dart`).
   `POST /live/:id/reactions` takes `{ items: [{type, count}] }` (at most
@@ -264,8 +272,11 @@ cd app && flutter analyze && flutter test && dart format lib test
   on a narrow phone the chat field becomes a button and the row scales down, never
   dropping the heart (pink, `BBColors.heart`). The rail keeps the rest. Own reaction taps
   flush every 350 ms (`LiveRoomController.reactionBatch`), within the server's limit of
-  30 requests per 10 s. Speaking shows as `SpeakingBars` on tiles and `SpeakingGlow` on camera-off avatars
-  (`speaking_indicator.dart`), driven by `c.speakers`; they animate only while active.
+  30 requests per 10 s. Speaking shows as `SpeakingBars` on tiles, a red `SpeakingWave` around
+  a stage tile's camera-off avatar, and `SpeakingGlow` on the solo full-screen host's
+  (`speaking_indicator.dart`), driven by `c.speakers`; they animate only while active. A stage
+  tile whose camera is off (`seat.videoMuted`, or connected without `isCameraOn`) gets a
+  `BBColors.liveRed` border.
 - Gift and entrance effects keep the clip's own sound (`EffectView(sound: true)`), mixed with
   LiveKit (`mixWithOthers`, never taking the audio session). Everything else (frames, looping
   cosmetics) is silent: `SvgaMovieCache` drops audio unless retained `withAudio`. The room's

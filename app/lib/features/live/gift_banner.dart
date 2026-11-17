@@ -24,13 +24,17 @@ class GiftAnnouncement {
     required this.quantity,
     required this.totalCost,
     this.roomId,
-  });
+    int? receiverCount,
+  }) : receiverCount = receiverCount ?? receiverNames.length;
 
   /// The gift transaction id: a repeat of the same id is dropped.
   final String id;
   final String? roomId;
   final UserBrief sender;
   final List<String> receiverNames;
+
+  /// Everyone gifted; [receiverNames] holds only the first few of a group gift.
+  final int receiverCount;
   final String giftName;
   final String giftIconUrl;
   final int quantity;
@@ -38,7 +42,9 @@ class GiftAnnouncement {
 
   /// "Ann sent Rose ×3 to Bob" (or "to Bob, Cy").
   String get text {
-    final to = receiverNames.isEmpty ? '' : ' to ${receiverNames.join(', ')}';
+    final to = receiverNames.isEmpty
+        ? ''
+        : ' to ${receiversLabel(receiverNames, receiverCount)}';
     return '${sender.displayName} sent $giftName ×$quantity$to';
   }
 
@@ -48,11 +54,13 @@ class GiftAnnouncement {
     final gift = j.objOrNull('gift');
     final id = j.str('id');
     if (id.isEmpty || sender == null || gift == null) return null;
+    final names = j.list('receivers', (r) => r.str('displayName', 'User'));
     return GiftAnnouncement(
       id: id,
       roomId: j.strOrNull('roomId'),
       sender: UserBrief.fromJson(sender),
-      receiverNames: j.list('receivers', (r) => r.str('displayName', 'User')),
+      receiverNames: names,
+      receiverCount: j.integer('receiverCount', names.length),
       giftName: gift.str('name', 'a gift'),
       giftIconUrl: gift.str('iconUrl'),
       quantity: j.integer('quantity', 1),

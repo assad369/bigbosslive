@@ -1,3 +1,4 @@
+import 'package:bigboss_live/core/theme/bb_colors.dart';
 import 'package:bigboss_live/core/utils/format.dart';
 import 'package:bigboss_live/data/repositories.dart';
 import 'package:bigboss_live/features/live/live_room_controller.dart';
@@ -13,11 +14,16 @@ class _FakeRepo implements LiveRepository {
       throw UnimplementedError('${invocation.memberName}');
 }
 
-Map<String, dynamic> _seat(int index, String? uid, {int diamonds = 0}) => {
+Map<String, dynamic> _seat(
+  int index,
+  String? uid, {
+  int diamonds = 0,
+  bool videoMuted = false,
+}) => {
   'index': index,
   'userId': uid,
   'muted': false,
-  'videoMuted': false,
+  'videoMuted': videoMuted,
   'locked': false,
   'user': uid == null ? null : {'id': uid, 'displayName': 'User $uid'},
   'diamonds': diamonds,
@@ -28,30 +34,40 @@ LiveRoomController _controller({
   List<String> mods = const [],
   String? swapped,
   String type = 'video',
-}) =>
-    LiveRoomController(roomId: 'r1', myUid: me, repo: _FakeRepo())
-      ..detail = RoomDetail.fromJson({
-        'id': 'r1',
-        'type': type,
-        'status': 'live',
-        'title': 'Room',
-        'host': {'id': 'host', 'displayName': 'User host'},
-        'viewerCount': 1,
-        'giftDiamonds': 0,
-        'livekitRoom': 'bb_host_1',
-        'moderatorIds': mods,
-        'seats': [
-          _seat(0, 'host', diamonds: 5000),
-          _seat(1, 'me', diamonds: 1234),
-          _seat(2, null),
-        ],
-        'swappedUid': swapped,
-      });
+  bool guest = true,
+  bool guestVideoMuted = false,
+}) => LiveRoomController(roomId: 'r1', myUid: me, repo: _FakeRepo())
+  ..detail = RoomDetail.fromJson({
+    'id': 'r1',
+    'type': type,
+    'status': 'live',
+    'title': 'Room',
+    'host': {'id': 'host', 'displayName': 'User host'},
+    'viewerCount': 1,
+    'giftDiamonds': 0,
+    'livekitRoom': 'bb_host_1',
+    'moderatorIds': mods,
+    'seats': [
+      _seat(0, 'host', diamonds: 5000),
+      _seat(
+        1,
+        guest ? 'me' : null,
+        diamonds: 1234,
+        videoMuted: guestVideoMuted,
+      ),
+      _seat(2, null),
+    ],
+    'swappedUid': swapped,
+  });
 
 void main() {
   // LiveKit's Room starts a periodic timer: build controllers outside fake async.
-  late LiveRoomController swapped, normal, audio, viewer;
+  late LiveRoomController swapped, normal, audio, viewer, solo, camOff, joined;
   setUpAll(() {
+    solo = _controller(me: 'me', guest: false);
+    camOff = _controller(me: 'me', guestVideoMuted: true);
+    // Connected, with nothing published: every camera reads as off.
+    joined = _controller(me: 'me')..debugConnected = (_) => true;
     swapped = _controller(me: 'me', mods: ['me'], swapped: 'me');
     normal = _controller(me: 'me', mods: ['me']);
     audio = _controller(me: 'me', mods: ['me'], swapped: 'me', type: 'audio');
@@ -211,12 +227,108 @@ void main() {
       expect(shadows(), isEmpty);
     });
 
+    testWidgets('the wave ripples only while speaking', (tester) async {
+      Widget wave(bool active, {bool calm = false}) => MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(disableAnimations: calm),
+          child: Center(
+            child: SpeakingWave(
+              active: active,
+              child: const SizedBox.square(dimension: 40),
+            ),
+          ),
+        ),
+      );
+      RenderObject painted() => tester.renderObject(find.byType(SpeakingWave));
+
+      await tester.pumpWidget(wave(false));
+      expect(painted(), paintsExactlyCountTimes(#drawCircle, 0));
+      expect(tester.hasRunningAnimations, isFalse);
+
+      // The ring at the avatar's edge plus three moving waves.
+      await tester.pumpWidget(wave(true));
+      expect(painted(), paintsExactlyCountTimes(#drawCircle, 4));
+      expect(tester.hasRunningAnimations, isTrue);
+
+      await tester.pumpWidget(wave(false));
+      await tester.pumpAndSettle();
+      expect(painted(), paintsExactlyCountTimes(#drawCircle, 0));
+    });
+
+    testWidgets('reduced motion: a still ring, nothing animating', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(disableAnimations: true),
+            child: Center(
+              child: SpeakingWave(
+                active: true,
+                child: SizedBox.square(dimension: 40),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(tester.hasRunningAnimations, isFalse);
+      expect(
+        tester.renderObject(find.byType(SpeakingWave)),
+        paintsExactlyCountTimes(#drawCircle, 2),
+      );
+    });
+
+    testWidgets('stage tiles use the wave; the solo host keeps the glow', (
+      tester,
+    ) async {
+      await tester.pumpWidget(stage(normal));
+      expect(find.byType(SpeakingWave), findsNWidgets(2));
+      expect(find.byType(SpeakingGlow), findsNothing);
+
+      await tester.pumpWidget(stage(solo));
+      expect(find.byType(SpeakingWave), findsNothing);
+      expect(find.byType(SpeakingGlow), findsOneWidget);
+    });
+
     testWidgets('no one speaking: tiles settle with no indicator', (
       tester,
     ) async {
       await tester.pumpWidget(stage(normal, onSwap: (_) {}));
       await tester.pumpAndSettle();
       expect(find.bySemanticsLabel('Speaking'), findsNothing);
+    });
+  });
+
+  group('camera-off border', () {
+    Color borderOf(WidgetTester tester, String uid) {
+      final box = tester.widget<AnimatedContainer>(
+        find
+            .descendant(
+              of: find.byKey(ValueKey(uid)),
+              matching: find.byType(AnimatedContainer),
+            )
+            .first,
+      );
+      return ((box.decoration! as BoxDecoration).border! as Border).top.color;
+    }
+
+    testWidgets('a camera turned off by the room is red', (tester) async {
+      await tester.pumpWidget(stage(camOff));
+      expect(borderOf(tester, 'me'), BBColors.liveRed);
+      // Not connected yet: no verdict on the host's camera.
+      expect(borderOf(tester, 'host'), isNot(BBColors.liveRed));
+    });
+
+    testWidgets('connected with no camera published is red', (tester) async {
+      await tester.pumpWidget(stage(joined));
+      expect(borderOf(tester, 'me'), BBColors.liveRed);
+      expect(borderOf(tester, 'host'), BBColors.liveRed);
+    });
+
+    testWidgets('nothing known to be off: the neutral border', (tester) async {
+      await tester.pumpWidget(stage(normal));
+      expect(borderOf(tester, 'me'), BBColors.champagneTint);
+      expect(borderOf(tester, 'host'), BBColors.champagneTint);
     });
   });
 }

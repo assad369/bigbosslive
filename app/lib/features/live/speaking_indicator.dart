@@ -169,3 +169,146 @@ class _SpeakingGlowState extends State<SpeakingGlow>
     ),
   );
 }
+
+/// Rings rippling out from [child] (a round avatar) while [active]: the speaking cue on a
+/// stage tile whose camera is off.
+///
+/// Only the paint layer redraws each frame ([CustomPaint] repaints from the animation), so
+/// the avatar under it is never rebuilt. The tree has the same shape whether or not the
+/// person is speaking, so toggling never remounts (and reloads) the avatar. With the system
+/// "remove animations" setting on, a still ring shows instead.
+class SpeakingWave extends StatefulWidget {
+  const SpeakingWave({
+    super.key,
+    required this.active,
+    required this.child,
+    this.color = BBColors.liveRed,
+  });
+  final bool active;
+  final Widget child;
+  final Color color;
+
+  @override
+  State<SpeakingWave> createState() => _SpeakingWaveState();
+}
+
+class _SpeakingWaveState extends State<SpeakingWave>
+    with SingleTickerProviderStateMixin {
+  late final _anim = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  );
+  bool _calm = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _calm = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(SpeakingWave old) {
+    super.didUpdateWidget(old);
+    _sync();
+  }
+
+  void _sync() {
+    final run = widget.active && !_calm;
+    if (run && !_anim.isAnimating) {
+      _anim.repeat();
+    } else if (!run && _anim.isAnimating) {
+      _anim
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(
+      painter: _SpeakingWavePainter(
+        progress: _anim,
+        color: widget.color,
+        active: widget.active,
+        calm: _calm,
+      ),
+      child: widget.child,
+    ),
+  );
+}
+
+/// Paints [SpeakingWave]: a solid ring hugging the avatar plus [waves] rings that grow
+/// outward to [reach] × its radius and fade. Paints nothing while inactive.
+class _SpeakingWavePainter extends CustomPainter {
+  _SpeakingWavePainter({
+    required this.progress,
+    required this.color,
+    required this.active,
+    required this.calm,
+  }) : super(repaint: progress);
+
+  final Animation<double> progress;
+  final Color color;
+  final bool active;
+
+  /// Reduced motion: one still outer ring instead of the moving ones.
+  final bool calm;
+
+  static const waves = 3;
+  static const reach = 1.45;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (!active || size.isEmpty) return;
+    final center = size.center(Offset.zero);
+    final r0 = size.shortestSide / 2;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..isAntiAlias = true;
+
+    // Just outside the avatar's edge, so it never covers the photo.
+    canvas.drawCircle(
+      center,
+      r0 + 1,
+      paint
+        ..color = color
+        ..strokeWidth = 2,
+    );
+
+    if (calm) {
+      canvas.drawCircle(
+        center,
+        r0 * 1.2,
+        paint
+          ..color = color.withValues(alpha: 0.35)
+          ..strokeWidth = 1.5,
+      );
+      return;
+    }
+    for (var i = 0; i < waves; i++) {
+      final t = (progress.value + i / waves) % 1;
+      final grow = Curves.easeOut.transform(t);
+      canvas.drawCircle(
+        center,
+        r0 + 2 + r0 * (reach - 1) * grow,
+        paint
+          ..color = color.withValues(alpha: 0.7 * (1 - t))
+          ..strokeWidth = 2.5 - 1.5 * t,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SpeakingWavePainter old) =>
+      old.active != active ||
+      old.calm != calm ||
+      old.color != color ||
+      old.progress != progress;
+}

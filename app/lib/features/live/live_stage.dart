@@ -273,7 +273,8 @@ class ParticipantGrid extends StatelessWidget {
 }
 
 /// One person on stage: their video (or avatar when the camera is off), a speaking ring,
-/// mute/camera-off markers, a guest's spot number, a ✕ for those who may take them off the
+/// mute/camera-off markers, a red border while their camera is off (with a red wave around
+/// the avatar while they talk), a guest's spot number, a ✕ for those who may take them off the
 /// stage, and a [StageNamePlate] (avatar, name and diamond balance). The balance follows
 /// the room's `balances` events.
 class StageTile extends StatelessWidget {
@@ -306,13 +307,22 @@ class StageTile extends StatelessWidget {
     final track = c.videoOf(user.id);
     final micOff =
         seat.muted || (c.isConnected(user.id) && !c.isMicOn(user.id));
+    // Off by choice, not started yet, or turned off by the host or a room admin. Like
+    // [micOff], someone still connecting isn't flagged.
+    final cameraOff =
+        seat.videoMuted || (c.isConnected(user.id) && !c.isCameraOn(user.id));
     final mirror = user.id == c.myUid && c.frontCamera;
     final role = c.roleOf(user.id);
     final spot = seat.index > 0 ? c.spotOf(user.id) : null;
     final remove = onRemove;
 
     final media = track == null
-        ? _AvatarFallback(c: c, user: user, compact: compact || !fullScreen)
+        ? _AvatarFallback(
+            c: c,
+            user: user,
+            compact: compact || !fullScreen,
+            wave: !fullScreen,
+          )
         : VideoTrackRenderer(
             track,
             fit: VideoViewFit.cover,
@@ -330,16 +340,18 @@ class StageTile extends StatelessWidget {
       child: ListenableBuilder(
         listenable: c.speakers,
         builder: (context, child) {
-          final speaking = c.isSpeaking(user.id);
+          // Camera off wins: their speaking shows as the wave around the avatar instead.
+          final (color, width) = cameraOff
+              ? (BBColors.liveRed, 2.0)
+              : c.isSpeaking(user.id)
+              ? (BBColors.goldLight, 2.5)
+              : (BBColors.champagneTint, 1.0);
           return AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             decoration: BoxDecoration(
               color: BBColors.espresso,
               borderRadius: BorderRadius.circular(compact ? 10 : 6),
-              border: Border.all(
-                color: speaking ? BBColors.goldLight : BBColors.champagneTint,
-                width: speaking ? 2.5 : 1,
-              ),
+              border: Border.all(color: color, width: width),
             ),
             clipBehavior: Clip.antiAlias,
             child: child,
@@ -415,10 +427,15 @@ class _AvatarFallback extends StatelessWidget {
     required this.c,
     required this.user,
     required this.compact,
+    required this.wave,
   });
   final LiveRoomController c;
   final UserBrief user;
   final bool compact;
+
+  /// A red [SpeakingWave] while they talk (stage tiles); else the soft [SpeakingGlow]
+  /// (the solo full-screen host).
+  final bool wave;
 
   @override
   Widget build(BuildContext context) => ColoredBox(
@@ -432,8 +449,9 @@ class _AvatarFallback extends StatelessWidget {
             size: compact ? (box.biggest.shortestSide * 0.5).clamp(28, 72) : 96,
           ),
           // Camera off: the avatar itself pulses while they talk.
-          builder: (_, avatar) =>
-              SpeakingGlow(active: c.isSpeaking(user.id), child: avatar!),
+          builder: (_, avatar) => wave
+              ? SpeakingWave(active: c.isSpeaking(user.id), child: avatar!)
+              : SpeakingGlow(active: c.isSpeaking(user.id), child: avatar!),
         ),
       ),
     ),

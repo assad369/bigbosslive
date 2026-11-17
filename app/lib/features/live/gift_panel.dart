@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -23,7 +24,9 @@ final giftsProvider = FutureProvider<List<Gift>>(
 /// retry of a send that got no answer reuses its key, so it can't be charged twice.
 ///
 /// Anyone in the room can be gifted: the host and guests on stage are offered first, and
-/// "Viewers" adds someone who is watching.
+/// "Viewers" adds someone who is watching. Several chips can be picked at once, and "All on
+/// stage" / "Everyone" gift a whole group in one send (confirmed once, since it multiplies
+/// the price); the server skips whoever left meanwhile.
 class GiftPanel extends ConsumerStatefulWidget {
   const GiftPanel({
     super.key,
@@ -67,20 +70,56 @@ class GiftPanel extends ConsumerStatefulWidget {
   ConsumerState<GiftPanel> createState() => _GiftPanelState();
 }
 
+/// Who a send goes to: the people picked on the chips, everyone on stage, or everyone here.
+enum _Target { picked, stage, everyone }
+
 class _GiftPanelState extends ConsumerState<GiftPanel> {
   Gift? _selected;
   int _qty = 1;
   bool _sending = false;
 
-  /// The receiver chips: the tapped person first, then the stage, then viewers picked here.
+  /// The person chips: the tapped person first, then the stage, then viewers picked here.
   late final List<UserBrief> _receivers = _initialReceivers();
-  late String? _receiver = _receivers.firstOrNull?.id;
+
+  /// The chips selected while [_target] is [_Target.picked].
+  late final Set<String> _picked = {
+    if (_receivers.isNotEmpty) _receivers.first.id,
+  };
+  _Target _target = _Target.picked;
 
   late final Set<String> _stageIds = {for (final u in widget.stage) u.id};
 
+  /// The host and the guests on stage, without me.
+  late final List<String> _stageOthers = [
+    for (final u in widget.stage)
+      if (u.id != widget.myUid) u.id,
+  ];
+
+  /// "Everyone": the stage, then the viewers, without me and capped. Null until loaded.
+  List<String>? _everyone;
+  bool _everyoneCapped = false;
+  bool _loadingEveryone = false;
+
   /// The last send that got no answer (network or timeout). Tapping Send again with the same
-  /// gift, quantity and receiver retries *that* send; anything else is a new gift.
+  /// gift, quantity and receivers retries *that* send; anything else is a new gift.
   ({String intent, String key})? _unanswered;
+
+  /// The group send last confirmed: repeat taps of the same combo don't ask again.
+  String? _confirmed;
+
+  int get _cap =>
+      ref.read(appConfigProvider).value?.maxGiftReceivers ??
+      AppConfig.defaultMaxGiftReceivers;
+
+  /// Who the next send goes to.
+  List<String> get _targets => switch (_target) {
+    _Target.picked => [
+      for (final r in _receivers)
+        if (_picked.contains(r.id)) r.id,
+    ],
+    _Target.stage => _stageOthers,
+    _Target.everyone => _everyone ?? const [],
+  };
 
   List<UserBrief> _initialReceivers() {
     final first = widget.preselected;
@@ -99,6 +138,60 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
     return null;
   }
 
+  /// A person chip: picks or unpicks them. After a group choice it starts a fresh pick.
+  void _toggle(String id) {
+    setState(() {
+      if (_target != _Target.picked) {
+        _target = _Target.picked;
+        _picked
+          ..clear()
+          ..add(id);
+      } else if (!_picked.remove(id)) {
+        if (_picked.length >= _cap) {
+          showMessage(context, 'A gift can go to at most $_cap people');
+          return;
+        }
+        _picked.add(id);
+      }
+    });
+  }
+
+  void _toggleStage() => setState(
+    () => _target = _target == _Target.stage ? _Target.picked : _Target.stage,
+  );
+
+  /// Everyone in the room: the stage plus the viewers, up to the server's receiver cap.
+  Future<void> _toggleEveryone() async {
+    if (_target == _Target.everyone) {
+      setState(() => _target = _Target.picked);
+      return;
+    }
+    if (_loadingEveryone) return;
+    setState(() => _loadingEveryone = true);
+    try {
+      final cap = _cap;
+      final viewers = await ref
+          .read(liveRepo)
+          .viewers(widget.roomId, limit: cap);
+      final ids = <String>{..._stageOthers, for (final v in viewers) v.id}
+        ..remove(widget.myUid);
+      if (!mounted) return;
+      if (ids.isEmpty) {
+        showMessage(context, 'No one else is here yet');
+        return;
+      }
+      setState(() {
+        _everyone = ids.take(cap).toList();
+        _everyoneCapped = ids.length > cap;
+        _target = _Target.everyone;
+      });
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _loadingEveryone = false);
+    }
+  }
+
   Future<void> _pickViewer() async {
     final picked = await showModalBottomSheet<UserBrief>(
       context: context,
@@ -112,7 +205,11 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
     if (picked == null || !mounted) return;
     setState(() {
       if (_receivers.every((r) => r.id != picked.id)) _receivers.add(picked);
-      _receiver = picked.id;
+      if (_target != _Target.picked) {
+        _target = _Target.picked;
+        _picked.clear();
+      }
+      if (_picked.length < _cap) _picked.add(picked.id);
     });
   }
 
@@ -120,33 +217,89 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
   void _dropReceiver(String id) {
     setState(() {
       _receivers.removeWhere((r) => r.id == id);
-      if (_receiver == id) _receiver = _receivers.firstOrNull?.id;
+      _picked.remove(id);
     });
+  }
+
+  /// A group gift multiplies the price: say the total once before charging it.
+  Future<bool> _confirmGroup(Gift gift, int people) async {
+    final total = gift.price * _qty * people;
+    final firstOnly = _target == _Target.everyone && _everyoneCapped;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Send to $people people?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${gift.name} ×$_qty to each'
+              '${firstOnly ? ' (the first $people in this live)' : ''}.',
+            ),
+            const SizedBox(height: 8),
+            Row(children: [const Text('Total  '), DiamondAmount(total)]),
+            const SizedBox(height: 8),
+            const Text(
+              'Anyone who leaves before it lands isn’t gifted or charged for.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
   }
 
   Future<void> _send() async {
     final gift = _selected;
-    final receiver = _receiver;
-    if (gift == null || receiver == null || _sending) return;
+    final ids = _targets;
+    if (gift == null || ids.isEmpty || _sending) return;
+    final group = ids.length > 1;
+    final intent = '${gift.id}:$_qty:${([...ids]..sort()).join(',')}';
+    if (group && _confirmed != intent) {
+      if (!await _confirmGroup(gift, ids.length) || !mounted) return;
+      _confirmed = intent;
+    }
     setState(() => _sending = true);
-    final intent = '${gift.id}:$_qty:$receiver';
     final key = _unanswered?.intent == intent
         ? _unanswered!.key
         : ApiClient.newIdempotencyKey();
     _unanswered = null;
     try {
-      final diamonds = await ref
+      final sent = await ref
           .read(economyRepo)
           .sendGift(
             giftId: gift.id,
             quantity: _qty,
-            receiverIds: [receiver],
+            receiverIds: ids,
             roomId: widget.roomId,
+            // A group send skips who left instead of failing for everyone.
+            skipAbsent: group,
             idempotencyKey: key,
           );
       final me = ref.read(sessionProvider).value;
       if (me != null) {
-        ref.read(sessionProvider.notifier).replace(me.withDiamonds(diamonds));
+        ref
+            .read(sessionProvider.notifier)
+            .replace(me.withDiamonds(sent.diamonds));
+      }
+      final gone = ids.length - sent.receiverCount;
+      if (group && gone > 0 && mounted) {
+        showMessage(
+          context,
+          'Sent to ${sent.receiverCount} — $gone had left the live',
+        );
       }
     } on ApiException catch (e) {
       if (e.isNetwork) _unanswered = (intent: intent, key: key);
@@ -157,7 +310,7 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
         showError(context, e);
         unawaited(ref.read(sessionProvider.notifier).refresh());
       } else if (e.code == 'receiver_not_in_room') {
-        _dropReceiver(receiver);
+        if (!group) _dropReceiver(ids.single);
         showError(context, e);
       } else if (e.insufficientBalance) {
         final go = await showDialog<bool>(
@@ -195,6 +348,10 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
     final diamonds = me?.wallet.diamonds ?? 0;
     // Agency hosts and agency admins earn gifts but can't send them (the server refuses).
     final blocked = me?.profile.agencyId != null;
+    final targets = _targets;
+    final gift = _selected;
+    // Keeps the receiver cap ([_cap]) loaded.
+    ref.watch(appConfigProvider);
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.5,
@@ -206,6 +363,23 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 children: [
+                  // "All on stage" only when it means more than one person.
+                  if (_stageOthers.length > 1)
+                    _GroupChip(
+                      icon: Icons.groups_rounded,
+                      label: 'All on stage · ${_stageOthers.length}',
+                      selected: _target == _Target.stage,
+                      onTap: _toggleStage,
+                    ),
+                  _GroupChip(
+                    icon: Icons.public_rounded,
+                    label: _target == _Target.everyone
+                        ? 'Everyone · ${_everyone?.length ?? 0}'
+                        : 'Everyone',
+                    selected: _target == _Target.everyone,
+                    loading: _loadingEveryone,
+                    onTap: _toggleEveryone,
+                  ),
                   if (_receivers.isEmpty)
                     const Padding(
                       padding: EdgeInsets.only(right: 8),
@@ -222,14 +396,16 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                   for (final r in _receivers)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
+                      child: FilterChip(
                         avatar: BBAvatar.user(r, size: 22),
                         label: _ReceiverLabel(
                           name: r.displayName,
                           tag: _tag(r),
                         ),
-                        selected: _receiver == r.id,
-                        onSelected: (_) => setState(() => _receiver = r.id),
+                        showCheckmark: false,
+                        selected:
+                            _target == _Target.picked && _picked.contains(r.id),
+                        onSelected: (_) => _toggle(r.id),
                       ),
                     ),
                   Center(
@@ -331,6 +507,29 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                 ),
               ),
             ),
+            // A group send multiplies the price: show what it comes to.
+            if (!blocked && gift != null && targets.length > 1)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+                child: Row(
+                  children: [
+                    Text(
+                      'To ${targets.length} people · ',
+                      style: const TextStyle(
+                        color: BBColors.champagne,
+                        fontSize: 12,
+                      ),
+                    ),
+                    DiamondAmount(
+                      gift.price * _qty * targets.length,
+                      style: const TextStyle(
+                        color: BBColors.goldLight,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
               child: Row(
@@ -379,7 +578,7 @@ class _GiftPanelState extends ConsumerState<GiftPanel> {
                         label: 'Send',
                         height: 44,
                         loading: _sending,
-                        onPressed: _selected == null || _receiver == null
+                        onPressed: gift == null || targets.isEmpty
                             ? null
                             : _send,
                       ),
@@ -432,6 +631,39 @@ class _GiftingBlocked extends StatelessWidget {
           ),
         ],
       ),
+    ),
+  );
+}
+
+/// "All on stage" / "Everyone": one choice that gifts a whole group.
+class _GroupChip extends StatelessWidget {
+  const _GroupChip({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.loading = false,
+  });
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final bool loading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 8),
+    child: ChoiceChip(
+      avatar: loading
+          ? const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon, size: 18, color: BBColors.goldLight),
+      label: Text(label),
+      showCheckmark: false,
+      selected: selected,
+      onSelected: (_) => onTap(),
     ),
   );
 }
@@ -588,6 +820,7 @@ class _GiftOverlayState extends State<GiftOverlay> {
         gift: last.gift,
         quantity: last.quantity + g.quantity,
         receiverNames: {...last.receiverNames, ...g.receiverNames}.toList(),
+        receiverCount: max(last.receiverCount, g.receiverCount),
       );
       return;
     }

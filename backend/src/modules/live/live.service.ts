@@ -1,6 +1,7 @@
 import { ObjectId, type Filter, type Sort } from 'mongodb';
 import { z } from 'zod';
 import {
+  GIFT_BROADCAST_RECEIVERS,
   LIVEKIT_TOPICS,
   ROOM_TYPES,
   SOCKET,
@@ -1053,10 +1054,12 @@ export class LiveService {
     gift: GiftDoc,
     names: Map<string, { displayName: string }>,
   ) {
-    const receivers = tx.receivers.map((r) => ({
+    // A gift to a whole room names the first few and counts the rest.
+    const receivers = tx.receivers.slice(0, GIFT_BROADCAST_RECEIVERS).map((r) => ({
       id: r.userId,
       displayName: names.get(r.userId)?.displayName ?? 'User',
     }));
+    const receiverCount = tx.receivers.length;
     const detail: LiveGiftMessage = {
       transactionId: String(tx._id),
       giftId: String(gift._id),
@@ -1065,8 +1068,12 @@ export class LiveService {
       quantity: tx.quantity,
       totalCost: tx.totalCost,
       receivers,
+      receiverCount,
     };
-    const text = `sent ${gift.name} ×${tx.quantity} to ${receivers.map((r) => r.displayName).join(', ')}`;
+    const text = `sent ${gift.name} ×${tx.quantity} to ${receiversText(
+      receivers.map((r) => r.displayName),
+      receiverCount,
+    )}`;
     const doc: LiveMessageDoc = {
       _id: tx._id,
       roomId: room._id,
@@ -1102,14 +1109,24 @@ export class LiveService {
    * (no `room_presence` row). Null when everyone is there.
    */
   async firstAbsent(room: LiveRoomDoc, uids: string[]): Promise<string | null> {
-    const staged = new Set([room.hostId, ...room.seats.map((s) => s.userId)]);
-    const rest = uids.filter((uid) => !staged.has(uid));
-    if (!rest.length) return null;
+    const here = await this.presentOf(room, uids);
+    return uids.find((uid) => !here.has(uid)) ?? null;
+  }
+
+  /**
+   * Which of [uids] are in [room]: the host, seated guests, and anyone with a `room_presence`
+   * row (hidden moderators included, so a gift to one already named never fails).
+   */
+  async presentOf(room: LiveRoomDoc, uids: string[]): Promise<Set<string>> {
+    const staged = new Set<string>([room.hostId, ...room.seats.flatMap((s) => s.userId ?? [])]);
+    const here = new Set(uids.filter((uid) => staged.has(uid)));
+    const rest = uids.filter((uid) => !here.has(uid));
+    if (!rest.length) return here;
     const present = await this.ctx.col.roomPresence
       .find({ roomId: room._id, identity: { $in: rest } }, { projection: { identity: 1 } })
       .toArray();
-    const here = new Set(present.map((p) => p.identity));
-    return rest.find((uid) => !here.has(uid)) ?? null;
+    for (const p of present) here.add(p.identity);
+    return here;
   }
 
   /**
@@ -1896,4 +1913,12 @@ function replyPreview(m: LiveMessageDoc): string {
   if (m.type === 'voice') return '🎤 Voice message';
   if (m.type === 'gift' && m.gift) return `🎁 ${m.gift.name} ×${m.gift.quantity}`;
   return m.text.slice(0, 80);
+}
+
+/** "A, B, C" or, past three names, "A, B, C and 97 others". */
+export function receiversText(names: string[], count = names.length): string {
+  const shown = names.slice(0, 3);
+  const others = Math.max(count - shown.length, 0);
+  if (!others) return shown.join(', ');
+  return `${shown.join(', ')} and ${others} ${others === 1 ? 'other' : 'others'}`;
 }

@@ -41,11 +41,12 @@ export function contentRoutes(ctx: Ctx): Router {
 
   /** Unauthenticated: the app reads this before sign-in (maintenance, force-update). */
   r.get('/config/app', async (_req, res) => {
-    const [app, features, pk, games] = await Promise.all([
+    const [app, features, pk, games, economy] = await Promise.all([
       config.get('app'),
       config.get('features'),
       config.get('pk'),
       config.get('games'),
+      config.get('economy'),
     ]);
     res.set('Cache-Control', 'public, max-age=60');
     res.json({
@@ -53,6 +54,8 @@ export function contentRoutes(ctx: Ctx): Router {
       // `gamesInLive`: the live room shows its Games button.
       features: { ...features, gamesInLive: features.gamesEnabled && games.liveRoomEnabled },
       pk: { durationsSec: pk.durationsSec },
+      // The gift panel's "Everyone" takes at most this many people.
+      gifts: { maxReceivers: economy.maxGiftReceivers },
       livekitUrl: ctx.livekit.url,
     });
   });

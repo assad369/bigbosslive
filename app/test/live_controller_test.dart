@@ -570,6 +570,30 @@ void main() {
     expect(line.text, 'sent Rose ×10 to User host, User guest');
   });
 
+  test('a gift to a whole room names the first few and counts the rest', () {
+    final c = _controller();
+    c.handleServerPacket('bb.gift', {
+      ...giftPacket(),
+      'receivers': [
+        for (final id in ['a', 'b', 'c', 'd']) _brief(id),
+      ],
+      'receiverCount': 40,
+    });
+    final line = c.chat.singleWhere((l) => l.kind == ChatKind.gift);
+    expect(line.gift!.receiverCount, 40);
+    expect(line.gift!.receivers, 'User a, User b, User c and 37 others');
+    expect(line.text, 'sent Rose ×10 to User a, User b, User c and 37 others');
+  });
+
+  test('receiversLabel', () {
+    expect(receiversLabel(['A']), 'A');
+    expect(receiversLabel(['A', 'B', 'C']), 'A, B, C');
+    expect(receiversLabel(['A', 'B', 'C', 'D']), 'A, B, C and 1 other');
+    expect(receiversLabel(['A', 'B'], 12), 'A, B and 10 others');
+    // An older server sends no count: the names are everyone.
+    expect(receiversLabel(['A', 'B'], 0), 'A, B');
+  });
+
   test('automated moderation notices reach the participant', () async {
     final c = _controller(me: 'guest');
     final warned = c.notices.first;
