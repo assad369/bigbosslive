@@ -27,6 +27,8 @@ Map<String, dynamic> _seat(
   'locked': false,
   'user': uid == null ? null : {'id': uid, 'displayName': 'User $uid'},
   'diamonds': diamonds,
+  // Tiles show today's gifts; the fixtures keep them equal to the balance.
+  'todayDiamonds': diamonds,
 };
 
 LiveRoomController _controller({
@@ -105,8 +107,8 @@ void main() {
       greaterThanOrEqualTo(small.width * small.height),
     );
     // Each tile keeps its own live balance.
-    expect(find.text(Fmt.full(1234)), findsOneWidget);
-    expect(find.text(Fmt.full(5000)), findsOneWidget);
+    expect(find.text(Fmt.diamonds(1234)), findsOneWidget);
+    expect(find.text(Fmt.diamonds(5000)), findsOneWidget);
   });
 
   testWidgets('no swap: host first, no markers', (tester) async {

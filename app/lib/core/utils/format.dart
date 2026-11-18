@@ -10,6 +10,9 @@ abstract final class Fmt {
 
   static String compact(num n) => _compact.format(n);
   static String full(num n) => _full.format(n);
+
+  /// A diamond amount: whole and without thousands separators ("1234567"), everywhere.
+  static String diamonds(num n) => n.round().toString();
   static String ago(DateTime? d) => d == null ? '' : timeago.format(d);
 
   /// Relative time that also reads the future correctly ("a month from now"); [ago] turns

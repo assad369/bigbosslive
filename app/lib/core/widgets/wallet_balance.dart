@@ -49,7 +49,7 @@ class StarCount extends StatelessWidget {
   );
 }
 
-/// A user's wallet: "💎 1,234,567  ★ 12". Stars follow [diamondsPerStarProvider].
+/// A user's wallet: "💎 1234567  ★ 12". Stars follow [diamondsPerStarProvider].
 /// [onDark] is for the live room's dark overlays; [compact] abbreviates big balances.
 class WalletBalance extends ConsumerWidget {
   const WalletBalance(
@@ -68,7 +68,7 @@ class WalletBalance extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final stars = starsFor(diamonds, ref.watch(diamondsPerStarProvider));
     final color = onDark ? BBColors.ivory : BBColors.ink;
-    final amount = compact ? Fmt.compact(diamonds) : Fmt.full(diamonds);
+    final amount = compact ? Fmt.compact(diamonds) : Fmt.diamonds(diamonds);
     return Semantics(
       label: 'Wallet $amount diamonds, $stars ${stars == 1 ? 'star' : 'stars'}',
       excludeSemantics: true,

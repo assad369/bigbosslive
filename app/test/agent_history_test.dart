@@ -91,22 +91,22 @@ void main() {
       await tester.pumpAndSettle();
 
       // Agent stock on the Recharge tab is the full number, never "2.5M".
-      expect(find.text('2,500,000'), findsOneWidget);
+      expect(find.text('2500000'), findsOneWidget);
 
       await tester.tap(find.text('History'));
       await tester.pumpAndSettle();
       expect(find.text('Sent to users'), findsOneWidget);
       expect(find.text('Stock received'), findsOneWidget);
-      expect(find.text('💎 1,234,567'), findsOneWidget);
-      expect(find.text('+💎 1,500,000'), findsOneWidget);
+      expect(find.text('💎 1234567'), findsOneWidget);
+      expect(find.text('+💎 1500000'), findsOneWidget);
       expect(economy.stockLoads, 0);
 
       await tester.tap(find.text('Stock received'));
       await tester.pumpAndSettle();
       expect(economy.stockLoads, 1);
       expect(find.text('Stock top-up'), findsOneWidget);
-      expect(find.text('+💎 2,000,000'), findsOneWidget);
-      expect(find.textContaining('Stock after 💎 2,500,000'), findsOneWidget);
+      expect(find.text('+💎 2000000'), findsOneWidget);
+      expect(find.textContaining('Stock after 💎 2500000'), findsOneWidget);
     },
   );
 }

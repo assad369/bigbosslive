@@ -144,6 +144,7 @@ describe('live history and summary', () => {
     await h.user('lh-fan', { wallet: { diamonds: 100_000 } });
     await h.user('lh-fan2', { wallet: { diamonds: 100_000 } });
     await h.user('lh-support', { adminRole: 'support' });
+    await h.user('lh-finance', { adminRole: 'finance' });
     h.clock.set(new Date('2026-03-15T12:00:00.000Z'));
     const res = await h.api.post('/v1/live').set(h.as('lh-host')).send({ type: 'video' });
     roomId = res.body.room.id;
@@ -257,6 +258,28 @@ describe('live history and summary', () => {
   it('shows a summary only to its host and staff who read lives', async () => {
     expect((await h.api.get(`/v1/live/${roomId}/summary`).set(h.as('lh-fan'))).status).toBe(403);
     await h.api.get(`/v1/live/${roomId}/summary`).set(h.as('lh-support', 'support')).expect(200);
+  });
+
+  it('serves the admin streaming history with its counters and summary', async () => {
+    const list = await h.api
+      .get('/v1/admin/live')
+      .query({ status: 'ended', hostId: 'lh-host' })
+      .set(h.as('lh-support', 'support'))
+      .expect(200);
+    const row = list.body.items.find((r: { id: string }) => r.id === roomId);
+    expect(row).toMatchObject({ endReason: 'host', endedBy: 'lh-host' });
+    expect(row).toHaveProperty('uniqueViewers');
+    expect(row).toHaveProperty('totalJoins');
+    const summary = await h.api
+      .get(`/v1/admin/live/${roomId}/summary`)
+      .set(h.as('lh-support', 'support'))
+      .expect(200);
+    expect(summary.body.summary.gifts.roomDiamonds).toBe(500);
+    // Finance staff can't read lives.
+    await h.api
+      .get(`/v1/admin/live/${roomId}/summary`)
+      .set(h.as('lh-finance', 'finance'))
+      .expect(403);
   });
 
   it('groups a month by the local day each live started', async () => {

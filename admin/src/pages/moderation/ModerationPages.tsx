@@ -17,7 +17,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { PkBattle } from '@bigboss/shared';
 import { get, send } from '../../lib/api';
-import { ago, dateTime, num } from '../../lib/format';
+import { ago, dateTime, diamonds, num } from '../../lib/format';
 import {
   ActionButton,
   FilterBar,
@@ -408,7 +408,7 @@ export function PkBattlesPage() {
                       {b.winnerUid === h.uid ? '👑 ' : ''}
                       {h.displayName}
                     </Typography.Text>
-                    <Tag>{num(h.score)}</Tag>
+                    <Tag>{diamonds(h.score)}</Tag>
                     {b.maxRounds > 1 && (
                       <Typography.Text type="secondary">{h.roundsWon} rounds</Typography.Text>
                     )}

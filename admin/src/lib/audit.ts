@@ -4,7 +4,7 @@
  * humanized form of the key, so a new action never renders blank.
  */
 import { brand } from '../theme';
-import { dateTime, num } from './format';
+import { dateTime, diamonds, num } from './format';
 
 export type AuditTone = 'danger' | 'warning' | 'success' | 'info' | 'neutral';
 type Payload = Record<string, unknown>;
@@ -68,7 +68,7 @@ const join = (...parts: (string | number | null | undefined | false)[]) =>
 const quote = (s: string | null) => (s ? `“${truncate(s, 80)}”` : null);
 const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const plural = (n: number, word: string) => `${num(n)} ${word}${n === 1 ? '' : 's'}`;
-const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${num(Math.abs(n))}`;
+const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${diamonds(Math.abs(n))}`;
 const nameOf = (p: Payload) => str(p, 'name') ?? str(p, 'title') ?? str(p, 'label');
 const banLength = (p: Payload) => {
   const days = int(p, 'days');
@@ -155,7 +155,7 @@ export const AUDIT_ACTIONS: Record<string, ActionSpec> = {
     tone: 'success',
     summary: (p) =>
       join(
-        int(p, 'diamonds') !== null && `+${num(int(p, 'diamonds'))} diamonds`,
+        int(p, 'diamonds') !== null && `+${diamonds(int(p, 'diamonds'))} diamonds`,
         quote(str(p, 'note')),
       ),
   },
@@ -272,11 +272,13 @@ export const AUDIT_ACTIONS: Record<string, ActionSpec> = {
   'recharge_package.create': {
     label: 'Created recharge package',
     tone: 'success',
-    summary: (p) => named(p) ?? (int(p, 'diamonds') ? `${num(int(p, 'diamonds'))} diamonds` : null),
+    summary: (p) =>
+      named(p) ?? (int(p, 'diamonds') ? `${diamonds(int(p, 'diamonds'))} diamonds` : null),
   },
   'recharge_package.update': {
     label: 'Edited recharge package',
-    summary: (p) => named(p) ?? (int(p, 'diamonds') ? `${num(int(p, 'diamonds'))} diamonds` : null),
+    summary: (p) =>
+      named(p) ?? (int(p, 'diamonds') ? `${diamonds(int(p, 'diamonds'))} diamonds` : null),
   },
   'tier_package.create': { label: 'Created tier package', tone: 'success', summary: named },
   'tier_package.update': { label: 'Edited tier package', summary: (p) => named(p) ?? changed(p) },

@@ -73,6 +73,9 @@ cd app && flutter analyze && flutter test && dart format lib test
   inside the same transaction that moved the counter. Thresholds live in `level_configs`.
 - **One currency:** diamonds (`wallet.diamonds`) are bought, spent, earned and withdrawn.
   There are no beans. `agent_stock` is only an agent's resale inventory.
+- **Diamond amounts are shown without thousands separators** (`1234567`): `Fmt.diamonds` in
+  the app, `diamonds()` / `<Money unit="diamonds">` in the admin (`StatCard plain`, since
+  antd's `Statistic` regroups digits). `Fmt.full` / `num()` stay for stars, points and counts.
 - **Gift split:** receiver diamonds = cost − platform fee − agency fee. The platform fee
   (`economy.platformFeeRate`, 2% by default) applies to every receiver. Only a member of an
   active agency pays the agency fee, whose rate is capped by `economy.maxAgencyRate`, so a
@@ -255,6 +258,12 @@ cd app && flutter analyze && flutter test && dart format lib test
   `MAX_REACTIONS_PER_REQUEST` in total, one request per client flush); a bare `{ count }` from
   older apps means `love`. `bb.reaction` carries both `items` and the total `count`, so older
   apps still float hearts. The heart opens `ReactionTrayButton`; `ReactionLayer` draws them.
+- Stage tiles and the host's top-bar 💎 show **diamonds received from gifts today**
+  (`users.giftsToday {key, diamonds}`, bumped in the gift transaction by `GiftsService`,
+  day key in `AGENCY_RESET_TIMEZONE`; a stale key reads as zero). Room detail and the
+  `bb.seats` `balances` packet carry it as `todayDiamonds` beside the wallet `diamonds`.
+- Swiping the room right hides the chat and left shows it (`ChatSwipeDetector`); swipes
+  from the system edge zones are left to back navigation.
 - Rooms with no heartbeat for `live.staleAfterSec` are ended by the `live.sweep` job.
 - Broadcasting History and the post-live summary are in `LiveSummaryService`
   (`modules/live/live-summary.service.ts`):

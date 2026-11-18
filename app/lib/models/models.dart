@@ -613,6 +613,7 @@ class Seat {
     this.videoMuted = false,
     required this.locked,
     this.diamonds = 0,
+    this.todayDiamonds = 0,
     this.seatedAt,
   });
   final int index;
@@ -625,6 +626,10 @@ class Seat {
 
   /// The seated person's diamond balance, kept current by `balances` seat events.
   final int diamonds;
+
+  /// Diamonds the seated person received from gifts today; starts over at the server's
+  /// midnight. This is what the stage tile and the host's top-bar figure show.
+  final int todayDiamonds;
 
   /// When the occupant sat down. The video stage keeps guests in this order, so a late
   /// joiner lands last. Null on an empty seat and from older servers.
@@ -639,6 +644,7 @@ class Seat {
       videoMuted: j.flag('videoMuted'),
       locked: j.flag('locked'),
       diamonds: j.integer('diamonds'),
+      todayDiamonds: j.integer('todayDiamonds'),
       seatedAt: u == null ? null : j.date('seatedAt'),
     );
   }
@@ -647,13 +653,14 @@ class Seat {
   /// list until the server frees it).
   Seat get vacant => Seat(index: index, muted: false, locked: locked);
 
-  Seat copyWith({UserBrief? user, int? diamonds}) => Seat(
+  Seat copyWith({UserBrief? user, int? diamonds, int? todayDiamonds}) => Seat(
     index: index,
     user: user ?? this.user,
     muted: muted,
     videoMuted: videoMuted,
     locked: locked,
     diamonds: diamonds ?? this.diamonds,
+    todayDiamonds: todayDiamonds ?? this.todayDiamonds,
     seatedAt: seatedAt,
   );
 }

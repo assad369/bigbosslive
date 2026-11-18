@@ -6,6 +6,7 @@ import 'package:bigboss_live/features/live/live_room_controller.dart';
 import 'package:bigboss_live/features/live/live_sheets.dart';
 import 'package:bigboss_live/models/models.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -109,7 +110,7 @@ void main() {
   // widget tests' fake-async zone.
   late LiveRoomController host, guest, viewer, railHost, barHost, foldHost;
   late LiveRoomController coHost, audioGuest, moderator;
-  late LiveRoomController sheetHost, sheetViewer, hiddenMod;
+  late LiveRoomController sheetHost, sheetViewer, hiddenMod, longNameHost;
   late _FakeRepo hiddenModRepo;
   final waiting = [
     for (final id in ['w1', 'w2'])
@@ -117,7 +118,24 @@ void main() {
         user: UserBrief(id: id, shortId: '3$id', displayName: 'Waiting $id'),
       ),
   ];
+  const longName = 'Maximiliana Alexandrovna Konstantinopoulou the Third';
   setUpAll(() {
+    longNameHost = _controller(
+      'host',
+      repo: _FakeRepo(
+        requests: [
+          const SeatRequest(
+            user: UserBrief(
+              id: 'w9',
+              shortId: '39',
+              displayName: longName,
+              level: 12,
+              vipTier: 2,
+            ),
+          ),
+        ],
+      ),
+    );
     moderator = _controller('pm', liveModerator: true);
     sheetHost = _controller('host', repo: _FakeRepo(requests: waiting));
     sheetViewer = _controller('viewer');
@@ -284,6 +302,50 @@ void main() {
     // The host has no seat of their own to ask for.
     expect(find.text('Join'), findsNothing);
   });
+
+  testWidgets(
+    'a long requester name shows in full on a narrow phone with large text',
+    (tester) async {
+      await _narrow(tester);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [liveRepo.overrideWithValue(_FakeRepo())],
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.3)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: ParticipantsSheet(
+                c: longNameHost,
+                onTapUser: (_) {},
+                onStageAction: () async {},
+                initialTab: ParticipantsTab.waiting,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      // Nothing cut: every word of the name is laid out, wrapping onto more lines.
+      final name = find.textContaining(longName);
+      expect(name, findsOneWidget);
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: name, matching: find.byType(RichText)).first,
+      );
+      expect(paragraph.didExceedMaxLines, isFalse);
+      expect(paragraph.size.height, greaterThan(40)); // more than one line
+      // Both actions still fit beside it.
+      expect(find.byTooltip('Approve'), findsOneWidget);
+      expect(find.byTooltip('Decline'), findsOneWidget);
+      expect(
+        tester.getTopRight(find.byTooltip('Approve')).dx,
+        lessThanOrEqualTo(320),
+      );
+    },
+  );
 
   testWidgets('a viewer sees no queue, and gets the Join pill', (tester) async {
     var asked = 0;

@@ -383,7 +383,7 @@ class _FollowPillState extends ConsumerState<_FollowPill> {
   }
 }
 
-/// The full-width card under the header's first row: 💎 diamonds this live, viewers (tap
+/// The full-width card under the header's first row: 💎 diamonds received today, viewers (tap
 /// for the list), the lock state, and the host's ID at the end. Scales down rather than
 /// overflow on a narrow phone.
 class _StatsCard extends ConsumerWidget {
@@ -396,9 +396,10 @@ class _StatsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final room = c.detail!.room;
-    // The host's wallet right now (seat 0's balance, pushed on every change to it).
-    final wallet = c.hostDiamonds;
-    final stars = starsFor(wallet, ref.watch(diamondsPerStarProvider));
+    // Diamonds the host received from gifts today (seat 0, pushed on every gift to them).
+    // It starts over at the server's midnight; the wallet itself is on the profile.
+    final today = c.hostTodayDiamonds;
+    final stars = starsFor(today, ref.watch(diamondsPerStarProvider));
     const figure = TextStyle(
       color: BBColors.ivory,
       fontSize: 15,
@@ -447,8 +448,8 @@ class _StatsCard extends ConsumerWidget {
                   children: [
                     stat(
                       const Text('💎', style: TextStyle(fontSize: 15)),
-                      Fmt.full(wallet),
-                      'Host wallet, diamonds',
+                      Fmt.diamonds(today),
+                      'Host diamonds received today',
                     ),
                     stat(
                       const Icon(
@@ -457,7 +458,7 @@ class _StatsCard extends ConsumerWidget {
                         color: BBColors.gold,
                       ),
                       Fmt.full(stars),
-                      'Host stars',
+                      'Host stars today',
                     ),
                     stat(
                       const Icon(

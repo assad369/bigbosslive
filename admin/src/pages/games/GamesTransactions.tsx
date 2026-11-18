@@ -22,7 +22,7 @@ import {
   type GameTxStatus,
 } from '@bigboss/shared';
 import { get } from '../../lib/api';
-import { dateTime, downloadCsv, num } from '../../lib/format';
+import { dateTime, diamonds, downloadCsv } from '../../lib/format';
 import { useIsMobile } from '../../lib/responsive';
 import { FilterBar, UserCell } from '../../components/common';
 import {
@@ -49,11 +49,11 @@ function Amount({ t }: { t: GameTransaction }) {
   return (
     <span style={{ fontVariantNumeric: 'tabular-nums', opacity: muted ? 0.5 : 1 }}>
       {sign}
-      {num(t.applied)} 💎
+      {diamonds(t.applied)} 💎
       {t.applied !== t.requested && (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {' '}
-          of {num(t.requested)}
+          of {diamonds(t.requested)}
         </Typography.Text>
       )}
     </span>
@@ -197,7 +197,7 @@ export function GamesTransactions({ initialUser }: { initialUser?: string }) {
             {
               title: 'Balance after',
               align: 'right',
-              render: (_, t) => (t.balanceAfter === null ? '—' : num(t.balanceAfter)),
+              render: (_, t) => (t.balanceAfter === null ? '—' : diamonds(t.balanceAfter)),
             },
             {
               title: 'Status',
@@ -246,15 +246,15 @@ export function GamesTransactions({ initialUser }: { initialUser?: string }) {
               <Tag color={STATUS_COLORS[open.status]}>{open.status}</Tag> HTTP {open.httpStatus}
               {open.code ? ` · ${open.code}` : ''}
             </Descriptions.Item>
-            <Descriptions.Item label="Requested">{num(open.requested)} 💎</Descriptions.Item>
-            <Descriptions.Item label="Applied">{num(open.applied)} 💎</Descriptions.Item>
+            <Descriptions.Item label="Requested">{diamonds(open.requested)} 💎</Descriptions.Item>
+            <Descriptions.Item label="Applied">{diamonds(open.applied)} 💎</Descriptions.Item>
             {open.shortfall > 0 && (
               <Descriptions.Item label="Shortfall">
-                {num(open.shortfall)} 💎 (no longer held when clawed back)
+                {diamonds(open.shortfall)} 💎 (no longer held when clawed back)
               </Descriptions.Item>
             )}
             <Descriptions.Item label="Balance after">
-              {open.balanceAfter === null ? '—' : `${num(open.balanceAfter)} 💎`}
+              {open.balanceAfter === null ? '—' : `${diamonds(open.balanceAfter)} 💎`}
             </Descriptions.Item>
             <Descriptions.Item label="Game">{open.gameId ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="Round">

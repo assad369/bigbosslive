@@ -222,6 +222,35 @@ void main() {
     expect(c.hostDiamonds, 300000);
   });
 
+  test(
+    'the top bar reads today\'s gifts, which an older packet leaves alone',
+    () {
+      c.detail = RoomDetail.fromJson(
+        _room([
+          {..._seat(0, 'host', diamonds: 250000), 'todayDiamonds': 400},
+          _seat(1, null),
+        ]),
+      );
+      expect(c.hostTodayDiamonds, 400);
+      c.handleServerPacket('bb.seats', {
+        'kind': 'balances',
+        'users': [
+          {'uid': 'host', 'diamonds': 250098, 'todayDiamonds': 498, 'level': 5},
+        ],
+      });
+      expect(c.hostTodayDiamonds, 498);
+      expect(c.hostDiamonds, 250098);
+      // A server without the field: today's figure stays as it was.
+      c.handleServerPacket('bb.seats', {
+        'kind': 'balances',
+        'users': [
+          {'uid': 'host', 'diamonds': 250000, 'level': 5},
+        ],
+      });
+      expect(c.hostTodayDiamonds, 498);
+    },
+  );
+
   group('stage tiles', () {
     late LiveRoomController host, viewer;
     setUpAll(() {

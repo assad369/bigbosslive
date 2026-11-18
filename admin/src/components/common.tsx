@@ -16,6 +16,7 @@ import { CrownFilled } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { vipTierLabel } from '@bigboss/shared';
+import { diamonds } from '../lib/format';
 import { VIP_COLORS } from '../lib/tiers';
 import { brand } from '../theme';
 
@@ -73,6 +74,7 @@ export function StatCard({
   hint,
   suffix,
   gold,
+  plain,
 }: {
   title: string;
   value: ReactNode;
@@ -80,6 +82,8 @@ export function StatCard({
   hint?: ReactNode;
   suffix?: ReactNode;
   gold?: boolean;
+  /** No thousands separators (diamond amounts): antd would otherwise group the digits. */
+  plain?: boolean;
 }) {
   return (
     <Card
@@ -98,6 +102,7 @@ export function StatCard({
           }
           value={value as number}
           suffix={suffix}
+          {...(plain ? { groupSeparator: '' } : {})}
           styles={{ content: { fontWeight: 600, ...(gold ? { color: brand.palette.ink } : {}) } }}
         />
         {icon && (
@@ -320,7 +325,6 @@ export function ToggleSwitch({
 
 export function Money({ value, unit }: { value: number; unit: 'diamonds' | 'usd' }) {
   const color = unit === 'diamonds' ? brand.palette.info : brand.palette.success;
-  const text =
-    unit === 'usd' ? `$${value.toFixed(2)}` : `${new Intl.NumberFormat('en-US').format(value)} 💎`;
+  const text = unit === 'usd' ? `$${value.toFixed(2)}` : `${diamonds(value)} 💎`;
   return <span style={{ color, fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{text}</span>;
 }

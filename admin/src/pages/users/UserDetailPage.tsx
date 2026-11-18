@@ -31,8 +31,17 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { ASSIGNABLE_SHORT_ID_PATTERN, vipTierLabel } from '@bigboss/shared';
 import { get, send, useIntentKey } from '../../lib/api';
-import { ago, dateTime, duration, num } from '../../lib/format';
-import { ActionButton, Money, PageHeader, StatusTag } from '../../components/common';
+import { ago, dateTime, diamonds, duration, num } from '../../lib/format';
+import {
+  ActionButton,
+  Money,
+  PageHeader,
+  StatusTag,
+  UserCell,
+  type Brief,
+} from '../../components/common';
+import { ledgerReason } from '../../lib/ledger';
+import { LiveHistoryTable } from '../live/LivePage';
 import { AssignTierPackageModal, UserTierPackages } from '../../components/TierPackageAdmin';
 import { FormModal } from '../../components/FormModal';
 import { useAuth } from '../../auth/useAuth';
@@ -64,6 +73,43 @@ interface LedgerRow {
   reason: string;
   refId: string | null;
   createdAt: string;
+  meta?: Record<string, unknown> | null;
+  /** The gift's sender, or the host a commission came from. */
+  counterparty?: Brief | null;
+}
+
+/** What a ledger row was about, in words: who sent the gift, which gift, the note. */
+function LedgerDetails({ row }: { row: LedgerRow }) {
+  const m = row.meta ?? {};
+  const gift = typeof m.gift === 'string' ? m.gift : null;
+  const quantity = typeof m.quantity === 'number' ? m.quantity : null;
+  const note = typeof m.note === 'string' ? m.note : null;
+  const otherId =
+    typeof m.from === 'string' ? m.from : typeof m.host === 'string' ? m.host : undefined;
+  const who =
+    row.reason === 'gift_received' ? 'From' : row.reason === 'agency_commission' ? 'Host' : null;
+  return (
+    <Space direction="vertical" size={2}>
+      {gift && (
+        <Typography.Text>
+          🎁 {gift}
+          {quantity ? ` × ${quantity}` : ''}
+        </Typography.Text>
+      )}
+      {otherId && (
+        <Space size={6}>
+          {who && <Typography.Text type="secondary">{who}</Typography.Text>}
+          <UserCell user={row.counterparty} fallbackId={otherId} />
+        </Space>
+      )}
+      {note && <Typography.Text type="secondary">{note}</Typography.Text>}
+      {row.refId && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable={{ text: row.refId }}>
+          Ref
+        </Typography.Text>
+      )}
+    </Space>
+  );
 }
 
 type Modal = 'ban' | 'recharge' | 'adjust' | 'tier' | 'shortId' | 'edit' | null;
@@ -193,12 +239,14 @@ export function UserDetailPage() {
                 <Money value={user.wallet.agentStock} unit="diamonds" />
               </Descriptions.Item>
               <Descriptions.Item label="Total recharged">
-                {num(user.stats.totalRecharged)}
+                {diamonds(user.stats.totalRecharged)}
               </Descriptions.Item>
               <Descriptions.Item label="Gifts received">
-                {num(user.stats.totalReceived)}
+                {diamonds(user.stats.totalReceived)}
               </Descriptions.Item>
-              <Descriptions.Item label="Gifts sent">{num(user.stats.totalSent)}</Descriptions.Item>
+              <Descriptions.Item label="Gifts sent">
+                {diamonds(user.stats.totalSent)}
+              </Descriptions.Item>
             </Descriptions>
           </Card>
           {(can('games.read') || can('games.block')) && (
@@ -234,7 +282,7 @@ export function UserDetailPage() {
                         </Descriptions.Item>
                         <Descriptions.Item label="Agency">
                           {agencyMember
-                            ? `${agencyMember.agencyId} · ${num(agencyMember.periodDiamonds)} diamonds this month`
+                            ? `${agencyMember.agencyId} · ${diamonds(agencyMember.periodDiamonds)} diamonds this month`
                             : '—'}
                         </Descriptions.Item>
                         <Descriptions.Item label="Joined">
@@ -341,9 +389,17 @@ export function UserDetailPage() {
                                 {
                                   title: 'Reason',
                                   dataIndex: 'reason',
-                                  render: (r: string) => <Tag>{r.replace(/_/g, ' ')}</Tag>,
+                                  render: (r: string) => {
+                                    const { label, color } = ledgerReason(r);
+                                    return <Tag color={color}>{label}</Tag>;
+                                  },
                                 },
-                                { title: 'Currency', dataIndex: 'currency' },
+                                {
+                                  title: 'Currency',
+                                  dataIndex: 'currency',
+                                  render: (c: string) =>
+                                    c === 'agent_stock' ? 'Agent stock' : 'Diamonds',
+                                },
                                 {
                                   title: 'Change',
                                   dataIndex: 'delta',
@@ -356,7 +412,7 @@ export function UserDetailPage() {
                                       }}
                                     >
                                       {d > 0 ? '+' : ''}
-                                      {num(d)}
+                                      {diamonds(d)}
                                     </span>
                                   ),
                                 },
@@ -364,19 +420,31 @@ export function UserDetailPage() {
                                   title: 'Balance',
                                   dataIndex: 'balanceAfter',
                                   align: 'right',
-                                  render: num,
+                                  render: diamonds,
                                 },
                                 {
-                                  title: 'Ref',
-                                  dataIndex: 'refId',
-                                  render: (r: string | null) => (
-                                    <Typography.Text code copyable={Boolean(r)}>
-                                      {r ?? '—'}
-                                    </Typography.Text>
-                                  ),
+                                  title: 'Details',
+                                  key: 'details',
+                                  render: (_, r) => <LedgerDetails row={r} />,
                                 },
                               ]}
                             />
+                          </>
+                        ),
+                      },
+                    ]
+                  : []),
+                ...(can('live.read')
+                  ? [
+                      {
+                        key: 'lives',
+                        label: 'Live history',
+                        children: (
+                          <>
+                            <Typography.Paragraph type="secondary">
+                              Total live time: <b>{duration(user.stats.liveSeconds)}</b>
+                            </Typography.Paragraph>
+                            <LiveHistoryTable hostId={uid} compact />
                           </>
                         ),
                       },

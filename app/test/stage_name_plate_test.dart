@@ -51,7 +51,7 @@ void main() {
       expect(tester.takeException(), isNull);
 
       final name = find.textContaining(user.displayName);
-      final amount = find.text(Fmt.full(diamonds));
+      final amount = find.text(Fmt.diamonds(diamonds));
       final avatar = find.byType(BBAvatar);
       expect(name, findsOneWidget);
       expect(amount, findsOneWidget);
@@ -86,7 +86,7 @@ void main() {
   ) async {
     await pump(tester, compact: false);
     expect(
-      find.bySemanticsLabel('${Fmt.full(diamonds)} diamonds'),
+      find.bySemanticsLabel('${Fmt.diamonds(diamonds)} diamonds today'),
       findsOneWidget,
     );
   });

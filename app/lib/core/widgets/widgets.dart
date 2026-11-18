@@ -412,7 +412,7 @@ class DiamondAmount extends StatelessWidget {
       Text('💎', style: TextStyle(fontSize: (style?.fontSize ?? 14) * 0.95)),
       const SizedBox(width: 4),
       Text(
-        Fmt.full(amount),
+        Fmt.diamonds(amount),
         style: (style ?? const TextStyle()).copyWith(
           fontWeight: FontWeight.w700,
           fontFeatures: const [FontFeature.tabularFigures()],

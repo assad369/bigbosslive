@@ -18,6 +18,7 @@ import {
   REPORT_TARGETS,
   ROOM_STATUSES,
   ROOM_TYPES,
+  SHORT_ID_PATTERN,
   USER_STATUSES,
   WITHDRAWAL_STATUSES,
   MEDIA_TYPES,
@@ -111,6 +112,17 @@ export function adminRoutes(ctx: Ctx): Router {
     payload?: unknown,
   ) => s.audit.record(req, action, { type, id }, payload);
   const oid = (req: Request) => toObjectId(parseParams(req, idParams).id);
+  /**
+   * A filter box takes a short ID or a uid. A short ID becomes its uid (any account status, so
+   * banned users' history still shows); anything else is used as typed.
+   */
+  const uidOf = async (input: string | undefined): Promise<string | undefined> => {
+    const v = input?.trim();
+    if (!v) return undefined;
+    if (!SHORT_ID_PATTERN.test(v)) return v;
+    const user = await ctx.col.users.findOne({ shortId: v }, { projection: { _id: 1 } });
+    return user?._id ?? v;
+  };
 
   r.get('/me', (req, res) => {
     const me = currentUser(req);
@@ -253,7 +265,20 @@ export function adminRoutes(ctx: Ctx): Router {
         currency: z.enum(CURRENCIES).optional(),
       }),
     );
-    res.json(await s.wallet.ledger(uid, q));
+    const page = await s.wallet.ledger(uid, { ...q, withMeta: true });
+    // Name the other side of a gift or commission row instead of leaving a raw uid.
+    const otherOf = (m: Record<string, unknown> | null | undefined) => {
+      const v = m?.from ?? m?.host;
+      return typeof v === 'string' ? v : null;
+    };
+    const briefs = await s.users.briefs(page.items.flatMap((i) => otherOf(i.meta) ?? []));
+    res.json({
+      ...page,
+      items: page.items.map((i) => {
+        const other = otherOf(i.meta);
+        return { ...i, counterparty: other ? (briefs.get(other) ?? null) : null };
+      }),
+    });
   });
 
   r.patch('/users/:uid', can('users.edit'), async (req, res) => {
@@ -517,7 +542,8 @@ export function adminRoutes(ctx: Ctx): Router {
     );
     const filter: Filter<LiveRoomDoc> = { status: q.status };
     if (q.type) filter.type = q.type;
-    if (q.hostId) filter.hostId = q.hostId;
+    const hostId = await uidOf(q.hostId);
+    if (hostId) filter.hostId = hostId;
     if (q.from || q.to)
       filter.startedAt = { ...(q.from ? { $gte: q.from } : {}), ...(q.to ? { $lt: q.to } : {}) };
     const [rooms, total] = await Promise.all([
@@ -534,7 +560,13 @@ export function adminRoutes(ctx: Ctx): Router {
       items: rooms.map((x) => ({
         ...toLiveRoom(x, briefs.get(x.hostId)),
         endReason: x.endReason,
+        endedBy: x.endedBy,
         giftCount: x.giftCount,
+        // Absent on rooms from before these counters existed: null, not 0.
+        totalJoins: x.totalJoins ?? null,
+        uniqueViewers: x.uniqueViewers ?? null,
+        chatMessages: x.chatMessages ?? null,
+        reactions: x.reactions ?? null,
         durationSec: Math.round(
           ((x.endedAt ?? ctx.clock.now()).getTime() - x.startedAt.getTime()) / 1000,
         ),
@@ -553,6 +585,12 @@ export function adminRoutes(ctx: Ctx): Router {
       s.pk.forRoom(id),
     ]);
     res.json({ room, viewers, pk });
+  });
+
+  /** The post-live summary of an ended room (409 `live_running` while it is live). */
+  r.get('/live/:id/summary', can('live.read'), async (req, res) => {
+    const me = currentUser(req);
+    res.json({ summary: await s.liveSummary.summary(oid(req), { uid: me.uid, canReadAll: true }) });
   });
 
   r.post('/live/:id/end', can('live.moderate'), async (req, res) => {
@@ -609,9 +647,10 @@ export function adminRoutes(ctx: Ctx): Router {
         roomId: objectIdString.optional(),
       }),
     );
+    const [senderId, receiverId] = await Promise.all([uidOf(q.senderId), uidOf(q.receiverId)]);
     res.json(
       await s.gifts.history(
-        { ...q, roomId: q.roomId ? toObjectId(q.roomId) : undefined },
+        { ...q, senderId, receiverId, roomId: q.roomId ? toObjectId(q.roomId) : undefined },
         q.page,
         q.pageSize,
       ),

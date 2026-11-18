@@ -94,7 +94,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     switch (event) {
       case IapCredited(:final diamonds):
         if (diamonds > 0) {
-          showMessage(context, '💎 ${Fmt.full(diamonds)} diamonds added');
+          showMessage(context, '💎 ${Fmt.diamonds(diamonds)} diamonds added');
         }
       case IapPending():
         showMessage(
@@ -252,7 +252,7 @@ class _PackageTile extends StatelessWidget {
     button: true,
     enabled: onTap != null,
     label:
-        '${Fmt.full(package.diamonds)} diamonds, ${price ?? Fmt.usd(package.priceUsd)}',
+        '${Fmt.diamonds(package.diamonds)} diamonds, ${price ?? Fmt.usd(package.priceUsd)}',
     excludeSemantics: true,
     child: InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -271,7 +271,7 @@ class _PackageTile extends StatelessWidget {
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
-                Fmt.full(package.diamonds),
+                Fmt.diamonds(package.diamonds),
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 16,
@@ -282,7 +282,7 @@ class _PackageTile extends StatelessWidget {
               FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
-                  '+${Fmt.full(package.bonusDiamonds)} bonus',
+                  '+${Fmt.diamonds(package.bonusDiamonds)} bonus',
                   style: const TextStyle(
                     color: BBColors.success,
                     fontSize: 11,
@@ -370,14 +370,14 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '${e.delta > 0 ? '+' : ''}${Fmt.full(e.delta)}',
+                    '${e.delta > 0 ? '+' : ''}${Fmt.diamonds(e.delta)}',
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       color: e.delta > 0 ? BBColors.success : BBColors.danger,
                     ),
                   ),
                   Text(
-                    'bal ${Fmt.full(e.balanceAfter)}',
+                    'bal ${Fmt.diamonds(e.balanceAfter)}',
                     style: const TextStyle(
                       color: BBColors.inkSubtle,
                       fontSize: 11,
@@ -440,7 +440,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
   String? _validate(int diamonds, int available) {
     if (diamonds <= 0) return 'Enter how many diamonds to withdraw';
     if (diamonds > available) {
-      return 'You have ${Fmt.full(available)} diamonds available';
+      return 'You have ${Fmt.diamonds(available)} diamonds available';
     }
     if (_provider.text.trim().isEmpty) {
       return _method == 'bank' ? 'Enter your bank name' : 'Enter the provider';
@@ -465,7 +465,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
       builder: (c) => AlertDialog(
         title: const Text('Request withdrawal?'),
         content: Text(
-          '${Fmt.full(diamonds)} diamonds to ${_provider.text.trim()} '
+          '${Fmt.diamonds(diamonds)} diamonds to ${_provider.text.trim()} '
           '${_number.text.trim()} (${_name.text.trim()}). '
           'The diamonds are held until the request is reviewed.',
         ),
@@ -628,7 +628,7 @@ class _WithdrawScreenState extends ConsumerState<WithdrawScreen> {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(
-                        '${Fmt.full(w.integer('diamonds'))} diamonds · ${Fmt.usd(w.dbl('amountUsd'))}',
+                        '${Fmt.diamonds(w.integer('diamonds'))} diamonds · ${Fmt.usd(w.dbl('amountUsd'))}',
                       ),
                       subtitle: Text(Fmt.ago(w.date('createdAt'))),
                       trailing: Chip(label: Text(w.str('status'))),
@@ -741,7 +741,7 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
     if (target == null || amount <= 0) return;
     final stock = ref.read(meProvider).wallet.agentStock;
     if (amount > stock) {
-      showMessage(context, 'Not enough stock (${Fmt.full(stock)} 💎)');
+      showMessage(context, 'Not enough stock (${Fmt.diamonds(stock)} 💎)');
       return;
     }
     final ok = await showDialog<bool>(
@@ -749,7 +749,7 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
       builder: (c) => AlertDialog(
         title: const Text('Confirm recharge'),
         content: Text(
-          'Send 💎 ${Fmt.full(amount)} to ${target.displayName} (ID ${target.shortId})?',
+          'Send 💎 ${Fmt.diamonds(amount)} to ${target.displayName} (ID ${target.shortId})?',
         ),
         actions: [
           TextButton(
@@ -863,7 +863,7 @@ class _AgentRechargeFormState extends ConsumerState<_AgentRechargeForm>
           children: [
             for (final a in _quickAmounts)
               ChoiceChip(
-                label: Text('💎 ${Fmt.full(a)}'),
+                label: Text('💎 ${Fmt.diamonds(a)}'),
                 selected: _amount.text == '$a',
                 onSelected: (_) => setState(() => _amount.text = '$a'),
               ),
@@ -915,8 +915,11 @@ class _AgentHistoryState extends ConsumerState<_AgentHistory>
     super.build(context);
     final summaryAsync = ref.watch(_agentSummaryProvider);
     final summary = summaryAsync.value;
-    String cell(int? v, {bool diamonds = true}) =>
-        summary == null ? '—' : '${diamonds ? '💎 ' : ''}${Fmt.full(v ?? 0)}';
+    String cell(int? v, {bool diamonds = true}) => summary == null
+        ? '—'
+        : diamonds
+        ? '💎 ${Fmt.diamonds(v ?? 0)}'
+        : Fmt.full(v ?? 0);
     final segments = Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: SizedBox(
@@ -1027,7 +1030,7 @@ class _AgentHistoryState extends ConsumerState<_AgentHistory>
                 style: const TextStyle(color: BBColors.inkSubtle),
               ),
               trailing: Text(
-                '+💎 ${Fmt.full(r.diamonds)}',
+                '+💎 ${Fmt.diamonds(r.diamonds)}',
                 style: const TextStyle(
                   color: BBColors.success,
                   fontWeight: FontWeight.w800,
@@ -1067,12 +1070,12 @@ class _AgentStockHistory extends ConsumerWidget {
           subtitle: Text(
             [
               if (t.createdAt != null) Fmt.dateTime(t.createdAt!),
-              'Stock after 💎 ${Fmt.full(t.stockAfter)}',
+              'Stock after 💎 ${Fmt.diamonds(t.stockAfter)}',
             ].join(' · '),
             style: const TextStyle(color: BBColors.inkSubtle),
           ),
           trailing: Text(
-            '+💎 ${Fmt.full(t.diamonds)}',
+            '+💎 ${Fmt.diamonds(t.diamonds)}',
             style: const TextStyle(
               color: BBColors.success,
               fontWeight: FontWeight.w800,

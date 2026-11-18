@@ -22,7 +22,7 @@ const webhook = (event: string, room: string, identity: string) =>
 
 interface Balances {
   kind: string;
-  users: { uid: string; diamonds: number; level: number }[];
+  users: { uid: string; diamonds: number; todayDiamonds: number; level: number }[];
 }
 const balancePackets = () =>
   h.livekit
@@ -78,7 +78,9 @@ describe('stage tiles', () => {
     const sent = balancePackets().slice(before);
     // The sender isn't seated, so only the guest's tile changes: 40 + 98 (2% platform fee).
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.users).toEqual([{ uid: 'guest', diamonds: 138, level: expect.any(Number) }]);
+    expect(sent[0]!.users).toEqual([
+      { uid: 'guest', diamonds: 138, todayDiamonds: 98, level: expect.any(Number) },
+    ]);
     const giftPacket = h.livekit.topics('bb.gift').at(-1)!.payload as Record<string, unknown>;
     expect(giftPacket.roomGiftDiamonds).toBe(0); // the gift went to a guest, not the host
   });
@@ -401,7 +403,62 @@ describe('seat balances follow the seated user’s own spending', () => {
     const users = balancePackets()
       .slice(before)
       .flatMap((p) => p.users);
-    expect(users).toContainEqual({ uid: 'bal-guest', diamonds: 200, level: expect.any(Number) });
+    expect(users).toContainEqual({
+      uid: 'bal-guest',
+      diamonds: 200,
+      todayDiamonds: 0,
+      level: expect.any(Number),
+    });
     expect(users.find((u) => u.uid === 'bal-host')!.diamonds).toBe(98);
+  });
+});
+
+describe('stage tiles show diamonds received today', () => {
+  it('counts today’s gifts on the tile and starts over at the zoned midnight', async () => {
+    await h.user('day-host', { wallet: { diamonds: 1_000 } });
+    await h.user('day-fan', { wallet: { diamonds: 10_000 } });
+    // Late in the (UTC, as the harness sets the reset zone) day.
+    h.clock.set(new Date('2031-03-04T23:00:00Z'));
+    const res = await h.api.post('/v1/live').set(h.as('day-host')).send({ type: 'video' });
+    const roomId: string = res.body.room.id;
+    const gift = await h.ctx.services.gifts.create({
+      name: 'Daisy',
+      price: 100,
+      iconUrl: 'https://cdn.test/daisy.png',
+      animationUrl: null,
+      animationFormat: 'none',
+      category: 'basic',
+      sortOrder: 0,
+      active: true,
+      vipTierRequired: 0,
+    });
+    const send = (key: string) =>
+      h.api
+        .post('/v1/gifts/send')
+        .set(h.as('day-fan'))
+        .set('Idempotency-Key', key)
+        .send({ giftId: gift.id, receiverIds: ['day-host'], quantity: 1, roomId })
+        .expect(200);
+    type Tile = { userId: string | null; diamonds: number; todayDiamonds: number };
+    const hostTile = async () =>
+      ((await h.api.get(`/v1/live/${roomId}`).set(h.as('day-fan'))).body.room.seats as Tile[]).find(
+        (s) => s.userId === 'day-host',
+      )!;
+
+    expect((await hostTile()).todayDiamonds).toBe(0);
+    await send('day-gift-1');
+    await send('day-gift-2');
+    // 2 × (100 − 2% platform fee); the wallet keeps everything it had.
+    expect(await hostTile()).toMatchObject({ diamonds: 1_196, todayDiamonds: 196 });
+    const packet = balancePackets().at(-1)!;
+    expect(packet.users.find((u) => u.uid === 'day-host')?.todayDiamonds).toBe(196);
+
+    // Past midnight the old day reads as zero, before any new gift arrives.
+    h.clock.set(new Date('2031-03-05T00:30:00Z'));
+    expect(await hostTile()).toMatchObject({ diamonds: 1_196, todayDiamonds: 0 });
+
+    // The first gift of the new day starts the count over instead of adding to yesterday's.
+    await send('day-gift-3');
+    expect(await hostTile()).toMatchObject({ diamonds: 1_294, todayDiamonds: 98 });
   });
 });

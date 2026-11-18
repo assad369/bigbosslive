@@ -162,7 +162,7 @@ class AgencyRankCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '💎 ${Fmt.full(top.periodDiamonds)} this month',
+                      '💎 ${Fmt.diamonds(top.periodDiamonds)} this month',
                       style: TextStyle(
                         color: accent,
                         fontWeight: FontWeight.w700,

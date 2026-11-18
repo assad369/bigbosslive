@@ -127,18 +127,30 @@ export class LiveService {
       briefs,
       this.ctx.clock.now(),
       new Map([...balances].map(([uid, s]) => [uid, s.diamonds])),
+      new Map([...balances].map(([uid, s]) => [uid, s.todayDiamonds])),
     );
   }
 
-  /** Diamond balance and level of each uid, for stage tiles. */
+  /**
+   * Diamond balance, diamonds received from gifts today and level of each uid, for stage tiles.
+   * Today's figure starts over at midnight (`GiftsService.todayKey`): a stale day reads as zero.
+   */
   private async seatStats(uids: string[]) {
-    const out = new Map<string, { diamonds: number; level: number }>();
+    const out = new Map<string, { diamonds: number; todayDiamonds: number; level: number }>();
     if (!uids.length) return out;
+    const today = this.ctx.services.gifts.todayKey();
     const rows = await this.ctx.col.users
-      .find({ _id: { $in: uids } }, { projection: { 'wallet.diamonds': 1, 'level.level': 1 } })
+      .find(
+        { _id: { $in: uids } },
+        { projection: { 'wallet.diamonds': 1, 'level.level': 1, giftsToday: 1 } },
+      )
       .toArray();
     for (const u of rows)
-      out.set(u._id, { diamonds: u.wallet?.diamonds ?? 0, level: u.level?.level ?? 0 });
+      out.set(u._id, {
+        diamonds: u.wallet?.diamonds ?? 0,
+        todayDiamonds: u.giftsToday?.key === today ? u.giftsToday.diamonds : 0,
+        level: u.level?.level ?? 0,
+      });
     return out;
   }
 

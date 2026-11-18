@@ -153,7 +153,7 @@ class _TierPackagesScreenState extends ConsumerState<TierPackagesScreen>
     if (balance < p.priceDiamonds) {
       showMessage(
         context,
-        'Not enough diamonds — you need ${Fmt.full(p.priceDiamonds - balance)} more.',
+        'Not enough diamonds — you need ${Fmt.diamonds(p.priceDiamonds - balance)} more.',
       );
       await context.push('/wallet');
       return;

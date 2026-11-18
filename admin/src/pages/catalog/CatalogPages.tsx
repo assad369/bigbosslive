@@ -48,7 +48,7 @@ import {
   type Gift,
 } from '@bigboss/shared';
 import { get, send } from '../../lib/api';
-import { money, num } from '../../lib/format';
+import { diamonds, money, num } from '../../lib/format';
 import { ActionButton, FilterBar, PageHeader, ToggleSwitch, VipTag } from '../../components/common';
 import { AssignDecorationModal } from '../../components/AssignDecorationModal';
 import { cosmeticTypeLabel } from '../../lib/decorations';
@@ -234,7 +234,7 @@ export function GiftsPage() {
                 title: 'Price',
                 dataIndex: 'price',
                 align: 'right',
-                render: (p: number) => `${num(p)} 💎`,
+                render: (p: number) => `${diamonds(p)} 💎`,
               },
               { title: 'Category', dataIndex: 'category', render: (c: string) => <Tag>{c}</Tag> },
               { title: 'Animation', dataIndex: 'animationFormat' },
@@ -435,7 +435,7 @@ function GiftMobileList({
               >
                 {g.name}
               </Typography.Text>
-              <Typography.Text style={{ display: 'block' }}>{num(g.price)} 💎</Typography.Text>
+              <Typography.Text style={{ display: 'block' }}>{diamonds(g.price)} 💎</Typography.Text>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
                 <Tag style={{ marginInlineEnd: 0 }}>{g.category}</Tag>
                 {g.animationFormat !== 'none' && (
@@ -637,7 +637,7 @@ function DecorationsTab() {
                 </Space>
               ) : (
                 <Space size={4}>
-                  {c.priceDiamonds ? `${num(c.priceDiamonds)} 💎` : 'Free'}
+                  {c.priceDiamonds ? `${diamonds(c.priceDiamonds)} 💎` : 'Free'}
                   {c.vipTierRequired > 0 && (
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       · {vipTierLabel(c.vipTierRequired)}+
@@ -1116,11 +1116,11 @@ export function PackagesPage() {
               dataIndex: 'sku',
               render: (s: string) => <Typography.Text code>{s}</Typography.Text>,
             },
-            { title: 'Diamonds', dataIndex: 'diamonds', render: num },
+            { title: 'Diamonds', dataIndex: 'diamonds', render: diamonds },
             {
               title: 'Bonus',
               dataIndex: 'bonusDiamonds',
-              render: (b: number) => (b ? `+${num(b)}` : '—'),
+              render: (b: number) => (b ? `+${diamonds(b)}` : '—'),
             },
             { title: 'Price', dataIndex: 'priceUsd', render: money },
             {

@@ -778,64 +778,105 @@ class _WaitingTile extends StatelessWidget {
   final VoidCallback onDecline;
   final VoidCallback onAccept;
 
+  /// Below this width the row tightens: a smaller avatar and compact buttons, so the name
+  /// keeps as much room as it can.
+  static const narrowWidth = 360.0;
+
   @override
   Widget build(BuildContext context) {
     final u = request.user;
-    return ListTile(
-      onTap: onTap,
-      leading: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 24,
-            child: Text(
-              '$position',
-              style: const TextStyle(
-                color: BBColors.goldDeep,
-                fontWeight: FontWeight.w800,
-              ),
+    final text = Theme.of(context).textTheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < narrowWidth;
+        final button = narrow
+            ? const BoxConstraints.tightFor(width: 36, height: 36)
+            : const BoxConstraints.tightFor(width: 44, height: 44);
+        return InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: narrow ? 8 : 16,
+              vertical: 8,
             ),
-          ),
-          BBAvatar.user(u),
-        ],
-      ),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              u.displayName,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(width: 6),
-          VipBadge(u.vipTier),
-        ],
-      ),
-      subtitle: Text(
-        'ID ${u.shortId} · Lv ${u.level}${mine ? ' · You' : ''}',
-        style: const TextStyle(color: BBColors.inkSubtle),
-      ),
-      trailing: mine
-          ? null
-          : Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Row(
               children: [
-                IconButton(
-                  tooltip: 'Decline',
-                  icon: const Icon(Icons.close_rounded, color: BBColors.danger),
-                  onPressed: onDecline,
-                ),
-                IconButton(
-                  tooltip: 'Approve',
-                  icon: const Icon(
-                    Icons.check_circle_rounded,
-                    color: BBColors.success,
+                SizedBox(
+                  width: narrow ? 20 : 24,
+                  child: Text(
+                    '$position',
+                    style: const TextStyle(
+                      color: BBColors.goldDeep,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                  onPressed: canAccept ? onAccept : null,
                 ),
+                BBAvatar.user(u, size: narrow ? 36 : 44),
+                SizedBox(width: narrow ? 8 : 12),
+                // The whole name, wrapping onto more lines rather than cut off.
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(text: u.displayName),
+                            if (VipBadge.labelFor(u.vipTier) != null) ...[
+                              const TextSpan(text: ' '),
+                              WidgetSpan(
+                                alignment: PlaceholderAlignment.middle,
+                                child: VipBadge(u.vipTier),
+                              ),
+                            ],
+                          ],
+                        ),
+                        softWrap: true,
+                        style: text.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'ID ${u.shortId} · Lv ${u.level}${mine ? ' · You' : ''}',
+                        softWrap: true,
+                        style: text.bodyMedium?.copyWith(
+                          color: BBColors.inkSubtle,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!mine) ...[
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: 'Decline',
+                    constraints: button,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: BBColors.danger,
+                    ),
+                    onPressed: onDecline,
+                  ),
+                  IconButton(
+                    tooltip: 'Approve',
+                    constraints: button,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(
+                      Icons.check_circle_rounded,
+                      color: BBColors.success,
+                    ),
+                    onPressed: canAccept ? onAccept : null,
+                  ),
+                ],
               ],
             ),
+          ),
+        );
+      },
     );
   }
 }

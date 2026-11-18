@@ -593,3 +593,55 @@ describe('platform-wide gift announcement', () => {
     }
   });
 });
+
+describe('admin gift history', () => {
+  it('names the sender and receivers, shows the gift icon, and never leaks the key', async () => {
+    const { sender, receiver } = await pair(5_000);
+    await h.user('gh-finance', { adminRole: 'finance' });
+    await h.api
+      .post('/v1/gifts/send')
+      .set(h.as(sender))
+      .set('Idempotency-Key', key())
+      .send({ giftId, quantity: 1, receiverIds: [receiver] })
+      .expect(200);
+    const senderDoc = (await h.ctx.col.users.findOne({ _id: sender }))!;
+
+    const res = await h.api
+      .get('/v1/admin/gift-transactions')
+      .query({ senderId: senderDoc.shortId })
+      .set(h.as('gh-finance', 'finance'))
+      .expect(200);
+    expect(res.body.total).toBe(1);
+    const row = res.body.items[0];
+    expect(row.idempotencyKey).toBeUndefined();
+    expect(row.sender).toMatchObject({ id: sender, shortId: senderDoc.shortId });
+    expect(row.receivers[0].user).toMatchObject({ id: receiver });
+    expect(row.giftIconUrl).toBe('https://cdn.test/crown.png');
+    expect(row.room).toBeNull();
+
+    // A uid works as well as a short ID.
+    const byUid = await h.api
+      .get('/v1/admin/gift-transactions')
+      .query({ receiverId: receiver })
+      .set(h.as('gh-finance', 'finance'))
+      .expect(200);
+    expect(byUid.body.total).toBe(1);
+  });
+
+  it('names who sent a gift on the user’s ledger', async () => {
+    const { sender, receiver } = await pair(5_000);
+    await h.api
+      .post('/v1/gifts/send')
+      .set(h.as(sender))
+      .set('Idempotency-Key', key())
+      .send({ giftId, quantity: 1, receiverIds: [receiver] })
+      .expect(200);
+    const res = await h.api
+      .get(`/v1/admin/users/${receiver}/ledger`)
+      .set(h.as('gh-finance', 'finance'))
+      .expect(200);
+    const row = res.body.items.find((i: { reason: string }) => i.reason === 'gift_received');
+    expect(row.meta).toMatchObject({ from: sender, gift: 'Crown', quantity: 1 });
+    expect(row.counterparty).toMatchObject({ id: sender });
+  });
+});

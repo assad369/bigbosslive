@@ -22,7 +22,7 @@ import {
   type BadgeBlendMode,
 } from '@bigboss/shared';
 import { send } from '../../lib/api';
-import { num } from '../../lib/format';
+import { diamonds, num } from '../../lib/format';
 import { ActionButton, PageHeader, ToggleSwitch, VipTag } from '../../components/common';
 import { FormModal } from '../../components/FormModal';
 import { MediaUpload } from '../../components/MediaUpload';
@@ -173,7 +173,7 @@ export function TierPackagesPage() {
           {
             title: 'Price',
             dataIndex: 'priceDiamonds',
-            render: (v: number) => <Tag color="gold">💎 {num(v)}</Tag>,
+            render: (v: number) => <Tag color="gold">💎 {diamonds(v)}</Tag>,
           },
           { title: 'Validity', dataIndex: 'durationDays', render: (d: number) => `${d} days` },
           { title: 'Holders', dataIndex: 'ownerCount', render: num },

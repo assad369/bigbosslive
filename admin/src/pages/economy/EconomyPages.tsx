@@ -23,7 +23,7 @@ import { DownloadOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import type { Dayjs } from 'dayjs';
 import { get, send } from '../../lib/api';
-import { ago, dateTime, downloadCsv, duration, money, num, pct } from '../../lib/format';
+import { ago, dateTime, diamonds, downloadCsv, duration, money, pct } from '../../lib/format';
 import {
   ActionButton,
   FilterBar,
@@ -143,18 +143,37 @@ export function RechargesPage() {
 interface GiftTxRow {
   _id: string;
   senderId: string;
+  sender: Brief | null;
   giftName: string;
+  giftIconUrl: string | null;
+  unitPrice: number;
   quantity: number;
   totalCost: number;
   receivers: {
     userId: string;
+    user: Brief | null;
     cost: number;
     diamonds: number;
     platformFee: number;
     agencyFee: number;
   }[];
   roomId: string | null;
+  room: { id: string; title: string; type: string; hostId: string; startedAt: string } | null;
+  pkBattleId: string | null;
   createdAt: string;
+}
+
+/** A date with "3 hours ago" under it. */
+function When({ at }: { at: string }) {
+  return (
+    <div style={{ lineHeight: 1.25, whiteSpace: 'nowrap' }}>
+      {dateTime(at)}
+      <br />
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {ago(at)}
+      </Typography.Text>
+    </div>
+  );
 }
 
 export function GiftTransactionsPage() {
@@ -180,15 +199,15 @@ export function GiftTransactionsPage() {
           <FilterBar>
             <Input.Search
               allowClear
-              placeholder="Sender uid"
-              onSearch={setSender}
-              style={{ width: 180 }}
+              placeholder="Sender short ID or uid"
+              onSearch={(v) => setSender(v.trim())}
+              style={{ width: 210 }}
             />
             <Input.Search
               allowClear
-              placeholder="Receiver uid"
-              onSearch={setReceiver}
-              style={{ width: 180 }}
+              placeholder="Receiver short ID or uid"
+              onSearch={(v) => setReceiver(v.trim())}
+              style={{ width: 210 }}
             />
             <DatePicker.RangePicker
               onChange={(r) => setRange(r as [Dayjs | null, Dayjs | null] | null)}
@@ -206,26 +225,78 @@ export function GiftTransactionsPage() {
               columns={[
                 {
                   title: 'Receiver',
-                  dataIndex: 'userId',
-                  render: (u: string) => <Link to={`/users/${u}`}>{u}</Link>,
+                  key: 'user',
+                  render: (_, r) => <UserCell user={r.user} fallbackId={r.userId} />,
                 },
-                { title: 'Value', dataIndex: 'cost', render: num },
-                { title: 'Diamonds to host', dataIndex: 'diamonds', render: num },
-                { title: 'Platform fee', dataIndex: 'platformFee', render: num },
-                { title: 'Agency fee', dataIndex: 'agencyFee', render: num },
+                {
+                  title: 'Gift value',
+                  dataIndex: 'cost',
+                  align: 'right',
+                  render: (d: number) => <Money value={d} unit="diamonds" />,
+                },
+                {
+                  title: 'Receiver got',
+                  dataIndex: 'diamonds',
+                  align: 'right',
+                  render: (d: number) => <Money value={d} unit="diamonds" />,
+                },
+                {
+                  title: 'Platform fee',
+                  dataIndex: 'platformFee',
+                  align: 'right',
+                  render: (d: number) => <Money value={d} unit="diamonds" />,
+                },
+                {
+                  title: 'Agency fee',
+                  dataIndex: 'agencyFee',
+                  align: 'right',
+                  render: (d: number) => (d ? <Money value={d} unit="diamonds" /> : '—'),
+                },
               ]}
             />
           ),
         }}
         columns={[
-          { title: 'When', dataIndex: 'createdAt', render: dateTime },
+          { title: 'When', dataIndex: 'createdAt', render: (d: string) => <When at={d} /> },
           {
             title: 'Sender',
-            dataIndex: 'senderId',
-            render: (u: string) => <Link to={`/users/${u}`}>{u}</Link>,
+            key: 'sender',
+            render: (_, t) => <UserCell user={t.sender} fallbackId={t.senderId} />,
           },
-          { title: 'Gift', key: 'g', render: (_, t) => `${t.giftName} × ${t.quantity}` },
-          { title: 'Receivers', key: 'r', render: (_, t) => t.receivers.length },
+          {
+            title: 'Gift',
+            key: 'g',
+            render: (_, t) => (
+              <Space size={8}>
+                <Avatar shape="square" size={32} src={t.giftIconUrl ?? undefined}>
+                  🎁
+                </Avatar>
+                <div style={{ lineHeight: 1.25 }}>
+                  <Typography.Text strong>
+                    {t.giftName} × {t.quantity}
+                  </Typography.Text>
+                  <br />
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {diamonds(t.unitPrice)} 💎 each
+                  </Typography.Text>
+                </div>
+              </Space>
+            ),
+          },
+          {
+            title: 'Receivers',
+            key: 'r',
+            render: (_, t) => {
+              const first = t.receivers[0];
+              if (!first) return '—';
+              return (
+                <Space size={6} wrap>
+                  <UserCell user={first.user} fallbackId={first.userId} />
+                  {t.receivers.length > 1 && <Tag>+{t.receivers.length - 1} more</Tag>}
+                </Space>
+              );
+            },
+          },
           {
             title: 'Total',
             dataIndex: 'totalCost',
@@ -233,10 +304,29 @@ export function GiftTransactionsPage() {
             render: (d: number) => <Money value={d} unit="diamonds" />,
           },
           {
-            title: 'Room',
-            dataIndex: 'roomId',
-            render: (r: string | null) =>
-              r ? <Typography.Text code>{r.slice(-6)}</Typography.Text> : '—',
+            title: 'Where',
+            key: 'room',
+            render: (_, t) => {
+              if (!t.roomId) return <Tag>Profile gift</Tag>;
+              return (
+                <div style={{ lineHeight: 1.25 }}>
+                  <Space size={4}>
+                    <Tag color={t.room?.type === 'audio' ? 'purple' : 'blue'}>
+                      {t.room?.type === 'audio' ? 'Audio live' : 'Video live'}
+                    </Tag>
+                    {t.pkBattleId && <Tag color="volcano">PK</Tag>}
+                  </Space>
+                  {t.room && (
+                    <>
+                      <br />
+                      <Link to={`/live?view=history&host=${encodeURIComponent(t.room.hostId)}`}>
+                        {t.room.title || 'Untitled live'}
+                      </Link>
+                    </>
+                  )}
+                </div>
+              );
+            },
           },
         ]}
       />
@@ -321,7 +411,8 @@ export function WithdrawalsPage() {
           const pending = d?.pending as { diamonds: number; usd: number } | undefined;
           return pending ? (
             <Typography.Text>
-              Pending queue: <b>{num(pending.diamonds)}</b> diamonds · <b>{money(pending.usd)}</b>
+              Pending queue: <b>{diamonds(pending.diamonds)}</b> diamonds ·{' '}
+              <b>{money(pending.usd)}</b>
             </Typography.Text>
           ) : null;
         }}
@@ -410,7 +501,7 @@ export function WithdrawalsPage() {
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message={`${num(rejecting?.diamonds)} diamonds will be returned to the user.`}
+              message={`${diamonds(rejecting?.diamonds)} diamonds will be returned to the user.`}
             />
             <Form.Item name="note" label="Reason (sent to the user)" rules={[{ required: true }]}>
               <Input.TextArea rows={3} maxLength={300} />
@@ -648,7 +739,11 @@ export function AgencyDetailPage() {
           <StatCard gold title="Hosts" value={agency.memberCount} />
         </Col>
         <Col xs={12} md={6}>
-          <StatCard title="Diamonds this month" value={num(fresh ? agency.period!.diamonds : 0)} />
+          <StatCard
+            title="Diamonds this month"
+            plain
+            value={diamonds(fresh ? agency.period!.diamonds : 0)}
+          />
         </Col>
         <Col xs={12} md={6}>
           <StatCard
@@ -659,7 +754,8 @@ export function AgencyDetailPage() {
         <Col xs={12} md={6}>
           <StatCard
             title="Owner commission (lifetime)"
-            value={num(agency.lifetime?.commission ?? 0)}
+            plain
+            value={diamonds(agency.lifetime?.commission ?? 0)}
           />
         </Col>
       </Row>
@@ -741,7 +837,7 @@ export function AgencyDetailPage() {
               dataIndex: 'userId',
               render: (u: string) => <Link to={`/users/${u}`}>{u}</Link>,
             },
-            { title: 'Diamonds', dataIndex: 'diamonds', render: num },
+            { title: 'Diamonds', dataIndex: 'diamonds', render: diamonds },
             { title: 'Live time', dataIndex: 'liveSeconds', render: duration },
           ]}
         />

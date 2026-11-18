@@ -86,6 +86,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
     { key: { status: 1, hostVipTier: -1, viewerCount: -1 } },
     { key: { status: 1, lastHeartbeatAt: 1 } },
     { key: { hostId: 1, startedAt: -1 } },
+    // Admin streaming history: ended rooms, newest first.
+    { key: { status: 1, startedAt: -1 } },
     // Seat balance broadcasts: the live rooms where a user is on a seat.
     { key: { 'seats.userId': 1 }, partialFilterExpression: { status: 'live' } },
     // `youtube.sweep`: songs that ended with nobody reporting it.

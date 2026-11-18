@@ -22,7 +22,7 @@ import {
   YAxis,
 } from 'recharts';
 import { get } from '../lib/api';
-import { num, short } from '../lib/format';
+import { diamonds, num, short } from '../lib/format';
 import { useIsMobile } from '../lib/responsive';
 import { PageHeader, StatCard } from '../components/common';
 import { brand } from '../theme';
@@ -99,7 +99,8 @@ export function DashboardPage() {
           <Col xs={12} xl={6}>
             <StatCard
               title="Recharged today"
-              value={num(o.economy.rechargedToday)}
+              plain
+              value={diamonds(o.economy.rechargedToday)}
               suffix="💎"
               icon={<WalletOutlined />}
               hint="UTC day"
@@ -108,7 +109,8 @@ export function DashboardPage() {
           <Col xs={12} xl={6}>
             <StatCard
               title="Gifted today"
-              value={num(o.economy.giftsToday)}
+              plain
+              value={diamonds(o.economy.giftsToday)}
               suffix="💎"
               icon={<GiftOutlined />}
             />

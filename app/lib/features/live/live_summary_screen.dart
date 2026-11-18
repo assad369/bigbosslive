@@ -342,7 +342,7 @@ class _BigFigure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-    label: '$label ${Fmt.full(value)}',
+    label: '$label ${Fmt.diamonds(value)}',
     excludeSemantics: true,
     child: Column(
       children: [
@@ -355,7 +355,7 @@ class _BigFigure extends StatelessWidget {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
-                  Fmt.full(value),
+                  Fmt.diamonds(value),
                   style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,

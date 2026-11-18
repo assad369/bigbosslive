@@ -155,7 +155,10 @@ export class WalletService {
     return { ...user.wallet };
   }
 
-  async ledger(uid: string, opts: { currency?: Currency; cursor?: string; limit: number }) {
+  async ledger(
+    uid: string,
+    opts: { currency?: Currency; cursor?: string; limit: number; withMeta?: boolean },
+  ) {
     const q: Filter<LedgerDoc> = { userId: uid, ...afterCursor(opts.cursor) };
     if (opts.currency) q.currency = opts.currency;
     const rows = await this.ctx.col.ledger
@@ -175,6 +178,8 @@ export class WalletService {
         reason: r.reason,
         refId: r.refId,
         createdAt: r.createdAt.toISOString(),
+        // Staff only: who sent a gift, which gift, the commission's host.
+        ...(opts.withMeta ? { meta: r.meta ?? null } : {}),
       })),
       nextCursor:
         rows.length > opts.limit && last ? encodeCursor(last.createdAt, String(last._id)) : null,

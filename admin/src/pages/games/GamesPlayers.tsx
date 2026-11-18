@@ -17,7 +17,7 @@ import { StopOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { GamePlayerSummary, GamesBlock, UserBrief } from '@bigboss/shared';
 import { get, send } from '../../lib/api';
-import { dateTime, num, pct } from '../../lib/format';
+import { dateTime, diamonds, num, pct } from '../../lib/format';
 import { ActionButton, UserCell } from '../../components/common';
 import { FormModal } from '../../components/FormModal';
 import { useAuth } from '../../auth/useAuth';
@@ -26,7 +26,7 @@ import { GAMES_BLOCKED_KEY, GAMES_PLAYER_KEY, ggrColor } from './gamesApi';
 const signed = (n: number) => (
   <span style={{ color: ggrColor(-n), fontWeight: 600 }}>
     {n > 0 ? '+' : ''}
-    {num(n)} 💎
+    {diamonds(n)} 💎
   </span>
 );
 
@@ -87,9 +87,13 @@ export function GamesPlayerCard({ uid, compact }: { uid: string; compact?: boole
             <Descriptions.Item label="Player net, today">
               {signed(p.today.playerNet)}
             </Descriptions.Item>
-            <Descriptions.Item label="Turnover">{num(p.lifetime.turnover)} 💎</Descriptions.Item>
-            <Descriptions.Item label="Payouts">{num(p.lifetime.payouts)} 💎</Descriptions.Item>
-            <Descriptions.Item label="Cashback">{num(p.lifetime.cashback)} 💎</Descriptions.Item>
+            <Descriptions.Item label="Turnover">
+              {diamonds(p.lifetime.turnover)} 💎
+            </Descriptions.Item>
+            <Descriptions.Item label="Payouts">{diamonds(p.lifetime.payouts)} 💎</Descriptions.Item>
+            <Descriptions.Item label="Cashback">
+              {diamonds(p.lifetime.cashback)} 💎
+            </Descriptions.Item>
             <Descriptions.Item label="RTP">{pct(p.lifetime.rtp, 2)}</Descriptions.Item>
             <Descriptions.Item label="Stakes / wins">
               {num(p.lifetime.stakeCount)} / {num(p.lifetime.winCount)}

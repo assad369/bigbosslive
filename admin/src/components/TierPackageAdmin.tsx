@@ -25,7 +25,7 @@ import {
   type OwnedTierPackage,
 } from '@bigboss/shared';
 import { get, send, useIntentKey } from '../lib/api';
-import { dateTime, num } from '../lib/format';
+import { dateTime, diamonds } from '../lib/format';
 import { useAuth } from '../auth/useAuth';
 import { brand } from '../theme';
 import { ActionButton, VipTag } from './common';
@@ -136,7 +136,7 @@ export function AssignTierPackageModal({
                               <VipTag tier={p.tier} />
                             </div>
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                              💎 {num(p.priceDiamonds)} · {p.durationDays} days
+                              💎 {diamonds(p.priceDiamonds)} · {p.durationDays} days
                             </Typography.Text>
                           </div>
                         </Space>

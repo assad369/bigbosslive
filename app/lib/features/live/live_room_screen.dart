@@ -13,6 +13,7 @@ import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../games/games_screens.dart';
 import 'active_live.dart';
+import 'chat_swipe.dart';
 import 'filter_picker.dart';
 import 'gift_banner.dart';
 import 'gift_panel.dart';
@@ -409,167 +410,156 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
             message:
                 c.error ?? 'Follow the host to know when they go live again.',
           ),
-          _ => Stack(
-            fit: StackFit.expand,
-            children: [
-              GestureDetector(
-                onDoubleTap: _heart,
-                onTap: _composing
-                    ? () => setState(() => _composing = false)
-                    : null,
-                child: LiveStage(
-                  c: c,
-                  onTapUser: _openUser,
-                  onTapEmptySeat: (s) => showEmptySeatSheet(
-                    context,
-                    c,
-                    s,
-                    onInvite: _openParticipants,
-                  ),
-                  onSwap: c.canSwap ? _swap : null,
-                  onRemoveFromStage: _removeFromStage,
-                ),
-              ),
-              const Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 320,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(gradient: BBColors.videoScrim),
-                  ),
-                ),
-              ),
-              Positioned.fill(
-                child: ReactionLayer(
-                  reactions: c.reactions,
-                  anchorKey: _reactionKey,
-                ),
-              ),
-              SafeArea(
-                bottom: !_composing,
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: _composing ? keyboard : 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      LiveTopBar(
-                        c: c,
-                        onClose: _leave,
-                        onViewers: _openParticipants,
-                        onTapUser: _openUser,
-                      ),
-                      PkWaitingBanner(c: c),
-                      if (c.status == LiveStatus.reconnecting)
-                        const _Pill(text: 'Reconnecting…'),
-                      Expanded(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      left: 10,
-                                      bottom: 6,
-                                    ),
-                                    child: EntryBanner(entries: c.entries),
-                                  ),
-                                  if (c.chatVisible)
-                                    LiveChatList(
-                                      c: c,
-                                      onTapUser: _openUser,
-                                      onReply: (line) => setState(() {
-                                        _replyTo = line;
-                                        _composing = true;
-                                      }),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            // Hidden while typing: the keyboard leaves no room for it.
-                            if (!_composing)
-                              LiveSideRail(
-                                c: c,
-                                onPk: () => PkPickerSheet.show(
-                                  context,
-                                  c,
-                                  ref
-                                          .read(appConfigProvider)
-                                          .value
-                                          ?.pkDurations ??
-                                      const [60, 180, 300, 600],
-                                ),
-                                onLock: () => LockSheet.show(context, c),
-                                onShare: _share,
-                                onGames: () => LiveGamesSheet.show(context),
-                                onFilters: () => showFilterSheet(
-                                  context,
-                                  filterId: c.filterId,
-                                  beauty: c.beauty,
-                                  onFilter: (f) => c.setFilter(f.id),
-                                  onBeauty: (b, {required persist}) =>
-                                      c.setBeauty(b, persist: persist),
-                                ),
-                                onMore: () => LiveMoreSheet.show(
-                                  context,
-                                  c,
-                                  onParticipants: _openParticipants,
-                                ),
-                                onYouTube: () => YouTubeSheet.show(context, c),
-                              ),
-                          ],
-                        ),
-                      ),
-                      if (_composing)
-                        ChatComposer(
-                          c: c,
-                          replyTo: _replyTo,
-                          onClearReply: () => setState(() => _replyTo = null),
-                          onClose: () => setState(() => _composing = false),
-                        )
-                      else
-                        LiveBottomBar(
-                          c: c,
-                          onCompose: () => setState(() => _composing = true),
-                          onGift: _openGifts,
-                          onParticipants: () =>
-                              _openParticipants(ParticipantsTab.waiting),
-                          onStageAction: _stageAction,
-                          onReact: c.react,
-                          reactionKey: _reactionKey,
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              // YouTube's player must stay visible, so it isn't hidden with the chat.
-              Positioned.fill(child: LiveYouTubeCard(c: c)),
-              Positioned.fill(
-                child: EntryEffectOverlay(
-                  entries: c.entries,
-                  muted: !c.roomAudioOn,
-                ),
-              ),
-              Positioned.fill(
-                child: GiftBannerOverlay(
-                  announcements: _announcements,
-                  top: MediaQuery.paddingOf(context).top + stageTopInset + 4,
-                ),
-              ),
-              Positioned.fill(
-                child: GiftOverlay(gifts: c.gifts, muted: !c.roomAudioOn),
-              ),
-            ],
+          // Swipe right hides the chat, swipe left brings it back.
+          _ => ChatSwipeDetector(
+            enabled: !_composing,
+            onChatVisible: c.setChatVisible,
+            child: _room(context, keyboard),
           ),
         },
       ),
     );
   }
+
+  Widget _room(BuildContext context, double keyboard) => Stack(
+    fit: StackFit.expand,
+    children: [
+      GestureDetector(
+        onDoubleTap: _heart,
+        onTap: _composing ? () => setState(() => _composing = false) : null,
+        child: LiveStage(
+          c: c,
+          onTapUser: _openUser,
+          onTapEmptySeat: (s) =>
+              showEmptySeatSheet(context, c, s, onInvite: _openParticipants),
+          onSwap: c.canSwap ? _swap : null,
+          onRemoveFromStage: _removeFromStage,
+        ),
+      ),
+      const Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: 320,
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(gradient: BBColors.videoScrim),
+          ),
+        ),
+      ),
+      Positioned.fill(
+        child: ReactionLayer(reactions: c.reactions, anchorKey: _reactionKey),
+      ),
+      SafeArea(
+        bottom: !_composing,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: _composing ? keyboard : 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              LiveTopBar(
+                c: c,
+                onClose: _leave,
+                onViewers: _openParticipants,
+                onTapUser: _openUser,
+              ),
+              PkWaitingBanner(c: c),
+              if (c.status == LiveStatus.reconnecting)
+                const _Pill(text: 'Reconnecting…'),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(left: 10, bottom: 6),
+                            child: EntryBanner(entries: c.entries),
+                          ),
+                          if (c.chatVisible)
+                            LiveChatList(
+                              c: c,
+                              onTapUser: _openUser,
+                              onReply: (line) => setState(() {
+                                _replyTo = line;
+                                _composing = true;
+                              }),
+                            ),
+                        ],
+                      ),
+                    ),
+                    // Hidden while typing: the keyboard leaves no room for it.
+                    if (!_composing)
+                      LiveSideRail(
+                        c: c,
+                        onPk: () => PkPickerSheet.show(
+                          context,
+                          c,
+                          ref.read(appConfigProvider).value?.pkDurations ??
+                              const [60, 180, 300, 600],
+                        ),
+                        onLock: () => LockSheet.show(context, c),
+                        onShare: _share,
+                        onGames: () => LiveGamesSheet.show(context),
+                        onFilters: () => showFilterSheet(
+                          context,
+                          filterId: c.filterId,
+                          beauty: c.beauty,
+                          onFilter: (f) => c.setFilter(f.id),
+                          onBeauty: (b, {required persist}) =>
+                              c.setBeauty(b, persist: persist),
+                        ),
+                        onMore: () => LiveMoreSheet.show(
+                          context,
+                          c,
+                          onParticipants: _openParticipants,
+                        ),
+                        onYouTube: () => YouTubeSheet.show(context, c),
+                      ),
+                  ],
+                ),
+              ),
+              if (_composing)
+                ChatComposer(
+                  c: c,
+                  replyTo: _replyTo,
+                  onClearReply: () => setState(() => _replyTo = null),
+                  onClose: () => setState(() => _composing = false),
+                )
+              else
+                LiveBottomBar(
+                  c: c,
+                  onCompose: () => setState(() => _composing = true),
+                  onGift: _openGifts,
+                  onParticipants: () =>
+                      _openParticipants(ParticipantsTab.waiting),
+                  onStageAction: _stageAction,
+                  onReact: c.react,
+                  reactionKey: _reactionKey,
+                ),
+            ],
+          ),
+        ),
+      ),
+      // YouTube's player must stay visible, so it isn't hidden with the chat.
+      Positioned.fill(child: LiveYouTubeCard(c: c)),
+      Positioned.fill(
+        child: EntryEffectOverlay(entries: c.entries, muted: !c.roomAudioOn),
+      ),
+      Positioned.fill(
+        child: GiftBannerOverlay(
+          announcements: _announcements,
+          top: MediaQuery.paddingOf(context).top + stageTopInset + 4,
+        ),
+      ),
+      Positioned.fill(
+        child: GiftOverlay(gifts: c.gifts, muted: !c.roomAudioOn),
+      ),
+    ],
+  );
 }
 
 class _Pill extends StatelessWidget {

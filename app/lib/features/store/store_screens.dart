@@ -55,7 +55,7 @@ Future<bool> _confirmSpend(
       context: context,
       builder: (c) => AlertDialog(
         title: Text('Buy $what?'),
-        content: Text('This costs 💎 ${Fmt.full(price)}.'),
+        content: Text('This costs 💎 ${Fmt.diamonds(price)}.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c, false),
@@ -514,7 +514,7 @@ class _OwnedItemSheet extends StatelessWidget {
                 onExtend();
               },
               child: Text(
-                'Extend ${item.durationDays} days · 💎 ${Fmt.full(item.priceDiamonds)}',
+                'Extend ${item.durationDays} days · 💎 ${Fmt.diamonds(item.priceDiamonds)}',
               ),
             ),
           ],

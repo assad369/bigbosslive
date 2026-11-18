@@ -21,7 +21,7 @@ import type {
   GameTopPlayer,
 } from '@bigboss/shared';
 import { get } from '../../lib/api';
-import { num, pct, short } from '../../lib/format';
+import { diamonds, num, pct, short } from '../../lib/format';
 import { useIsMobile } from '../../lib/responsive';
 import { StatCard, UserCell } from '../../components/common';
 import { brand } from '../../theme';
@@ -46,7 +46,7 @@ function Diamonds({ value, signed }: { value: number; signed?: boolean }) {
       }}
     >
       {signed && value > 0 ? '+' : ''}
-      {num(value)} 💎
+      {diamonds(value)} 💎
     </span>
   );
 }
@@ -59,7 +59,8 @@ function MoneyCards({ m, players }: { m: GameMoney; players?: number }) {
         <StatCard
           gold
           title="Platform win / loss (GGR)"
-          value={`${m.ggr > 0 ? '+' : ''}${num(m.ggr)}`}
+          plain
+          value={`${m.ggr > 0 ? '+' : ''}${diamonds(m.ggr)}`}
           suffix="💎"
           hint="Turnover − payouts − cashback. Negative: players won."
         />
@@ -67,7 +68,8 @@ function MoneyCards({ m, players }: { m: GameMoney; players?: number }) {
       <Col xs={12} md={4}>
         <StatCard
           title="Turnover"
-          value={num(m.turnover)}
+          plain
+          value={diamonds(m.turnover)}
           suffix="💎"
           hint={`${num(m.stakeCount)} stakes`}
         />
@@ -75,13 +77,14 @@ function MoneyCards({ m, players }: { m: GameMoney; players?: number }) {
       <Col xs={12} md={4}>
         <StatCard
           title="Payouts"
-          value={num(m.payouts)}
+          plain
+          value={diamonds(m.payouts)}
           suffix="💎"
           hint={`${num(m.winCount)} wins`}
         />
       </Col>
       <Col xs={12} md={4}>
-        <StatCard title="RTP" value={pct(m.rtp, 2)} hint={`Cashback ${num(m.cashback)} 💎`} />
+        <StatCard title="RTP" value={pct(m.rtp, 2)} hint={`Cashback ${diamonds(m.cashback)} 💎`} />
       </Col>
       <Col xs={12} md={4}>
         <StatCard
@@ -135,8 +138,8 @@ function TopPlayers({ from, to }: { from: string; to: string }) {
             align: 'right',
             render: (_, r) => <Diamonds value={r.playerNet} signed />,
           },
-          { title: 'Turnover', align: 'right', render: (_, r) => num(r.turnover) },
-          { title: 'Payouts', align: 'right', render: (_, r) => num(r.payouts) },
+          { title: 'Turnover', align: 'right', render: (_, r) => diamonds(r.turnover) },
+          { title: 'Payouts', align: 'right', render: (_, r) => diamonds(r.payouts) },
         ]}
       />
     </Card>
@@ -235,7 +238,7 @@ export function GamesOverview() {
             <CartesianGrid stroke={brand.palette.border} vertical={false} />
             <XAxis dataKey="day" tick={axis} tickFormatter={(d: string) => d.slice(5)} />
             <YAxis tick={axis} tickFormatter={short} />
-            <Tooltip formatter={(v) => num(Number(v))} />
+            <Tooltip formatter={(v) => diamonds(Number(v))} />
             <Bar
               dataKey="turnover"
               name="Turnover"
@@ -272,9 +275,9 @@ export function GamesOverview() {
               columns={[
                 { title: 'Game', dataIndex: 'name' },
                 { title: 'Players', align: 'right', render: (_, r) => num(r.players) },
-                { title: 'Turnover', align: 'right', render: (_, r) => num(r.turnover) },
-                { title: 'Payouts', align: 'right', render: (_, r) => num(r.payouts) },
-                { title: 'Cashback', align: 'right', render: (_, r) => num(r.cashback) },
+                { title: 'Turnover', align: 'right', render: (_, r) => diamonds(r.turnover) },
+                { title: 'Payouts', align: 'right', render: (_, r) => diamonds(r.payouts) },
+                { title: 'Cashback', align: 'right', render: (_, r) => diamonds(r.cashback) },
                 { title: 'RTP', align: 'right', render: (_, r) => pct(r.rtp, 2) },
                 {
                   title: 'GGR',
@@ -293,7 +296,7 @@ export function GamesOverview() {
         <Alert
           type="info"
           showIcon
-          message={`Game wallet transfers: ${num(current.transfersIn)} 💎 in, ${num(current.transfersOut)} 💎 out. Diamonds held in game wallets are custody, not revenue.`}
+          message={`Game wallet transfers: ${diamonds(current.transfersIn)} 💎 in, ${diamonds(current.transfersOut)} 💎 out. Diamonds held in game wallets are custody, not revenue.`}
         />
       )}
     </Space>

@@ -202,7 +202,7 @@ class MeScreen extends ConsumerWidget {
                   _MenuItem(
                     icon: Icons.storefront_rounded,
                     label:
-                        'Agent recharge · ${Fmt.full(me.wallet.agentStock)} stock',
+                        'Agent recharge · ${Fmt.diamonds(me.wallet.agentStock)} stock',
                     onTap: () => context.push('/agent'),
                   ),
                 _MenuItem(

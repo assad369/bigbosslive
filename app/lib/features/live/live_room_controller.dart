@@ -451,6 +451,11 @@ class LiveRoomController extends ChangeNotifier {
   int get hostDiamonds =>
       detail?.seats.where((s) => s.index == 0).firstOrNull?.diamonds ?? 0;
 
+  /// Diamonds the host received from gifts today (the top bar's figure). It starts over at
+  /// the server's midnight; the room's detail poll picks the new day up.
+  int get hostTodayDiamonds =>
+      detail?.seats.where((s) => s.index == 0).firstOrNull?.todayDiamonds ?? 0;
+
   /// Whether this user may take [seat]'s guest off the stage: the host, a room admin (not
   /// for another admin; the server refuses that) or staff with `live.moderate`.
   bool canRemoveFromStage(Seat seat) {
@@ -1019,12 +1024,17 @@ class LiveRoomController extends ChangeNotifier {
         if (onSeat) seatRequestPending = false;
         unawaited(_syncPublishing());
       case 'balances':
-        // Diamond balance and level of people on stage, after any wallet change.
+        // Diamond balance, today's gifts and level of people on stage, after any
+        // wallet change.
         if (d == null) return;
         final next = {
           for (final u in p.list('users', (u) => u))
             u.str('uid'): (
               diamonds: u.integer('diamonds'),
+              // Absent from older servers: keep what the tile shows.
+              today: u['todayDiamonds'] is num
+                  ? u.integer('todayDiamonds')
+                  : null,
               level: u.integer('level'),
             ),
         };
@@ -1036,6 +1046,7 @@ class LiveRoomController extends ChangeNotifier {
                 null => s,
                 final n => s.copyWith(
                   diamonds: n.diamonds,
+                  todayDiamonds: n.today,
                   user: s.user!.copyWith(level: n.level),
                 ),
               },
@@ -1525,8 +1536,12 @@ class LiveRoomController extends ChangeNotifier {
     }
   }
 
-  void toggleChat() {
-    chatVisible = !chatVisible;
+  void toggleChat() => setChatVisible(!chatVisible);
+
+  /// Show or hide the chat (rail button, or a sideways swipe on the room).
+  void setChatVisible(bool visible) {
+    if (chatVisible == visible) return;
+    chatVisible = visible;
     _notify();
   }
 

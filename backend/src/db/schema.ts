@@ -72,6 +72,11 @@ export interface UserDoc {
     totalSent: number;
     liveSeconds: number;
   };
+  /**
+   * Diamonds credited to this user from gifts on one zoned day (`key`, `AGENCY_RESET_TIMEZONE`),
+   * shown on their live stage tile. A stale `key` reads as zero. Absent until the first gift.
+   */
+  giftsToday?: { key: string; diamonds: number };
   level: { level: number; points: number };
   /**
    * The worn tier package (one at a time). `tier`/`expiresAt` are the package's tier and the

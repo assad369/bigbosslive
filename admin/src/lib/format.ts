@@ -9,6 +9,9 @@ const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' 
 
 export const num = (n: number | null | undefined) =>
   n === null || n === undefined ? '—' : nf.format(n);
+/** Diamond amounts are written whole and without thousands separators: 1234567. */
+export const diamonds = (n: number | null | undefined) =>
+  n === null || n === undefined ? '—' : String(Math.round(n));
 export const short = (n: number | null | undefined) =>
   n === null || n === undefined ? '—' : compact.format(n);
 export const money = (n: number | null | undefined) =>

@@ -108,7 +108,7 @@ void main() {
     expect(find.text('KING Package:'), findsOneWidget);
     expect(find.text('My KING'), findsOneWidget);
     expect(find.text('Gold King'), findsOneWidget);
-    expect(find.text('1,200'), findsOneWidget);
+    expect(find.text('1200'), findsOneWidget);
     expect(find.text('30 days validity'), findsOneWidget);
     expect(_button('Buy'), findsOneWidget);
     expect(find.text('Extend'), findsNothing);

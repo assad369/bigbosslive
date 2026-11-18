@@ -1,4 +1,4 @@
-import { ObjectId, type Filter } from 'mongodb';
+import { ObjectId, type ClientSession, type Filter } from 'mongodb';
 import { z } from 'zod';
 import {
   ANIMATION_FORMATS,
@@ -21,6 +21,7 @@ import {
   receiverNotInRoom,
   receiversNotInRoom,
 } from '../../lib/errors.js';
+import { dayKey } from '../../lib/time.js';
 import { activeVipTier, type UserBrief } from '../users/users.presenter.js';
 
 /** Payload of `SOCKET.app.giftAnnouncement`. */
@@ -276,6 +277,7 @@ export class GiftsService {
           inc: { 'stats.totalSent': totalCost },
         });
         const periodKey = this.ctx.services.agencies.currentPeriodKey();
+        const dayToday = dayKey(now, this.ctx.env.AGENCY_RESET_TIMEZONE);
         for (const r of doc.receivers) {
           await this.ctx.services.wallet.credit(session, {
             uid: r.userId,
@@ -287,6 +289,7 @@ export class GiftsService {
             inc: { 'stats.totalReceived': r.cost },
           });
           await this.ctx.services.levels.recalculate(r.userId, session);
+          await this.bumpToday(session, r.userId, r.diamonds, dayToday);
           if (r.agencyId) {
             const agency = agencyById.get(String(r.agencyId))!;
             if (r.agencyFee > 0) {
@@ -436,6 +439,38 @@ export class GiftsService {
     this.ctx.realtime.broadcast(SOCKET.namespaces.app, SOCKET.app.giftAnnouncement, announcement);
   }
 
+  /** Today's day key for `users.giftsToday` (the agency reset zone). */
+  todayKey(): string {
+    return dayKey(this.ctx.clock.now(), this.ctx.env.AGENCY_RESET_TIMEZONE);
+  }
+
+  /**
+   * Add a gift's credited diamonds to the receiver's `giftsToday`, starting over when the stored
+   * day is not `key`. One pipeline update, so it can't race with itself inside the transaction.
+   */
+  private async bumpToday(session: ClientSession, uid: string, diamonds: number, key: string) {
+    await this.ctx.col.users.updateOne(
+      { _id: uid },
+      [
+        {
+          $set: {
+            giftsToday: {
+              key,
+              diamonds: {
+                $cond: [
+                  { $eq: ['$giftsToday.key', key] },
+                  { $add: ['$giftsToday.diamonds', diamonds] },
+                  diamonds,
+                ],
+              },
+            },
+          },
+        },
+      ],
+      { session },
+    );
+  }
+
   async history(
     filter: { senderId?: string; receiverId?: string; roomId?: ObjectId; from?: Date; to?: Date },
     page: number,
@@ -459,7 +494,54 @@ export class GiftsService {
         .toArray(),
       this.ctx.col.giftTransactions.countDocuments(q),
     ]);
-    return { items, total, page, pageSize };
+    // Join what a person reads: names instead of uids, the gift's icon, the room's title.
+    const giftIds = [...new Set(items.map((t) => String(t.giftId)))].map((id) => new ObjectId(id));
+    const roomIds = [...new Set(items.flatMap((t) => (t.roomId ? [String(t.roomId)] : [])))].map(
+      (id) => new ObjectId(id),
+    );
+    const [briefs, gifts, rooms] = await Promise.all([
+      this.ctx.services.users.briefs(
+        items.flatMap((t) => [t.senderId, ...t.receivers.map((r) => r.userId)]),
+      ),
+      giftIds.length
+        ? this.ctx.col.gifts
+            .find({ _id: { $in: giftIds } }, { projection: { iconUrl: 1 } })
+            .toArray()
+        : [],
+      roomIds.length
+        ? this.ctx.col.liveRooms
+            .find(
+              { _id: { $in: roomIds } },
+              { projection: { title: 1, hostId: 1, type: 1, startedAt: 1 } },
+            )
+            .toArray()
+        : [],
+    ]);
+    const iconOf = new Map(gifts.map((g) => [String(g._id), g.iconUrl]));
+    const roomOf = new Map(rooms.map((r) => [String(r._id), r]));
+    return {
+      items: items.map(({ idempotencyKey: _key, ...t }) => {
+        const room = t.roomId ? roomOf.get(String(t.roomId)) : undefined;
+        return {
+          ...t,
+          sender: briefs.get(t.senderId) ?? null,
+          giftIconUrl: iconOf.get(String(t.giftId)) ?? null,
+          receivers: t.receivers.map((r) => ({ ...r, user: briefs.get(r.userId) ?? null })),
+          room: room
+            ? {
+                id: String(room._id),
+                title: room.title,
+                type: room.type,
+                hostId: room.hostId,
+                startedAt: room.startedAt,
+              }
+            : null,
+        };
+      }),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   /** Top gifters to a user (profile "contributors" list), optionally since a date. */

@@ -48,6 +48,8 @@ export function toRoomDetail(
   now: Date,
   /** Diamond balances of the people on seats, shown on their stage tiles. */
   balances: Map<string, number> = new Map(),
+  /** Diamonds each seated person received from gifts today (resets at the zoned midnight). */
+  today: Map<string, number> = new Map(),
 ) {
   return {
     ...toLiveRoom(r, host),
@@ -66,6 +68,7 @@ export function toRoomDetail(
       seatedAt: s.userId && s.seatedAt ? s.seatedAt.toISOString() : null,
       user: s.userId ? (users.get(s.userId) ?? null) : null,
       diamonds: s.userId ? (balances.get(s.userId) ?? 0) : 0,
+      todayDiamonds: s.userId ? (today.get(s.userId) ?? 0) : 0,
     })),
     /** The guest shown in the host's spot (and the host in theirs), or null. */
     swappedUid: r.swappedUid ?? null,
