@@ -55,6 +55,9 @@ final economyRepo = Provider(
 );
 final socialRepo = Provider((ref) => SocialRepository(ref.watch(apiProvider)));
 final agencyRepo = Provider((ref) => AgencyRepository(ref.watch(apiProvider)));
+final coinBagRepo = Provider(
+  (ref) => CoinBagRepository(ref.watch(apiProvider)),
+);
 final moderationRepo = Provider(
   (ref) => ModerationRepository(ref.watch(apiProvider)),
 );

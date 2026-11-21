@@ -63,6 +63,8 @@ export interface Collections {
   migrations: Collection<S.MigrationDoc>;
   sightguardEvents: Collection<S.SightGuardEventDoc>;
   youtubeCache: Collection<S.YoutubeCacheDoc>;
+  coinBags: Collection<S.CoinBagDoc>;
+  coinBagShares: Collection<S.CoinBagShareDoc>;
 }
 
 const NAMES: Record<keyof Collections, string> = {
@@ -119,6 +121,8 @@ const NAMES: Record<keyof Collections, string> = {
   migrations: 'migrations',
   sightguardEvents: 'sightguard_events',
   youtubeCache: 'youtube_cache',
+  coinBags: 'coin_bags',
+  coinBagShares: 'coin_bag_shares',
 };
 
 export interface Database {

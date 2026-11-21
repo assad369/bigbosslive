@@ -258,13 +258,24 @@ cd app && flutter analyze && flutter test && dart format lib test
   `MAX_REACTIONS_PER_REQUEST` in total, one request per client flush); a bare `{ count }` from
   older apps means `love`. `bb.reaction` carries both `items` and the total `count`, so older
   apps still float hearts. The heart opens `ReactionTrayButton`; `ReactionLayer` draws them.
-- Stage tiles and the host's top-bar 💎 show **diamonds received from gifts today**
-  (`users.giftsToday {key, diamonds}`, bumped in the gift transaction by `GiftsService`,
-  day key in `AGENCY_RESET_TIMEZONE`; a stale key reads as zero). Room detail and the
-  `bb.seats` `balances` packet carry it as `todayDiamonds` beside the wallet `diamonds`.
+  `bb.reaction` also names the sender (`user`, the chat metadata; never for a hidden
+  moderator), and the app writes a "sent ❤️×3" chat row (`ChatKind.reaction`, local, not
+  saved), merging one sender's burst into one row. Own taps write the row at once.
+- Stage tiles, audio seats and the host's top-bar 💎 (and its stars) show the **wallet
+  balance** (`diamonds` in room detail seats and the `bb.seats` `balances` packet).
+  Diamonds received from gifts today (`users.giftsToday {key, diamonds}`, bumped in the gift
+  transaction by `GiftsService`, day key in `AGENCY_RESET_TIMEZONE`; a stale key reads as
+  zero) still ride beside it as `todayDiamonds` and feed admin stats.
 - Swiping the room right hides the chat and left shows it (`ChatSwipeDetector`); swipes
   from the system edge zones are left to back navigation.
 - Rooms with no heartbeat for `live.staleAfterSec` are ended by the `live.sweep` job.
+- An agency host's (`users.agencyId`) video live ends after `live.agencyCameraOffEndSec`
+  (300 s; 0 = off) with the camera off (`endReason: 'camera_off'`, audited as
+  `live.camera_off_end`). The `live.camera` tick (15 s, `sweepCameraOff`) reads the camera
+  from the SFU (`livekit.cameraState`), never from the app, and keeps the spell on
+  `live_rooms.cameraOffSince`. A host LiveKit can't see or answer for is left to the
+  heartbeat sweep. The host alone gets `bb.system {kind: 'camera_off_warning', endsInSec}`
+  when it starts and in the last minute; the app shows `CameraOffBanner`.
 - Broadcasting History and the post-live summary are in `LiveSummaryService`
   (`modules/live/live-summary.service.ts`):
   - `GET /users/:uid/live-history/monthly?month=YYYY-MM&tz=±HH:mm` groups ended lives by
@@ -290,6 +301,33 @@ cd app && flutter analyze && flutter test && dart format lib test
   LiveKit (`mixWithOthers`, never taking the audio session). Everything else (frames, looping
   cosmetics) is silent: `SvgaMovieCache` drops audio unless retained `withAudio`. The room's
   speaker toggle (`roomAudioOn`) disables remote audio tracks and mutes effects on this device.
+
+## Coin bags (`modules/coin-bags`)
+
+- A user in a live puts diamonds in a bag (`POST /coin-bags`, keyed by `Idempotency-Key`
+  through `once()`, scope `coin_bag`), split at release into `shareCount` random shares
+  (`splitShares`, "double average", each ≥ `minShare`, exact sum) in `coin_bag_shares`.
+  Rules live in the `coinBags` config key; `features.coinBagsEnabled`
+  (off by default) gates releasing only, never grabbing or refunds.
+- Who: anyone present (host, seated, `room_presence`) in an unlocked live, except agency
+  members (403 `agency_member_coin_bag_blocked`, like gifts) and agents. One running bag
+  per releaser (partial unique `activeSlot`), `maxActiveGlobal` across the platform.
+- Grab (`POST /coin-bags/:id/grab`) after `countdownSec`, within `grabWindowSec`: once per
+  user per bag (partial unique `bagId + claimedBy`; a repeat answers 200 `duplicate`), never
+  the releaser, only from the bag's room or as the host of another live (`remote`).
+- `CoinBagsService.close` is the only end: unclaimed shares go back to the releaser in one
+  transaction (3 s grace after expiry); the fee never does. The `coinBags.sweep` tick (5 s)
+  closes expired, room-ended and fully grabbed bags, and `LiveService.end` closes its room's.
+  Staff cancel with `coinBags.manage` (audited `coin_bag.cancel`).
+- Money: `coin_bag_release` / `coin_bag_grab` / `coin_bag_refund` through the wallet. None
+  moves level.
+- Realtime: `coinbag:released|updated|closed` to every app socket (updated coalesced per
+  second), with `serverNow` so every phone counts down alike, plus a `bb.system
+  {kind: 'coin_bag'}` chat line in the bag's room. Summaries never carry share amounts.
+- App (`features/coin_bag/`): `CoinBagFloatingButton` above the chat, `CoinBagReleaseBanner`,
+  the rail button, `showCoinBagSheet`, `CoinBagReleaseSheet` (one key per intent) and
+  `CoinBagResultDialog`. Tapping a bag elsewhere hops there (`pushReplacement`), after
+  leaving a seat; a host grabs remotely.
 
 ## Platform moderators (`modules/moderation`)
 

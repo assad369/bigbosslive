@@ -14,7 +14,7 @@ import '../../models/models.dart';
 import 'camera_filter_channel.dart';
 import 'camera_filters.dart';
 
-enum ChatKind { chat, voice, gift, join, system }
+enum ChatKind { chat, voice, gift, join, system, reaction }
 
 /// Who someone is in this room, as shown on badges. Derived from server-minted metadata
 /// or the room detail; never from what a client claims.
@@ -89,6 +89,7 @@ class ChatLine {
     this.gift,
     this.fromServer = false,
     this.mod = false,
+    this.reactions = const {},
   });
   final String id;
   final String text;
@@ -106,6 +107,9 @@ class ChatLine {
 
   /// Sent by a hidden platform moderator (decided by the server): drawn with a MOD chip.
   final bool mod;
+
+  /// A [ChatKind.reaction] line's emoji and how many of each, in the order first sent.
+  final Map<LiveReaction, int> reactions;
 
   bool get system => kind == ChatKind.system || kind == ChatKind.join;
 
@@ -318,6 +322,11 @@ class LiveRoomController extends ChangeNotifier {
   bool micOn = false;
   bool cameraOn = false;
   bool frontCamera = true;
+
+  /// When the server will end my live for the camera being off (an agency host in a video
+  /// live; from its `camera_off_warning`). Null while the camera is on.
+  DateTime? get cameraOffEndsAt => cameraOn ? null : _cameraOffEndsAt;
+  DateTime? _cameraOffEndsAt;
 
   /// My camera filter ([CameraFilters] id) and beauty sliders. The go-live screen and the
   /// room share them through [CameraFilterPrefs].
@@ -744,6 +753,8 @@ class LiveRoomController extends ChangeNotifier {
         if (!wantCam) await CameraFilterChannel.clear(_cameraTrack);
         await local.setCameraEnabled(wantCam);
         cameraOn = wantCam;
+        // Back on: the server stops counting, and warns again if it goes off.
+        if (wantCam) _cameraOffEndsAt = null;
         // Turning the camera back on restarts capture with a new native track.
         if (wantCam) await _applyFilter();
       } catch (e) {
@@ -961,20 +972,30 @@ class LiveRoomController extends ChangeNotifier {
       case 'bb.reaction':
         if (p.str('uid') == myUid || _reactions.isClosed) return;
         // `items` names each emoji; a server from before the tray sends only a heart count.
+        final sent = <LiveReaction, int>{};
         if (p['items'] is! List) {
-          _reactions.add(
-            ReactionShow(LiveReaction.love, p.integer('count', 1)),
-          );
-          return;
-        }
-        for (final item in p.list('items', (i) => i)) {
-          final type = LiveReaction.fromName(item['type']);
-          final count = item.integer('count');
-          if (type != null && count > 0) {
-            _reactions.add(ReactionShow(type, count));
+          sent[LiveReaction.love] = p.integer('count', 1);
+        } else {
+          for (final item in p.list('items', (i) => i)) {
+            final type = LiveReaction.fromName(item['type']);
+            final count = item.integer('count');
+            if (type != null && count > 0) {
+              sent.update(type, (n) => n + count, ifAbsent: () => count);
+            }
           }
         }
-        return;
+        sent.forEach(
+          (type, count) => _reactions.add(ReactionShow(type, count)),
+        );
+        // A server that names the sender (never a hidden moderator) gets a chat row;
+        // otherwise the reactions only float, and the room needn't rebuild.
+        final from = p.objOrNull('user');
+        if (from == null || sent.isEmpty) return;
+        _reactionLine(
+          UserBrief.fromJson(from),
+          sent,
+          role: roleFromMetadata(from.str('role')),
+        );
       case 'bb.kick':
         if (p.str('uid') == myUid) {
           status = LiveStatus.kicked;
@@ -1141,6 +1162,22 @@ class LiveRoomController extends ChangeNotifier {
             coverUrl: p.strOrNull('coverUrl'),
           ),
           backgroundUrl: () => p.strOrNull('backgroundUrl'),
+        );
+      case 'coin_bag':
+        // Someone released a coin bag in this room.
+        final bag = p.obj('bag');
+        final who = bag.objOrNull('releaser')?.str('displayName') ?? 'Someone';
+        _system('🧧 $who released a 💎${bag.integer('amount')} coin bag!');
+      case 'camera_off_warning':
+        // Sent to the host only. Device clock + remaining seconds, so clock skew can't
+        // show a deadline that already passed.
+        final left = p.integer('endsInSec');
+        _cameraOffEndsAt = DateTime.now().add(Duration(seconds: left));
+        final minutes = (left / 60).ceil();
+        _notice(
+          minutes > 1
+              ? 'Turn your camera on within $minutes minutes or your live will end.'
+              : 'Turn your camera on now or your live will end in under a minute.',
         );
       case 'viewers':
         detail = d.copyWith(
@@ -1385,6 +1422,50 @@ class LiveRoomController extends ChangeNotifier {
     );
   }
 
+  /// How long a sender's reaction row keeps absorbing their next reactions.
+  static const reactionLineMerge = Duration(seconds: 5);
+  DateTime? _lastReactionLineAt;
+
+  /// "sent ❤️×3 👍": one row per sender burst. Reactions from the same person within
+  /// [reactionLineMerge] of their last row, with nothing else said in between, add to it.
+  void _reactionLine(
+    UserBrief u,
+    Map<LiveReaction, int> sent, {
+    RoomRole? role,
+  }) {
+    final now = DateTime.now();
+    final last = chat.isEmpty ? null : chat.last;
+    final at = _lastReactionLineAt;
+    if (last != null &&
+        last.kind == ChatKind.reaction &&
+        last.user?.id == u.id &&
+        at != null &&
+        now.difference(at) < reactionLineMerge) {
+      final merged = Map.of(last.reactions);
+      sent.forEach((t, n) => merged.update(t, (m) => m + n, ifAbsent: () => n));
+      chat[chat.length - 1] = ChatLine(
+        id: last.id,
+        text: last.text,
+        kind: ChatKind.reaction,
+        user: last.user,
+        role: last.role,
+        reactions: merged,
+      );
+    } else {
+      _addChat(
+        ChatLine(
+          id: 'r${u.id}-${_systemSeq++}',
+          text: 'sent',
+          kind: ChatKind.reaction,
+          user: u,
+          role: role,
+          reactions: Map.of(sent),
+        ),
+      );
+    }
+    _lastReactionLineAt = now;
+  }
+
   void _system(String text) => _addChat(
     ChatLine(id: 's${_systemSeq++}', text: text, kind: ChatKind.system),
   );
@@ -1567,6 +1648,13 @@ class LiveRoomController extends ChangeNotifier {
   void react([LiveReaction reaction = LiveReaction.love]) {
     if (_reactions.isClosed) return;
     _reactions.add(ReactionShow(reaction, 1, mine: true));
+    // My own row, at once (the server's copy for my uid is skipped). A hidden moderator's
+    // reactions name nobody, to the room or to themselves.
+    final self = me;
+    if (self != null && !stealth) {
+      _reactionLine(self, {reaction: 1}, role: roleOf(self.id));
+      _notify();
+    }
     final total = _pendingReactions.values.fold(0, (a, b) => a + b);
     if (total < maxReactionsPerRequest) {
       _pendingReactions.update(reaction, (n) => n + 1, ifAbsent: () => 1);

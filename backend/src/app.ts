@@ -15,6 +15,7 @@ import {
 import { accountRoutes } from './routes/account.js';
 import { adminRoutes } from './routes/admin.js';
 import { contentRoutes } from './routes/content.js';
+import { coinBagRoutes } from './routes/coin-bags.js';
 import { economyRoutes } from './routes/economy.js';
 import { liveRoutes, livekitWebhookRoute } from './routes/live.js';
 import { moderatorRoutes } from './routes/moderator.js';
@@ -118,6 +119,7 @@ export function createApp(ctx: Ctx): Express {
   app.use('/v1/live', liveRoutes(ctx));
   app.use('/v1/moderator', moderatorRoutes(ctx));
   app.use('/v1', economyRoutes(ctx));
+  app.use('/v1', coinBagRoutes(ctx));
   app.use('/v1', socialRoutes(ctx));
   app.use('/v1/admin', adminRoutes(ctx));
   if (ctx.env.NODE_ENV !== 'production') app.use('/docs', docsRoutes());

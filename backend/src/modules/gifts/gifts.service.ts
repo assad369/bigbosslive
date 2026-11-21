@@ -565,6 +565,35 @@ export class GiftsService {
     return rows.map((r) => ({ user: briefs.get(r._id) ?? null, diamonds: r.total }));
   }
 
+  /**
+   * Top gifters to a user during their current live (profile "Top supporters"). Scoped to
+   * `users.liveRoomId`, so the list is empty once the live ends and the next live starts at
+   * zero; a resumed room keeps its `_id`, so a reconnect keeps the list.
+   */
+  async liveSupporters(receiverId: string, limit = 20) {
+    const user = await this.ctx.col.users.findOne(
+      { _id: receiverId },
+      { projection: { liveRoomId: 1 } },
+    );
+    const roomId = user?.liveRoomId ?? null;
+    if (!roomId) return { live: false, items: [] };
+    const rows = await this.ctx.col.giftTransactions
+      .aggregate<{ _id: string; total: number }>([
+        { $match: { roomId, 'receivers.userId': receiverId } },
+        { $unwind: '$receivers' },
+        { $match: { 'receivers.userId': receiverId } },
+        { $group: { _id: '$senderId', total: { $sum: '$receivers.cost' } } },
+        { $sort: { total: -1, _id: 1 } },
+        { $limit: limit },
+      ])
+      .toArray();
+    const briefs = await this.ctx.services.users.briefs(rows.map((r) => r._id));
+    return {
+      live: true,
+      items: rows.map((r) => ({ user: briefs.get(r._id) ?? null, diamonds: r.total })),
+    };
+  }
+
   /** Global rich (senders) / charm (receivers) leaderboards. */
   async leaderboard(kind: 'rich' | 'charm', since: Date, limit = 50) {
     const pipeline =

@@ -23,6 +23,9 @@ export const LEDGER_REASON_LABELS: Record<LedgerReason, { label: string; color: 
   withdrawal_release: { label: 'Withdrawal returned', color: 'orange' },
   admin_adjustment: { label: 'Admin correction', color: 'red' },
   currency_merge: { label: 'Beans merged into diamonds', color: 'default' },
+  coin_bag_release: { label: 'Coin bag released', color: 'orange' },
+  coin_bag_grab: { label: 'Coin bag grabbed', color: 'green' },
+  coin_bag_refund: { label: 'Coin bag refund', color: 'blue' },
 };
 
 export function ledgerReason(reason: string): { label: string; color: string } {

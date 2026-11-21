@@ -20,8 +20,8 @@ import '../store/tier_packages_screen.dart';
 final userProvider = FutureProvider.autoDispose.family<PublicUser, String>(
   (ref, uid) => ref.watch(accountRepo).user(uid),
 );
-final _contributorsProvider = FutureProvider.autoDispose.family(
-  (ref, String uid) => ref.watch(accountRepo).contributors(uid),
+final _supportersProvider = FutureProvider.autoDispose.family(
+  (ref, String uid) => ref.watch(accountRepo).liveSupporters(uid),
 );
 final _blockedProvider = FutureProvider.autoDispose(
   (ref) => ref.watch(accountRepo).blocked(),
@@ -437,7 +437,10 @@ class UserProfileScreen extends ConsumerWidget {
         value: user,
         onRetry: () => ref.invalidate(userProvider(uid)),
         data: (u) => RefreshIndicator(
-          onRefresh: () => ref.refresh(userProvider(uid).future),
+          onRefresh: () {
+            ref.invalidate(_supportersProvider(uid));
+            return ref.refresh(userProvider(uid).future);
+          },
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(20),
@@ -504,10 +507,10 @@ class UserProfileScreen extends ConsumerWidget {
               ],
               const SizedBox(height: 24),
               Text(
-                'Top supporters',
+                'Top supporters · this live',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              _Contributors(uid: uid),
+              _Supporters(uid: uid),
             ],
           ),
         ),
@@ -592,32 +595,51 @@ class _ProfileActionsState extends ConsumerState<_ProfileActions> {
   }
 }
 
-class _Contributors extends ConsumerWidget {
-  const _Contributors({required this.uid});
+/// Gifters of this user's current live, ranked; empty once the live ends.
+class _Supporters extends ConsumerWidget {
+  const _Supporters({required this.uid});
   final String uid;
+
+  static const _medals = ['🥇', '🥈', '🥉'];
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final list = ref.watch(_contributorsProvider(uid));
-    return list.when(
+    final result = ref.watch(_supportersProvider(uid));
+    Widget note(String text) => Padding(
+      padding: const EdgeInsets.all(16),
+      child: Text(text, style: const TextStyle(color: BBColors.inkSubtle)),
+    );
+    return result.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(16),
         child: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => const SizedBox.shrink(),
-      data: (items) => items.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'No gifts yet this week',
-                style: TextStyle(color: BBColors.inkSubtle),
+      data: (r) {
+        final items = [
+          for (final c in r.items)
+            if (c.user != null) (user: c.user!, diamonds: c.diamonds),
+        ];
+        if (!r.live) {
+          return note(
+            'Supporters of the current live show here. '
+            'The list resets when the live ends.',
+          );
+        }
+        if (items.isEmpty) return note('No gifts in this live yet');
+        return Column(
+          children: [
+            for (final (i, c) in items.take(10).indexed)
+              UserTile(
+                user: c.user,
+                subtitle: i < _medals.length
+                    ? '${_medals[i]} #${i + 1}'
+                    : '#${i + 1}',
+                trailing: DiamondAmount(c.diamonds),
               ),
-            )
-          : Column(
-              children: [
-                for (final c in items.where((c) => c.user != null).take(10))
-                  UserTile(user: c.user!, trailing: DiamondAmount(c.diamonds)),
-              ],
-            ),
+          ],
+        );
+      },
     );
   }
 }

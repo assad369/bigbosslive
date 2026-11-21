@@ -86,134 +86,294 @@ abstract final class AgencyPodium {
   };
 }
 
-/// One card of the home "Top agencies" slider.
+/// One card of the home "Top agencies" slider: a dark espresso card framed in the rank's
+/// metal (gold, silver, bronze; champagne below the podium), glowing for the top three.
 class AgencyRankCard extends StatelessWidget {
   const AgencyRankCard({super.key, required this.top, this.onTap});
   final TopAgency top;
   final VoidCallback? onTap;
+
+  static const _radius = 20.0;
+  static const _medals = ['🥇', '🥈', '🥉'];
 
   @override
   Widget build(BuildContext context) {
     final a = top.agency;
     final podium = top.rank <= 3;
     final accent = AgencyPodium.accent(top.rank);
-    return Material(
-      color: BBColors.surface,
-      borderRadius: BorderRadius.circular(18),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap == null
-            ? null
-            : () {
-                HapticFeedback.selectionClick();
-                onTap!();
-              },
-        child: Ink(
+    final metal = AgencyPodium.gradient(top.rank);
+    // Fixed-height card: very large text stops growing at 1.2×.
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.2,
+      child: Semantics(
+        button: onTap != null,
+        label:
+            'Rank ${top.rank}, ${a.name}, ${Fmt.diamonds(top.periodDiamonds)} '
+            'diamonds this month, ${a.memberCount} hosts',
+        excludeSemantics: true,
+        child: DecoratedBox(
+          // The metal frame: a gradient behind the card, showing as a 1.5 px border.
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: podium ? accent : BBColors.border,
-              width: podium ? 1.4 : 1,
-            ),
-            gradient: LinearGradient(
-              colors: [
-                accent.withValues(alpha: podium ? 0.16 : 0.06),
-                BBColors.surface,
-              ],
-              stops: const [0, 0.55],
-            ),
-          ),
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          child: Row(
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  AgencyLogo(
-                    agency: a,
-                    size: 56,
-                    ring: AgencyPodium.gradient(top.rank),
-                  ),
-                  if (podium)
-                    Positioned(
-                      right: -2,
-                      bottom: -2,
-                      child: Text(
-                        const ['🥇', '🥈', '🥉'][top.rank - 1],
-                        style: const TextStyle(fontSize: 18),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      a.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '💎 ${Fmt.diamonds(top.periodDiamonds)} this month',
-                      style: TextStyle(
-                        color: accent,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      '${a.memberCount} hosts · ${a.code}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: BBColors.inkSubtle,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  gradient: AgencyPodium.gradient(top.rank),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.workspace_premium,
-                      size: 16,
-                      color: podium ? BBColors.onAccent : BBColors.goldDeep,
-                    ),
-                    Text(
-                      '#${top.rank}',
-                      style: TextStyle(
-                        color: podium ? BBColors.onAccent : BBColors.goldDeep,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
+            gradient: metal,
+            borderRadius: BorderRadius.circular(_radius),
+            boxShadow: [
+              BoxShadow(
+                color: podium
+                    ? accent.withValues(alpha: 0.45)
+                    : BBColors.goldShadow,
+                blurRadius: podium ? 14 : 8,
+                offset: const Offset(0, 3),
               ),
             ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(1.5),
+            child: Material(
+              color: BBColors.espresso,
+              borderRadius: BorderRadius.circular(_radius - 1.5),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onTap == null
+                    ? null
+                    : () {
+                        HapticFeedback.selectionClick();
+                        onTap!();
+                      },
+                child: Ink(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        BBColors.espressoGlow,
+                        BBColors.espresso,
+                        BBColors.umberDeep,
+                      ],
+                      stops: [0, 0.6, 1],
+                    ),
+                  ),
+                  child: Stack(
+                    children: [
+                      // A faint oversized diamond and a diagonal sheen give the card depth.
+                      const Positioned(
+                        right: -14,
+                        bottom: -26,
+                        child: Icon(
+                          Icons.diamond_rounded,
+                          size: 112,
+                          color: BBColors.goldTint,
+                        ),
+                      ),
+                      Positioned(
+                        left: -40,
+                        top: -60,
+                        child: Transform.rotate(
+                          angle: -math.pi / 7,
+                          child: Container(
+                            width: 70,
+                            height: 220,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  BBColors.champagneTint,
+                                  BBColors.champagneVeil,
+                                  BBColors.champagneTint,
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+                        child: Row(
+                          children: [
+                            Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: accent.withValues(alpha: 0.55),
+                                        blurRadius: 12,
+                                      ),
+                                    ],
+                                  ),
+                                  child: AgencyLogo(
+                                    agency: a,
+                                    size: 64,
+                                    ring: metal,
+                                  ),
+                                ),
+                                if (podium)
+                                  Positioned(
+                                    right: -4,
+                                    bottom: -4,
+                                    child: Text(
+                                      _medals[top.rank - 1],
+                                      style: const TextStyle(fontSize: 20),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _RankRibbon(rank: top.rank, metal: metal),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    a.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: BBColors.ivory,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                      height: 1.2,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: _DiamondPill(top.periodDiamonds),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          '${a.memberCount} hosts · ${a.code}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: BBColors.champagneDeep,
+                                            fontSize: 11,
+                                            height: 1.2,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: BBColors.goldTint,
+                                border: Border.all(color: BBColors.goldOutline),
+                              ),
+                              child: const Icon(
+                                Icons.chevron_right_rounded,
+                                size: 20,
+                                color: BBColors.goldLight,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+/// "👑 NO.1" on gold, "NO.2" on silver, "NO.3" on bronze, "#n" in champagne below.
+class _RankRibbon extends StatelessWidget {
+  const _RankRibbon({required this.rank, required this.metal});
+  final int rank;
+  final Gradient metal;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+    decoration: BoxDecoration(
+      gradient: metal,
+      borderRadius: const BorderRadius.only(
+        topLeft: Radius.circular(8),
+        bottomRight: Radius.circular(8),
+        topRight: Radius.circular(3),
+        bottomLeft: Radius.circular(3),
+      ),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (rank == 1) ...[
+          const Icon(
+            Icons.workspace_premium_rounded,
+            size: 12,
+            color: BBColors.onAccent,
+          ),
+          const SizedBox(width: 3),
+        ],
+        Text(
+          rank <= 3 ? 'NO.$rank' : '#$rank',
+          style: TextStyle(
+            color: rank <= 3 ? BBColors.onAccent : BBColors.bronzeDeep,
+            fontWeight: FontWeight.w900,
+            fontSize: 10,
+            height: 1.2,
+            letterSpacing: 0.8,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// This month's diamonds in a gold pill.
+class _DiamondPill extends StatelessWidget {
+  const _DiamondPill(this.diamonds);
+  final int diamonds;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: BBColors.goldTint,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: BBColors.goldOutline),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('💎', style: TextStyle(fontSize: 11, height: 1.2)),
+        const SizedBox(width: 3),
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              Fmt.diamonds(diamonds),
+              maxLines: 1,
+              style: const TextStyle(
+                color: BBColors.goldLight,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+                height: 1.2,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 /// A labelled number in a dashboard grid.

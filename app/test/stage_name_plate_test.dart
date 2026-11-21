@@ -86,7 +86,7 @@ void main() {
   ) async {
     await pump(tester, compact: false);
     expect(
-      find.bySemanticsLabel('${Fmt.diamonds(diamonds)} diamonds today'),
+      find.bySemanticsLabel('${Fmt.diamonds(diamonds)} diamonds'),
       findsOneWidget,
     );
   });

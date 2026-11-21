@@ -69,3 +69,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/youtube/
+    - assets/coin_bag/

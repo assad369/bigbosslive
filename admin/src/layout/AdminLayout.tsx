@@ -34,6 +34,7 @@ import {
   SafetyOutlined,
   SettingOutlined,
   ShopOutlined,
+  ShoppingOutlined,
   TeamOutlined,
   ThunderboltOutlined,
   TrophyOutlined,
@@ -115,6 +116,12 @@ const NAV: NavGroup[] = [
         label: 'Withdrawals',
         icon: <BankOutlined />,
         permission: 'withdrawals.read',
+      },
+      {
+        key: '/coin-bags',
+        label: 'Coin bags',
+        icon: <ShoppingOutlined />,
+        permission: 'coinBags.read',
       },
       { key: '/agents', label: 'Agents', icon: <ShopOutlined />, permission: 'agents.manage' },
       {

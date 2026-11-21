@@ -54,6 +54,7 @@ const END_REASONS: Record<string, string> = {
   banned: 'Host banned',
   moderation: 'Content moderation',
   moderator: 'Ended by a moderator',
+  camera_off: 'Camera off too long',
 };
 
 const count = (n: number | null | undefined) => (n === null || n === undefined ? '—' : num(n));

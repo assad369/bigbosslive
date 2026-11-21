@@ -285,6 +285,55 @@ describe('room gifts', () => {
       .set('Idempotency-Key', k)
       .send({ giftId, quantity: 2, receiverIds: [receiver], roomId });
 
+  it("ranks the profile's top supporters for the current live only", async () => {
+    const { sender, host, roomId } = await liveRoom(50_000);
+    const other = await h.user(`s-other-${n}`, { wallet: { diamonds: 50_000 } });
+    const offRoom = await h.user(`s-off-${n}`, { wallet: { diamonds: 50_000 } });
+    // A gift outside any room before and during the live does not count.
+    await h.api
+      .post('/v1/gifts/send')
+      .set(h.as(offRoom._id))
+      .set('Idempotency-Key', key())
+      .send({ giftId, quantity: 6, receiverIds: [host] });
+    expect((await send(sender, host, roomId)).status).toBe(200);
+    expect((await send(other._id, host, roomId)).status).toBe(200);
+    expect((await send(other._id, host, roomId)).status).toBe(200);
+
+    const list = () => h.api.get(`/v1/users/${host}/contributors`).set(h.as(sender));
+    const during = await list();
+    expect(during.status).toBe(200);
+    expect(during.body.live).toBe(true);
+    expect(
+      during.body.items.map((i: { user: { id: string }; diamonds: number }) => [
+        i.user.id,
+        i.diamonds,
+      ]),
+    ).toEqual([
+      [other._id, 2000],
+      [sender, 1000],
+    ]);
+
+    // The older windows still answer when asked for explicitly.
+    const week = await h.api.get(`/v1/users/${host}/contributors?period=week`).set(h.as(sender));
+    expect(week.body.items[0]).toMatchObject({ user: { id: offRoom._id }, diamonds: 3000 });
+
+    // It resets when the live ends, and the next live starts at zero.
+    await h.ctx.services.live.end(new ObjectId(roomId), 'host', host);
+    expect((await list()).body).toEqual({ live: false, items: [] });
+    h.clock.advance(60);
+    const { room: next } = await h.ctx.services.live.start(host, {
+      type: 'video',
+      title: 'Again',
+      coverUrl: null,
+      tags: [],
+    });
+    expect((await list()).body).toEqual({ live: true, items: [] });
+    expect((await send(sender, host, next.id)).status).toBe(200);
+    expect((await list()).body.items).toEqual([
+      expect.objectContaining({ user: expect.objectContaining({ id: sender }), diamonds: 1000 }),
+    ]);
+  });
+
   it('saves one chat message per gift and sends it inside bb.gift', async () => {
     const { sender, host, roomId, oid } = await liveRoom(5000);
     const k = key();

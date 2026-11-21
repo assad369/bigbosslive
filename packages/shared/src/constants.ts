@@ -88,8 +88,16 @@ export const LEDGER_REASONS = [
   'admin_adjustment',
   // One-off: a legacy bean balance folded into diamonds (2026-11 single-currency migration).
   'currency_merge',
+  /** Coin bags: diamonds put into a bag, a share grabbed from one, unclaimed shares back. */
+  'coin_bag_release',
+  'coin_bag_grab',
+  'coin_bag_refund',
 ] as const;
 export type LedgerReason = (typeof LEDGER_REASONS)[number];
+
+/** Coin bags: diamonds a user drops into a live, split at random among those who grab. */
+export const COIN_BAG_STATUSES = ['active', 'finished', 'expired', 'cancelled'] as const;
+export type CoinBagStatus = (typeof COIN_BAG_STATUSES)[number];
 
 export const PK_STATUSES = [
   'pending',
@@ -309,6 +317,12 @@ export const SOCKET = {
      * (shown as a banner in live rooms): `GiftAnnouncement`.
      */
     giftAnnouncement: 'gift:announcement',
+    /** Coin bags, to every app socket: `{ bag: CoinBagSummary, serverNow }`. */
+    coinBagReleased: 'coinbag:released',
+    /** `{ bagId, grabbedCount, serverNow }`, at most about once a second per bag. */
+    coinBagUpdated: 'coinbag:updated',
+    /** `{ bagId, status, serverNow }`. */
+    coinBagClosed: 'coinbag:closed',
   },
 } as const;
 

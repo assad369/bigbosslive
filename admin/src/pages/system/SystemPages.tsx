@@ -73,6 +73,15 @@ const LABELS: Record<string, string> = {
   stealthEnabled: 'Platform moderators join lives hidden',
   selfStageEnabled: 'Platform moderators take a seat without approval',
   banRateLimitPerHour: 'Bans one platform moderator may issue per hour',
+  coinBagsEnabled: 'Coin bags in lives (rules: Coin bags below)',
+  agencyCameraOffEndSec: "End an agency host's video live after the camera is off (s); 0 = never",
+  amountOptions: 'Bag amounts (diamonds)',
+  shareOptions: 'Share counts (people per bag)',
+  feeRate: 'Platform fee (0.1 = 10%, never refunded)',
+  minShare: 'Smallest share (diamonds)',
+  countdownSec: 'Countdown before grabbing (s)',
+  grabWindowSec: 'Grab window (s); unclaimed shares go back to the releaser',
+  maxActiveGlobal: 'Bags running at once (whole platform)',
 };
 
 const SECTIONS: { key: string; title: string; help: string }[] = [
@@ -88,6 +97,11 @@ const SECTIONS: { key: string; title: string; help: string }[] = [
     key: 'youtube',
     title: 'YouTube music',
     help: 'Rules for songs hosts play in a live. Turn it on with Features → YouTube music.',
+  },
+  {
+    key: 'coinBags',
+    title: 'Coin bags',
+    help: 'Viewers drop diamonds into a live; people in that room (and hosts of other lives) grab random shares. Turn it on with Features → Coin bags. Releasing and grabbing never move levels.',
   },
   {
     key: 'moderation',

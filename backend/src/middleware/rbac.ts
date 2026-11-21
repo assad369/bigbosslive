@@ -31,6 +31,9 @@ export const PERMISSIONS = {
   /** Block or unblock a user from AsadSoft games. */
   'games.block': ['moderator', 'admin'],
   'config.manage': ['admin'],
+  /** Coin bags: read every bag and its grabs; cancel one (refunds the releaser). */
+  'coinBags.read': ['support', 'moderator', 'finance', 'admin'],
+  'coinBags.manage': ['finance', 'admin'],
   'audit.read': ['admin'],
   /** Grant and revoke the in-app platform moderator role. */
   'moderators.manage': ['admin'],

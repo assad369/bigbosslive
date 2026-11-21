@@ -32,9 +32,13 @@ export function jobHandlers(ctx: Ctx): JobHandlers {
  */
 export const TICKS: { name: string; everyMs: number; run: (ctx: Ctx) => Promise<unknown> }[] = [
   { name: 'pk.sweep', everyMs: 2_000, run: (ctx) => ctx.services.pk.sweep() },
+  // Coin bags past their window, in an ended live, or fully grabbed: close and refund.
+  { name: 'coinBags.sweep', everyMs: 5_000, run: (ctx) => ctx.services.coinBags.sweep() },
   // Songs that ended while every player was hidden; deadlines are `youtube.current.endsAt`.
   { name: 'youtube.sweep', everyMs: 2_000, run: (ctx) => ctx.services.youtube.sweep() },
   { name: 'live.sweep', everyMs: 30_000, run: (ctx) => ctx.services.live.sweepStale() },
+  // Agency hosts' cameras, read from the SFU (`live.agencyCameraOffEndSec`).
+  { name: 'live.camera', everyMs: 15_000, run: (ctx) => ctx.services.live.sweepCameraOff() },
   // Expired tier packages come off first, so decorations worn through that tier follow.
   {
     name: 'store.sweep',

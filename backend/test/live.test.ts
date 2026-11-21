@@ -331,6 +331,7 @@ describe('live rooms', () => {
       uid: 'viewer',
       count: 3,
       items: [{ type: 'love', count: 3 }],
+      user: expect.objectContaining({ uid: 'viewer' }),
     });
     const limited = await h.api
       .post(`/v1/live/${roomId}/reactions`)
@@ -361,6 +362,8 @@ describe('live rooms', () => {
         { type: 'fire', count: 2 },
         { type: 'haha', count: 1 },
       ],
+      // Who sent them, for the app's "sent 🔥" chat row.
+      user: expect.objectContaining({ uid: 'emoji-fan', role: 'audience' }),
     });
     const room = await h.ctx.col.liveRooms.findOne({ _id: new ObjectId(roomId) });
     expect(room!.reactions).toBe(before + 3);

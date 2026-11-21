@@ -42,6 +42,8 @@ export const CONFIG_SCHEMAS = {
     adsEnabled: z.boolean().default(false),
     /** Hosts and room admins play YouTube songs in a live (needs YOUTUBE_API_KEY). */
     youtubeEnabled: z.boolean().default(false),
+    /** Viewers drop coin bags into lives (rules: the `coinBags` key). Off stops new bags only. */
+    coinBagsEnabled: z.boolean().default(false),
   }),
   app: z.object({
     minSupportedBuild: z
@@ -66,6 +68,11 @@ export const CONFIG_SCHEMAS = {
     followerPushOnGoLive: z.boolean().default(true),
     /** Gifts worth at least this many diamonds are announced in every live room (0 = all). */
     giftBannerMinDiamonds: z.number().int().min(0).max(100_000_000).default(0),
+    /**
+     * A video live whose host is an agency member ends once their camera has been off this
+     * long (checked on the SFU, so a modified app can't hide it). 0 turns the rule off.
+     */
+    agencyCameraOffEndSec: z.number().int().min(0).max(3600).default(300),
   }),
   moderation: z.object({
     /** Extra words masked in chat, comments, posts and profile text (case-insensitive). */
@@ -111,6 +118,39 @@ export const CONFIG_SCHEMAS = {
     /** List games the player's level doesn't reach yet, with a lock (else hide them). */
     showLocked: z.boolean().default(true),
   }),
+  /** Coin bags (`features.coinBagsEnabled`). The app reads them from `/coin-bags/config`. */
+  coinBags: z
+    .object({
+      /** Diamonds a bag can hold (the releaser picks one). */
+      amountOptions: z
+        .array(z.number().int().min(100).max(100_000_000))
+        .min(1)
+        .max(8)
+        .default([10_000, 50_000, 100_000, 500_000]),
+      /** How many people a bag can be split between. */
+      shareOptions: z.array(z.number().int().min(1).max(500)).min(1).max(8).default([10, 20, 50]),
+      /** Kept by the platform on release, never refunded. */
+      feeRate: z.number().min(0).max(0.5).default(0.1),
+      /** The smallest share, in diamonds. */
+      minShare: z.number().int().min(1).max(1_000_000).default(1),
+      /** Countdown before a bag can be grabbed. */
+      countdownSec: z.number().int().min(10).max(300).default(30),
+      /** How long it can be grabbed; unclaimed shares then go back to the releaser. */
+      grabWindowSec: z.number().int().min(30).max(1800).default(180),
+      /** Bags running at once across the platform. */
+      maxActiveGlobal: z.number().int().min(1).max(500).default(20),
+    })
+    .superRefine((v, c) => {
+      const pool =
+        Math.min(...v.amountOptions) - Math.floor(Math.min(...v.amountOptions) * v.feeRate);
+      if (pool < Math.max(...v.shareOptions) * v.minShare)
+        c.addIssue({
+          code: 'custom',
+          path: ['amountOptions'],
+          message:
+            'The smallest amount, after the fee, must cover the most shares × the smallest share',
+        });
+    }),
   /** YouTube music in lives (`features.youtubeEnabled`). Private: never sent to the app. */
   youtube: z.object({
     /** YouTube's own filter for search results. */

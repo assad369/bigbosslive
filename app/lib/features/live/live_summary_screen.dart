@@ -166,6 +166,7 @@ class _Header extends StatelessWidget {
     'moderation' => 'Ended by content moderation',
     'banned' => 'Ended because the account was banned',
     'stale' || 'webhook' => 'Ended after the connection was lost',
+    'camera_off' => 'Ended because the camera was off too long',
     _ => null,
   };
 

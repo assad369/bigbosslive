@@ -216,6 +216,45 @@ class _LiveChatListState extends State<LiveChatList> {
   }
 }
 
+/// "sent ❤️×3 👍": a reaction row's body, in the join line's style.
+class _ReactionContent extends StatelessWidget {
+  const _ReactionContent(this.reactions);
+  final Map<LiveReaction, int> reactions;
+
+  @override
+  Widget build(BuildContext context) {
+    final emoji = [
+      for (final MapEntry(key: type, value: n) in reactions.entries)
+        n > 1 ? '${type.emoji}×$n' : type.emoji,
+    ].join(' ');
+    return Semantics(
+      label:
+          'sent ${[for (final MapEntry(key: t, value: n) in reactions.entries) '$n ${t.label}'].join(', ')}',
+      excludeSemantics: true,
+      child: Text.rich(
+        TextSpan(
+          children: [
+            const TextSpan(
+              text: 'sent ',
+              style: TextStyle(color: BBColors.champagne, fontSize: 12),
+            ),
+            TextSpan(
+              text: emoji,
+              style: const TextStyle(
+                color: BBColors.ivory,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+}
+
 class ChatBubble extends StatelessWidget {
   const ChatBubble({
     super.key,
@@ -309,6 +348,7 @@ class ChatBubble extends StatelessWidget {
         style: TextStyle(color: BBColors.champagne, fontSize: 12),
       ),
       ChatKind.gift => _GiftContent(line: line),
+      ChatKind.reaction => _ReactionContent(line.reactions),
       _ => Text(
         line.text,
         maxLines: 4,

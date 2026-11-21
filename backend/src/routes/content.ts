@@ -41,12 +41,13 @@ export function contentRoutes(ctx: Ctx): Router {
 
   /** Unauthenticated: the app reads this before sign-in (maintenance, force-update). */
   r.get('/config/app', async (_req, res) => {
-    const [app, features, pk, games, economy] = await Promise.all([
+    const [app, features, pk, games, economy, live] = await Promise.all([
       config.get('app'),
       config.get('features'),
       config.get('pk'),
       config.get('games'),
       config.get('economy'),
+      config.get('live'),
     ]);
     res.set('Cache-Control', 'public, max-age=60');
     res.json({
@@ -56,6 +57,8 @@ export function contentRoutes(ctx: Ctx): Router {
       pk: { durationsSec: pk.durationsSec },
       // The gift panel's "Everyone" takes at most this many people.
       gifts: { maxReceivers: economy.maxGiftReceivers },
+      // An agency host's video live ends after this long with the camera off (0 = never).
+      live: { agencyCameraOffEndSec: live.agencyCameraOffEndSec },
       livekitUrl: ctx.livekit.url,
     });
   });

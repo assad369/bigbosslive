@@ -776,6 +776,107 @@ void main() {
       });
     });
 
+    group('reaction chat rows', () {
+      Map<String, dynamic> packet(
+        String uid,
+        Map<String, int> items, {
+        bool named = true,
+      }) => {
+        'uid': uid,
+        'count': items.values.fold(0, (a, b) => a + b),
+        'items': [
+          for (final e in items.entries) {'type': e.key, 'count': e.value},
+        ],
+        if (named) 'user': _brief(uid),
+      };
+
+      test(
+        'a burst from one sender is one row; another sender starts a new one',
+        () {
+          final c = _controller();
+          c
+            ..handleServerPacket('bb.reaction', packet('v', {'love': 2}))
+            ..handleServerPacket(
+              'bb.reaction',
+              packet('v', {'love': 1, 'fire': 1}),
+            );
+          final rows = c.chat
+              .where((l) => l.kind == ChatKind.reaction)
+              .toList();
+          expect(rows, hasLength(1));
+          expect(rows.single.user?.id, 'v');
+          expect(rows.single.reactions, {
+            LiveReaction.love: 3,
+            LiveReaction.fire: 1,
+          });
+          expect(rows.single.isMessage, isFalse);
+
+          c.handleServerPacket('bb.reaction', packet('w', {'like': 1}));
+          c.handleServerPacket('bb.reaction', packet('v', {'love': 1}));
+          expect(
+            c.chat
+                .where((l) => l.kind == ChatKind.reaction)
+                .map((l) => l.user?.id),
+            ['v', 'w', 'v'],
+          );
+        },
+      );
+
+      test(
+        'no row for a packet that names nobody, and it does not rebuild',
+        () {
+          final c = _controller();
+          var notified = 0;
+          c.addListener(() => notified++);
+          c.handleServerPacket(
+            'bb.reaction',
+            packet('v', {'love': 1}, named: false),
+          );
+          expect(c.chat.where((l) => l.kind == ChatKind.reaction), isEmpty);
+          expect(notified, 0);
+          c.handleServerPacket('bb.reaction', packet('v', {'love': 1}));
+          expect(notified, 1);
+        },
+      );
+
+      test('my own taps write my row at once', () {
+        final c = LiveRoomController(
+          roomId: 'r1',
+          myUid: 'me',
+          repo: _FakeRepo(),
+          me: UserBrief.fromJson(_brief('me')),
+        )..detail = RoomDetail.fromJson(_roomJson());
+        c
+          ..react(LiveReaction.fire)
+          ..react(LiveReaction.fire)
+          ..react();
+        final rows = c.chat.where((l) => l.kind == ChatKind.reaction).toList();
+        expect(rows, hasLength(1));
+        expect(rows.single.user?.id, 'me');
+        expect(rows.single.reactions, {
+          LiveReaction.fire: 2,
+          LiveReaction.love: 1,
+        });
+        c.dispose();
+      });
+    });
+
+    test('a camera-off warning sets the deadline and a notice', () async {
+      final c = _controller(me: 'host');
+      final notices = <String>[];
+      final sub = c.notices.listen(notices.add);
+      c.handleServerPacket('bb.system', {
+        'kind': 'camera_off_warning',
+        'endsInSec': 240,
+        'limitSec': 300,
+      });
+      await Future<void>.delayed(Duration.zero);
+      final left = c.cameraOffEndsAt!.difference(DateTime.now()).inSeconds;
+      expect(left, inInclusiveRange(238, 240));
+      expect(notices.single, contains('4 minutes'));
+      await sub.cancel();
+    });
+
     test('stream-only events do not rebuild the room', () {
       final c = _controller();
       var notified = 0;

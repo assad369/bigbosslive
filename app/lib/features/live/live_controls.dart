@@ -10,6 +10,7 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/wallet_balance.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../coin_bag/coin_bag_widgets.dart';
 import '../profile/profile_screens.dart';
 import 'camera_filter_channel.dart';
 import 'live_room_controller.dart';
@@ -383,7 +384,7 @@ class _FollowPillState extends ConsumerState<_FollowPill> {
   }
 }
 
-/// The full-width card under the header's first row: 💎 diamonds received today, viewers (tap
+/// The full-width card under the header's first row: 💎 the host's diamond balance, viewers (tap
 /// for the list), the lock state, and the host's ID at the end. Scales down rather than
 /// overflow on a narrow phone.
 class _StatsCard extends ConsumerWidget {
@@ -396,10 +397,9 @@ class _StatsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final room = c.detail!.room;
-    // Diamonds the host received from gifts today (seat 0, pushed on every gift to them).
-    // It starts over at the server's midnight; the wallet itself is on the profile.
-    final today = c.hostTodayDiamonds;
-    final stars = starsFor(today, ref.watch(diamondsPerStarProvider));
+    // The host's wallet balance (seat 0), pushed in `bb.seats` balances whenever it moves.
+    final balance = c.hostDiamonds;
+    final stars = starsFor(balance, ref.watch(diamondsPerStarProvider));
     const figure = TextStyle(
       color: BBColors.ivory,
       fontSize: 15,
@@ -448,8 +448,8 @@ class _StatsCard extends ConsumerWidget {
                   children: [
                     stat(
                       const Text('💎', style: TextStyle(fontSize: 15)),
-                      Fmt.diamonds(today),
-                      'Host diamonds received today',
+                      Fmt.diamonds(balance),
+                      'Host diamond balance',
                     ),
                     stat(
                       const Icon(
@@ -458,7 +458,7 @@ class _StatsCard extends ConsumerWidget {
                         color: BBColors.gold,
                       ),
                       Fmt.full(stars),
-                      'Host stars today',
+                      'Host stars',
                     ),
                     stat(
                       const Icon(
@@ -775,6 +775,8 @@ class _LiveSideRailState extends ConsumerState<LiveSideRail> {
         ((config?.feature('youtubeEnabled') ?? false) ||
             c.youtube?.current != null);
     final controls = <Widget>[
+      // Hidden while coin bags are switched off.
+      CoinBagRailButton(c: c),
       // `gamesInLive` is off when games or live-room games are switched off.
       if ((config?.feature('gamesEnabled') ?? true) &&
           (config?.feature('gamesInLive') ?? true))
@@ -1081,4 +1083,102 @@ class _ChatField extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// "Camera off · your live ends in 3:42" with a Turn on button: an agency host in a video
+/// live whose camera the server has seen off. Counts down on the device clock.
+class CameraOffBanner extends StatefulWidget {
+  const CameraOffBanner({
+    super.key,
+    required this.endsAt,
+    required this.onTurnOn,
+  });
+  final DateTime endsAt;
+  final Future<void> Function() onTurnOn;
+
+  @override
+  State<CameraOffBanner> createState() => _CameraOffBannerState();
+}
+
+class _CameraOffBannerState extends State<CameraOffBanner> {
+  Timer? _tick;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _turnOn() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onTurnOn();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final left = widget.endsAt.difference(DateTime.now());
+    final secs = left.isNegative ? 0 : left.inSeconds;
+    final clock = '${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}';
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+        padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+        decoration: BoxDecoration(
+          color: BBColors.scrim,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: BBColors.liveRed),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.videocam_off_rounded,
+              size: 18,
+              color: BBColors.liveRed,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Camera off · your live ends in $clock',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: BBColors.ivory,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            TextButton(
+              onPressed: _busy ? null : _turnOn,
+              style: TextButton.styleFrom(
+                foregroundColor: BBColors.onAccent,
+                backgroundColor: BBColors.liveRed,
+                minimumSize: const Size(0, 32),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                shape: const StadiumBorder(),
+              ),
+              child: const Text('Turn on'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

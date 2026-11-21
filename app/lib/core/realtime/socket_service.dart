@@ -36,6 +36,10 @@ class SocketService {
     'rooms:ended',
     // Gifts announced to every live room (the banner).
     'gift:announcement',
+    // Coin bags, to everyone (`SOCKET.app.coinBag*`).
+    'coinbag:released',
+    'coinbag:updated',
+    'coinbag:closed',
   ];
 
   void connect() {

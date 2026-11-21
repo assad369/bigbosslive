@@ -410,7 +410,7 @@ class StageTile extends StatelessWidget {
               bottom: 4,
               child: StageNamePlate(
                 user: user,
-                diamonds: seat.todayDiamonds,
+                diamonds: seat.diamonds,
                 isHost: role == RoomRole.host,
                 compact: compact,
               ),
@@ -664,7 +664,7 @@ const stagePlateShadows = [
   Shadow(color: BBColors.plateShadow, blurRadius: 1, offset: Offset(0, 0.5)),
 ];
 
-/// "💎 12345" (diamonds received today) under a stage tile's name or an audio seat. [plain]
+/// "💎 12345" (the user's diamond balance) under a stage tile's name or an audio seat. [plain]
 /// drops the chip's own background, for use on a surface that already has one.
 class DiamondChip extends StatelessWidget {
   const DiamondChip(
@@ -718,7 +718,7 @@ class DiamondChip extends StatelessWidget {
       ],
     );
     return Semantics(
-      label: '${Fmt.diamonds(diamonds)} diamonds today',
+      label: '${Fmt.diamonds(diamonds)} diamonds',
       excludeSemantics: true,
       child: plain
           ? content
@@ -921,7 +921,7 @@ class SeatGrid extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 2),
-                  DiamondChip(s.todayDiamonds, compact: true),
+                  DiamondChip(s.diamonds, compact: true),
                 ],
               ],
             ),

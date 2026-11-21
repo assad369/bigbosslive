@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../core/network/api_client.dart';
 import '../core/utils/json.dart';
+import '../features/coin_bag/coin_bag_models.dart';
 import '../models/models.dart';
 
 /// Typed wrappers over the REST API, one per domain. Screens never touch [ApiClient] directly.
@@ -82,17 +83,27 @@ class AccountRepository {
     },
   );
 
-  Future<List<({UserBrief? user, int diamonds})>> contributors(
-    String uid,
-  ) async => (await _api.get('/users/$uid/contributors')).list(
-    'items',
-    (j) => (
-      user: j.objOrNull('user') == null
-          ? null
-          : UserBrief.fromJson(j.obj('user')),
-      diamonds: j.integer('diamonds'),
-    ),
-  );
+  /// The profile's "Top supporters": gifters of [uid]'s current live, ranked. `live` is
+  /// false (and the list empty) while they are not live; the list resets when a live ends.
+  Future<({bool live, List<({UserBrief? user, int diamonds})> items})>
+  liveSupporters(String uid) async {
+    final j = await _api.get(
+      '/users/$uid/contributors',
+      query: {'period': 'live'},
+    );
+    return (
+      live: j['live'] == true,
+      items: j.list(
+        'items',
+        (i) => (
+          user: i.objOrNull('user') == null
+              ? null
+              : UserBrief.fromJson(i.obj('user')),
+          diamonds: i.integer('diamonds'),
+        ),
+      ),
+    );
+  }
 }
 
 String _mime(String path) {
@@ -853,4 +864,66 @@ class ModerationRepository {
   /// End someone's live for everyone in it.
   Future<void> endLive(String roomId) =>
       _api.post('/moderator/live/$roomId/end');
+}
+
+/// Coin bags in lives (`/coin-bags`).
+class CoinBagRepository {
+  CoinBagRepository(this._api);
+  final ApiClient _api;
+
+  /// The release options, whether I may release, and the server's clock.
+  Future<({CoinBagConfig config, String? serverNow})> config() async {
+    final j = await _api.get('/coin-bags/config');
+    return (
+      config: CoinBagConfig.fromJson(j),
+      serverNow: j.strOrNull('serverNow'),
+    );
+  }
+
+  /// Running bags (newest first) and what I already grabbed from them.
+  Future<({List<CoinBag> bags, Map<String, int> grabbed, String? serverNow})>
+  active() async {
+    final j = await _api.get('/coin-bags/active');
+    final grabbed = j.obj('grabbed');
+    return (
+      bags: [
+        for (final b in (j['items'] as List?) ?? const []) ?CoinBag.tryParse(b),
+      ],
+      grabbed: {
+        for (final e in grabbed.entries)
+          if (e.value is num) e.key: (e.value as num).toInt(),
+      },
+      serverNow: j.strOrNull('serverNow'),
+    );
+  }
+
+  /// Puts [amount] diamonds into a bag in [roomId], split into [shareCount] shares. Keyed:
+  /// a retry with the same [idempotencyKey] returns the same bag and charges once.
+  Future<({CoinBag bag, int balance})> release({
+    required String roomId,
+    required int amount,
+    required int shareCount,
+    required String idempotencyKey,
+  }) async {
+    final j = await _api.post(
+      '/coin-bags',
+      idempotent: true,
+      idempotencyKey: idempotencyKey,
+      body: {'roomId': roomId, 'amount': amount, 'shareCount': shareCount},
+    );
+    final bag = CoinBag.tryParse(j['bag']);
+    if (bag == null) throw const FormatException('Malformed coin bag');
+    return (bag: bag, balance: j.integer('balance'));
+  }
+
+  /// One share, once: a repeat returns the share I already have (`duplicate`).
+  Future<CoinBagGrab> grab(String bagId) async {
+    final j = await _api.post('/coin-bags/$bagId/grab');
+    return (
+      amount: j.integer('amount'),
+      remote: j.flag('remote'),
+      balance: j.integer('balance'),
+      duplicate: j.flag('duplicate'),
+    );
+  }
 }

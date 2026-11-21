@@ -3,6 +3,7 @@ import {
   DataPacket_Kind,
   ParticipantInfo_State,
   RoomServiceClient,
+  TrackSource,
   TrackType,
   WebhookReceiver,
   type WebhookEvent,
@@ -54,6 +55,12 @@ export interface LiveKitGateway {
     kind: 'audio' | 'video',
     muted: boolean,
   ): Promise<void>;
+  /**
+   * Whether a participant's camera is publishing right now: `on` with an unmuted camera
+   * track, `off` when connected without one (never published, unpublished or muted), and
+   * `absent` when not connected. Throws when LiveKit can't answer.
+   */
+  cameraState(room: string, identity: string): Promise<'on' | 'off' | 'absent'>;
   deleteRoom(room: string): Promise<void>;
   /** Server-side SFU forwarding of a host's tracks into another room (PK battles). */
   forwardParticipant(sourceRoom: string, identity: string, destinationRoom: string): Promise<void>;
@@ -123,6 +130,21 @@ export function createLiveKitGateway(env: Env): LiveKitGateway {
           .filter((t) => t.type === type && t.muted !== muted)
           .map((t) => rooms.mutePublishedTrack(room, identity, t.sid, muted)),
       );
+    },
+    async cameraState(room, identity) {
+      let participant;
+      try {
+        participant = await rooms.getParticipant(room, identity);
+      } catch (err) {
+        // A participant (or room) LiveKit doesn't know is a 404; anything else is an outage.
+        if ((err as { status?: number }).status === 404) return 'absent';
+        throw err;
+      }
+      if (participant.state === ParticipantInfo_State.DISCONNECTED) return 'absent';
+      const camera = participant.tracks.some(
+        (t) => t.type === TrackType.VIDEO && t.source !== TrackSource.SCREEN_SHARE && !t.muted,
+      );
+      return camera ? 'on' : 'off';
     },
     async deleteRoom(room) {
       await rooms.deleteRoom(room);

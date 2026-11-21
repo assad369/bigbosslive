@@ -48,6 +48,9 @@ const GamesPage = lazy(() =>
 const engagement = () => import('./pages/engagement/EngagementPages');
 const AnnouncementsPage = lazy(() => engagement().then((m) => ({ default: m.AnnouncementsPage })));
 const BannersPage = lazy(() => engagement().then((m) => ({ default: m.BannersPage })));
+const CoinBagsPage = lazy(() =>
+  import('./pages/coin-bags/CoinBagsPage').then((m) => ({ default: m.CoinBagsPage })),
+);
 const system = () => import('./pages/system/SystemPages');
 const SettingsPage = lazy(() => system().then((m) => ({ default: m.SettingsPage })));
 const AdminsPage = lazy(() => system().then((m) => ({ default: m.AdminsPage })));
@@ -88,6 +91,7 @@ const routes: { path: string; permission: string; element: ReactNode }[] = [
   { path: '/recharges', permission: 'wallet.read', element: <RechargesPage /> },
   { path: '/gift-transactions', permission: 'wallet.read', element: <GiftTransactionsPage /> },
   { path: '/withdrawals', permission: 'withdrawals.read', element: <WithdrawalsPage /> },
+  { path: '/coin-bags', permission: 'coinBags.read', element: <CoinBagsPage /> },
   { path: '/agencies', permission: 'agencies.manage', element: <AgenciesPage /> },
   { path: '/agencies/:id', permission: 'agencies.manage', element: <AgencyDetailPage /> },
   { path: '/gifts', permission: 'catalog.manage', element: <GiftsPage /> },

@@ -12,6 +12,7 @@ import {
   GAME_ID_PATTERN,
   MAX_COSMETICS_PER_BATCH,
   MAX_GRANT_DAYS,
+  COIN_BAG_STATUSES,
   MAX_LEVEL,
   MAX_VIP_TIER,
   REPORT_STATUSES,
@@ -618,6 +619,39 @@ export function adminRoutes(ctx: Ctx): Router {
     await s.pk.end(oid(req), 'admin');
     await audit(req, 'pk.end', 'pk', parseParams(req, idParams).id);
     res.status(204).end();
+  });
+
+  // ── Coin bags ─────────────────────────────────────────────────────────────────
+  r.get('/coin-bags', can('coinBags.read'), async (req, res) => {
+    const q = parseQuery(
+      req,
+      pageQuery.extend({
+        status: z.enum(COIN_BAG_STATUSES).optional(),
+        uid: z.string().trim().optional(),
+      }),
+    );
+    res.json(
+      await s.coinBags.adminList(
+        { status: q.status, uid: await uidOf(q.uid || undefined) },
+        q.page,
+        q.pageSize,
+      ),
+    );
+  });
+
+  r.get('/coin-bags/:id/grabs', can('coinBags.read'), async (req, res) => {
+    res.json(await s.coinBags.adminGrabs(oid(req)));
+  });
+
+  r.post('/coin-bags/:id/cancel', can('coinBags.manage'), async (req, res) => {
+    const { reason } = parseBody(req, z.object({ reason: z.string().trim().min(3).max(200) }));
+    const bag = await s.coinBags.cancel(oid(req), currentUser(req).uid, reason);
+    await audit(req, 'coin_bag.cancel', 'coin_bag', String(bag._id), {
+      reason,
+      releaserId: bag.releaserId,
+      refunded: bag.refundedAmount,
+    });
+    res.json({ status: bag.status, refunded: bag.refundedAmount });
   });
 
   // ── Gifts & economy catalog ─────────────────────────────────────────────────────

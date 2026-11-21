@@ -284,6 +284,27 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   sightguardEvents: [{ key: { receivedAt: 1 }, expireAfterSeconds: 7 * 86400 }],
   // YouTube searches and lookups expire on their own.
   youtubeCache: [{ key: { expiresAt: 1 }, expireAfterSeconds: 0 }],
+  coinBags: [
+    // One running bag per releaser: `activeSlot` is unset when a bag closes.
+    { key: { releaserId: 1 }, unique: true, partialFilterExpression: { activeSlot: true } },
+    { key: { status: 1, expiresAt: 1 } },
+    { key: { roomId: 1, status: 1 } },
+    { key: { releaserId: 1, createdAt: -1 } },
+    { key: { createdAt: -1, _id: -1 } },
+  ],
+  coinBagShares: [
+    { key: { bagId: 1, idx: 1 }, unique: true },
+    // One grab per user per bag.
+    {
+      key: { bagId: 1, claimedBy: 1 },
+      unique: true,
+      partialFilterExpression: { claimedBy: { $type: 'string' } },
+    },
+    {
+      key: { claimedBy: 1, claimedAt: -1 },
+      partialFilterExpression: { claimedBy: { $type: 'string' } },
+    },
+  ],
   auditLogs: [
     { key: { createdAt: -1 } },
     { key: { adminId: 1, createdAt: -1 } },

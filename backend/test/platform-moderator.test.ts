@@ -382,6 +382,16 @@ describe('stealth and self-stage', () => {
       .send({ type: 'text', text: 'Please keep it friendly' });
     expect(chat.body.message.mod).toBe(true);
 
+    // Their reactions float but never name them (no "sent ❤️" chat row).
+    await h.api
+      .post(`/v1/live/${roomId}/reactions`)
+      .set(h.as('mod'))
+      .send({ items: [{ type: 'love', count: 1 }] })
+      .expect(204);
+    const reaction = h.livekit.topics('bb.reaction').at(-1)!.payload as Record<string, unknown>;
+    expect(reaction).toMatchObject({ uid: 'mod', count: 1 });
+    expect(reaction).not.toHaveProperty('user');
+
     // Self-stage: visible on a seat, hidden again after.
     const on = await h.api
       .post(`/v1/live/${roomId}/platform-moderator/stage`)

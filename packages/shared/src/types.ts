@@ -1,5 +1,6 @@
 import type {
   AdminRole,
+  CoinBagStatus,
   AgencyAuditAction,
   AgencyRole,
   AnimationFormat,
@@ -802,7 +803,9 @@ export type LiveEndReason =
   | 'banned'
   | 'moderation'
   /** Ended by a platform moderator from the app. */
-  | 'moderator';
+  | 'moderator'
+  /** An agency host's camera stayed off too long in a video live (`live.agencyCameraOffEndSec`). */
+  | 'camera_off';
 
 /** One ended live in a host's broadcasting history. */
 export interface LiveHistoryItem {
@@ -880,4 +883,24 @@ export interface LiveSummary {
       diamonds: number;
     }[];
   };
+}
+
+/** The public shape of a coin bag. Never carries the share amounts. */
+export interface CoinBagSummary {
+  id: string;
+  releaser: UserBrief | null;
+  roomId: string;
+  host: UserBrief | null;
+  /** Diamonds the releaser paid. */
+  amount: number;
+  /** What grabbers share (`amount` less the platform fee). */
+  pool: number;
+  shareCount: number;
+  grabbedCount: number;
+  status: CoinBagStatus;
+  createdAt: string;
+  /** Grabbing starts here (after the countdown)… */
+  opensAt: string;
+  /** …and ends here; unclaimed shares go back to the releaser. */
+  expiresAt: string;
 }

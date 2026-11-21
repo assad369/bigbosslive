@@ -1,5 +1,6 @@
 import type { ObjectId } from 'mongodb';
 import type {
+  CoinBagStatus,
   AdminRole,
   AgencyAuditAction,
   AgencyRole,
@@ -230,6 +231,13 @@ export interface LiveRoomDoc {
   reactions?: number;
   /** Set once by `LiveSummaryService` after the settle window; null/absent until then. */
   summary?: LiveSummaryDoc | null;
+  /**
+   * When the SFU first saw an agency host's camera off (`LiveService.sweepCameraOff`);
+   * cleared when it is back on. Absent on rooms the rule doesn't watch.
+   */
+  cameraOffSince?: Date | null;
+  /** The host was warned that the live is about to end for it (once per camera-off spell). */
+  cameraOffWarnedAt?: Date | null;
 }
 
 /** One row per (room, viewer): dedupes `live_rooms.uniqueViewers`. Expires after 90 days. */
@@ -928,4 +936,59 @@ export interface YoutubeCacheDoc {
 export interface MigrationDoc {
   _id: string;
   appliedAt: Date;
+}
+
+/** Why a coin bag closed. */
+export type CoinBagCloseReason = 'finished' | 'expired' | 'room_ended' | 'cancelled';
+
+/**
+ * Diamonds a user put into a live, split into `shareCount` random shares (`coin_bag_shares`,
+ * priced once at release). Written only by `CoinBagsService`.
+ */
+export interface CoinBagDoc {
+  _id: ObjectId;
+  releaserId: string;
+  roomId: ObjectId;
+  hostId: string;
+  /** Paid by the releaser. */
+  amount: number;
+  /** Kept by the platform, never refunded. */
+  fee: number;
+  feeRate: number;
+  /** `amount − fee`: the sum of the shares. */
+  pool: number;
+  shareCount: number;
+  minShare: number;
+  grabbedCount: number;
+  grabbedAmount: number;
+  refundedAmount: number;
+  status: CoinBagStatus;
+  /**
+   * `true` while active, unset on close: the partial unique index on it allows one running
+   * bag per releaser.
+   */
+  activeSlot?: true;
+  createdAt: Date;
+  opensAt: Date;
+  expiresAt: Date;
+  closedAt: Date | null;
+  closeReason: CoinBagCloseReason | null;
+  /** Refund owed to a releaser whose account is gone. */
+  refundOrphaned?: number;
+  cancelledBy?: string | null;
+  cancelReason?: string | null;
+}
+
+/** One share of a coin bag. `claimedBy` is unique per bag (one grab per user). */
+export interface CoinBagShareDoc {
+  _id: ObjectId;
+  bagId: ObjectId;
+  idx: number;
+  amount: number;
+  claimedBy: string | null;
+  claimedAt: Date | null;
+  /** Grabbed by the host of another live, from their own room. */
+  remote: boolean;
+  /** Returned to the releaser when the bag closed unclaimed. */
+  refundedAt: Date | null;
 }

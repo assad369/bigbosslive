@@ -125,6 +125,8 @@ export class FakeLiveKit implements LiveKitGateway {
   webhookEvent: unknown = null;
   /** Who `listParticipants` reports per room; a room missing here throws (LiveKit outage). */
   connected = new Map<string, Set<string>>();
+  /** `cameraState` per `room/identity`; `error` throws (LiveKit outage). Default `on`. */
+  cameras = new Map<string, 'on' | 'off' | 'absent' | 'error'>();
 
   async createToken(req: TokenRequest) {
     this.tokens.push(req);
@@ -150,6 +152,11 @@ export class FakeLiveKit implements LiveKitGateway {
   }
   async muteTracks(room: string, identity: string, kind: 'audio' | 'video', muted: boolean) {
     this.mutes.push({ room, identity, kind, muted });
+  }
+  async cameraState(room: string, identity: string) {
+    const state = this.cameras.get(`${room}/${identity}`) ?? 'on';
+    if (state === 'error') throw new Error('livekit unavailable');
+    return state;
   }
   async deleteRoom(room: string) {
     this.deletedRooms.push(room);

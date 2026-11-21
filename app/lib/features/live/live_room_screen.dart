@@ -11,6 +11,7 @@ import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../coin_bag/coin_bag_widgets.dart';
 import '../games/games_screens.dart';
 import 'active_live.dart';
 import 'chat_swipe.dart';
@@ -401,6 +402,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
             title: c.isHost ? 'Your live was ended' : 'This live has ended',
             message: 'This live was ended for violating community guidelines.',
           ),
+          LiveStatus.ended when c.endReason == 'camera_off' => _Ended(
+            icon: Icons.videocam_off_rounded,
+            title: c.isHost ? 'Your live was ended' : 'This live has ended',
+            message: c.isHost
+                ? 'Your camera was off for too long. Agency hosts keep the '
+                      'camera on during a video live.'
+                : 'Follow the host to know when they go live again.',
+          ),
           LiveStatus.ended when c.isHost => _Ended(
             title: 'Your live has ended',
             message: c.error ?? 'Thanks for going live.',
@@ -464,6 +473,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                 onTapUser: _openUser,
               ),
               PkWaitingBanner(c: c),
+              if (c.isHost && c.cameraOffEndsAt != null)
+                CameraOffBanner(
+                  endsAt: c.cameraOffEndsAt!,
+                  onTurnOn: c.toggleCamera,
+                ),
               if (c.status == LiveStatus.reconnecting)
                 const _Pill(text: 'Reconnecting…'),
               Expanded(
@@ -475,6 +489,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
                         mainAxisAlignment: MainAxisAlignment.end,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Coin bags anywhere on the platform: this room's first.
+                          Padding(
+                            padding: const EdgeInsets.only(left: 10, bottom: 4),
+                            child: CoinBagFloatingButton(c: c),
+                          ),
                           Padding(
                             padding: const EdgeInsets.only(left: 10, bottom: 6),
                             child: EntryBanner(entries: c.entries),
@@ -557,6 +576,16 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> {
       ),
       Positioned.fill(
         child: GiftOverlay(gifts: c.gifts, muted: !c.roomAudioOn),
+      ),
+      // "X released a coin bag", under the gift banners' lane.
+      Positioned(
+        left: 0,
+        right: 0,
+        top: MediaQuery.paddingOf(context).top + stageTopInset + 60,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: CoinBagReleaseBanner(c: c),
+        ),
       ),
     ],
   );

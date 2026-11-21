@@ -140,8 +140,13 @@ export function accountRoutes(ctx: Ctx): Router {
     const { uid } = parseParams(req, uidParam);
     const { period } = parseQuery(
       req,
-      z.object({ period: z.enum(['day', 'week', 'month', 'all']).default('week') }),
+      z.object({ period: z.enum(['live', 'day', 'week', 'month', 'all']).default('live') }),
     );
+    // The profile's "Top supporters": the user's current live, empty once it ends.
+    if (period === 'live') {
+      res.json(await gifts.liveSupporters(uid));
+      return;
+    }
     const days = { day: 1, week: 7, month: 30, all: null }[period];
     const since = days ? new Date(ctx.clock.now().getTime() - days * 86_400_000) : null;
     res.json({ items: await gifts.topContributors(uid, since) });

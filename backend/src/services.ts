@@ -4,6 +4,7 @@ import { AuditService } from './modules/admin/audit.service.js';
 import { StatsService } from './modules/admin/stats.service.js';
 import { BannersService } from './modules/banners/banners.service.js';
 import { ChatService } from './modules/chat/chat.service.js';
+import { CoinBagsService } from './modules/coin-bags/coin-bags.service.js';
 import { ConfigService } from './modules/config/config.service.js';
 import { FeedService } from './modules/feed/feed.service.js';
 import { FollowsService } from './modules/follows/follows.service.js';
@@ -36,6 +37,7 @@ export interface Services {
   audit: AuditService;
   banners: BannersService;
   chat: ChatService;
+  coinBags: CoinBagsService;
   config: ConfigService;
   feed: FeedService;
   follows: FollowsService;
@@ -75,6 +77,7 @@ export function createServices(ctx: Ctx): Services {
     audit: new AuditService(ctx),
     banners: new BannersService(ctx),
     chat: new ChatService(ctx),
+    coinBags: new CoinBagsService(ctx),
     config: new ConfigService(ctx),
     feed: new FeedService(ctx),
     follows: new FollowsService(ctx),

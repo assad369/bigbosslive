@@ -651,6 +651,10 @@ export class LiveService {
       .catch(() => undefined);
     await this.ctx.livekit.deleteRoom(room.livekitRoom).catch(() => undefined);
     await this.ctx.services.sightguard.endLive(supervised(room));
+    // Its running coin bag closes with it; unclaimed shares go back to the releaser.
+    await this.ctx.services.coinBags
+      .closeForRoom(room._id)
+      .catch((err: unknown) => this.ctx.log.warn({ err }, 'coin bag close on live end failed'));
     this.ctx.realtime.toRoom(SOCKET.namespaces.app, 'rooms', SOCKET.app.roomEnded, {
       id: String(room._id),
     });
@@ -1181,8 +1185,18 @@ export class LiveService {
     await this.assertNotBanned(room, uid);
     const count = items.reduce((n, i) => n + i.count, 0);
     await this.ctx.col.liveRooms.updateOne({ _id: room._id }, { $inc: { reactions: count } });
+    // `user` lets the app write a "sent ❤️" chat row (merged per sender burst on the app).
+    // A hidden platform moderator's reactions still float, but never name them.
+    const role = this.roleOf(room, uid);
+    const { user, metadata } = await this.metadataFor(uid, role);
+    const hidden = await this.hiddenIn(room, user, role);
     await this.ctx.livekit
-      .sendData(room.livekitRoom, LIVEKIT_TOPICS.reaction, { uid, count, items })
+      .sendData(room.livekitRoom, LIVEKIT_TOPICS.reaction, {
+        uid,
+        count,
+        items,
+        ...(hidden ? {} : { user: metadata }),
+      })
       .catch(() => undefined);
   }
 
@@ -1887,6 +1901,121 @@ export class LiveService {
       field,
       url,
     });
+  }
+
+  /** How long before the camera-off end the host is warned. */
+  static readonly CAMERA_OFF_WARN_SEC = 60;
+
+  /**
+   * Ends the video lives of agency hosts whose camera has been off for
+   * `live.agencyCameraOffEndSec`. The camera state is read from the SFU, so a modified app
+   * can't hide it. A host LiveKit can't see (disconnected) or can't answer for is left
+   * alone: the heartbeat sweep owns lost hosts. Returns how many lives it ended.
+   */
+  async sweepCameraOff(): Promise<number> {
+    const { agencyCameraOffEndSec: limit } = await this.ctx.services.config.get('live');
+    if (limit <= 0) return 0;
+    const rooms = await this.ctx.col.liveRooms
+      .find(
+        { status: 'live', type: 'video' },
+        {
+          projection: {
+            _id: 1,
+            hostId: 1,
+            livekitRoom: 1,
+            cameraOffSince: 1,
+            cameraOffWarnedAt: 1,
+          },
+        },
+      )
+      .limit(2000)
+      .toArray();
+    if (!rooms.length) return 0;
+    const inAgency = new Set(
+      (
+        await this.ctx.col.users
+          .find(
+            { _id: { $in: rooms.map((r) => r.hostId) }, agencyId: { $ne: null } },
+            { projection: { _id: 1 } },
+          )
+          .toArray()
+      ).map((u) => u._id),
+    );
+    const now = this.ctx.clock.now();
+    let ended = 0;
+    for (const room of rooms) {
+      if (!inAgency.has(room.hostId)) {
+        // Left the agency mid-live: stop counting.
+        if (room.cameraOffSince) {
+          await this.ctx.col.liveRooms.updateOne(
+            { _id: room._id },
+            { $set: { cameraOffSince: null, cameraOffWarnedAt: null } },
+          );
+        }
+        continue;
+      }
+      let state: 'on' | 'off' | 'absent';
+      try {
+        state = await this.ctx.livekit.cameraState(room.livekitRoom, room.hostId);
+      } catch (err) {
+        this.ctx.log.warn({ err, roomId: String(room._id) }, 'camera state unavailable');
+        continue;
+      }
+      if (state === 'absent') continue;
+      if (state === 'on') {
+        if (room.cameraOffSince) {
+          await this.ctx.col.liveRooms.updateOne(
+            { _id: room._id, status: 'live' },
+            { $set: { cameraOffSince: null, cameraOffWarnedAt: null } },
+          );
+        }
+        continue;
+      }
+      const since = room.cameraOffSince ?? now;
+      const warn = (endsInSec: number) =>
+        this.ctx.livekit
+          .sendData(
+            room.livekitRoom,
+            LIVEKIT_TOPICS.system,
+            {
+              kind: 'camera_off_warning',
+              endsAt: new Date(since.getTime() + limit * 1000).toISOString(),
+              endsInSec: Math.max(0, Math.round(endsInSec)),
+              limitSec: limit,
+            },
+            [room.hostId],
+          )
+          .catch(() => undefined);
+      if (!room.cameraOffSince) {
+        // First seen off: tell the host how long they have.
+        const started = await this.ctx.col.liveRooms.updateOne(
+          { _id: room._id, status: 'live', cameraOffSince: null },
+          { $set: { cameraOffSince: since, cameraOffWarnedAt: null } },
+        );
+        if (started.modifiedCount) await warn(limit);
+        continue;
+      }
+      const offSec = (now.getTime() - since.getTime()) / 1000;
+      if (offSec >= limit) {
+        if (await this.end(room._id, 'camera_off', 'system')) {
+          ended++;
+          await this.ctx.services.audit.recordSystem(
+            'live.camera_off_end',
+            { type: 'room', id: String(room._id) },
+            { hostId: room.hostId, offSec: Math.round(offSec), limitSec: limit },
+          );
+        }
+        continue;
+      }
+      if (offSec >= limit - LiveService.CAMERA_OFF_WARN_SEC && !room.cameraOffWarnedAt) {
+        const warned = await this.ctx.col.liveRooms.updateOne(
+          { _id: room._id, status: 'live', cameraOffWarnedAt: null },
+          { $set: { cameraOffWarnedAt: now } },
+        );
+        if (warned.modifiedCount) await warn(limit - offSec);
+      }
+    }
+    return ended;
   }
 
   /** Close rooms whose host stopped heart-beating (app killed, network lost). */
