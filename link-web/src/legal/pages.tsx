@@ -1,6 +1,6 @@
 import type { FC, PropsWithChildren } from 'hono/jsx';
 import type { View } from '../pages.js';
-import { OPERATOR as O } from './operator.js';
+import { OPERATOR as O, operatorIdentity } from './operator.js';
 
 /** Legal pages change rarely; an hour of caching keeps them cheap and fresh enough. */
 const LEGAL_MAX_AGE = 3600;
@@ -72,20 +72,27 @@ export function termsView(): View {
     `The rules for using ${O.appName}.`,
     <Doc title="Terms of Service">
       <p>
-        These Terms are an agreement between you and {O.name} ({O.address}, {O.country}) for the use
-        of the {O.appName} app and related services ("{O.appName}"). By creating an account you
-        accept these Terms, the <a href="/legal/community-guidelines">Community Guidelines</a>, the{' '}
-        <a href="/legal/child-safety">Child Safety Standards</a> and the{' '}
+        These Terms are an agreement between you and {operatorIdentity()} ("we", "us") for the use
+        of the {O.appName} app, its websites and related services ("{O.appName}"). By creating an
+        account or using {O.appName} you accept these Terms, the{' '}
+        <a href="/legal/community-guidelines">Community Guidelines</a>, the{' '}
+        <a href="/legal/child-safety">Child Safety Standards</a>, the{' '}
+        <a href="/legal/refunds">Purchases and Refunds</a> policy and the{' '}
         <a href="/legal/privacy">Privacy Policy</a>. If you do not accept them, do not use{' '}
         {O.appName}.
       </p>
 
       <h2>1. Who may use {O.appName}</h2>
       <p>
-        You must be <b>18 or older</b>. We ask for your date of birth when you join and lock any
-        account that gives a date under 18. We remove accounts we believe belong to someone under
-        18. You may hold one account for yourself only, and you are responsible for everything done
-        with it.
+        You must be <b>18 or older</b>, and old enough to enter a binding contract where you live.
+        We ask for your date of birth when you join and lock any account that gives a date under 18.
+        We remove accounts we believe belong to someone under 18. You may not use {O.appName} if we
+        have banned you before, or if the law where you live forbids it.
+      </p>
+      <p>
+        You may hold one account, for yourself only. Keep your sign-in secure: you are responsible
+        for everything done with your account. Tell us at <Mail to={O.supportEmail} /> straight away
+        if you think someone else has used it.
       </p>
 
       <h2>2. Your content and conduct</h2>
@@ -157,32 +164,92 @@ export function termsView(): View {
       <p>
         Hosts may join an agency, whose owner earns a commission on gifts the host receives, as
         shown in the app. Agents may resell diamonds. Agencies and agents are independent: they are
-        not our employees, and arrangements you make with them are between you and them.
+        not our employees, and arrangements you make with them are between you and them. Never pay
+        anyone who claims to sell diamonds on our behalf outside the app's official channels.
       </p>
 
-      <h2>8. Ending your account</h2>
+      <h2>8. Fair play</h2>
+      <p>
+        You must not use bots, scripts or modified apps; reverse engineer, scrape or overload{' '}
+        {O.appName}; exploit a bug; manipulate gifts, rankings, levels or games; or help anyone else
+        do so. If a bug or fraud credits you with diamonds, items or winnings you were not entitled
+        to, we may reverse them. Please report bugs to <Mail to={O.supportEmail} />.
+      </p>
+
+      <h2>9. Third-party services</h2>
+      <p>
+        Some features rely on others: Google and Apple for sign-in and purchases, our games provider
+        for games, and YouTube for music in lives. Their own terms apply when you use them, and we
+        are not responsible for their services.
+      </p>
+
+      <h2>10. Our rights and copyright complaints</h2>
+      <p>
+        {O.appName}, its name, logo, design, gifts, effects and other content we provide belong to
+        us or our licensors. These Terms give you a personal, revocable, non-transferable right to
+        use the app; they give you no other rights in it.
+      </p>
+      <p>
+        If you believe content on {O.appName} infringes your copyright or trademark, email{' '}
+        <Mail to={O.supportEmail} /> with: your name and contact details, the work you own, where
+        the content appears (a link, numeric ID or screenshot), and a statement that you believe in
+        good faith that the use is not authorised and that your notice is accurate. We remove
+        infringing content and ban repeat infringers.
+      </p>
+
+      <h2>11. Ending your account</h2>
       <p>
         You can delete your account at any time in the app (Settings → Delete account) or on the{' '}
         <a href="/delete-account">account deletion page</a>. We may suspend or end your access if
-        you break these Terms or the law, or to protect other users.
+        you break these Terms or the law, or to protect other users or {O.appName}. If you believe
+        we made a mistake, email <Mail to={O.supportEmail} /> and we will review it.
       </p>
 
-      <h2>9. Disclaimers and liability</h2>
+      <h2>12. Disclaimers and liability</h2>
       <p>
-        {O.appName} is provided "as is". To the extent the law allows, we are not liable for
-        indirect or consequential losses, for content other users share, or for outages. Nothing in
-        these Terms limits rights you have under consumer law that cannot be waived.
+        {O.appName} is provided "as is" and "as available". We do not promise it will always be
+        available, error-free, or that any feature, gift, game or rate will stay the same.
+      </p>
+      <p>
+        To the extent the law allows, we are not liable for indirect, incidental or consequential
+        losses, lost profits or data, content or conduct of other users, agencies or agents, or
+        outages; and our total liability to you for any claim is limited to the amount you paid us
+        in the 12 months before the claim. Nothing in these Terms limits liability for fraud, death
+        or personal injury caused by negligence, or rights you have under consumer law that cannot
+        be waived.
       </p>
 
-      <h2>10. Changes and law</h2>
+      <h2>13. App Store</h2>
+      <p>
+        If you downloaded {O.appName} from Apple's App Store, these Terms are between you and us,
+        not Apple. Apple has no obligation to provide maintenance or support, and is not responsible
+        for the app, its content, any claim about it (including product liability, legal compliance
+        or intellectual property claims) or any warranty, except that if the app fails a warranty
+        that applies, you may notify Apple and Apple will refund the app's purchase price, if any.
+        Apple and its subsidiaries are third-party beneficiaries of these Terms and may enforce them
+        against you.
+      </p>
+
+      <h2>14. Changes, law and disputes</h2>
       <p>
         We may update these Terms. When the change is material, the app asks you to accept the new
-        version before you continue. These Terms are governed by {O.governingLaw}.
+        version before you continue; until you do, you cannot keep using {O.appName}.
+      </p>
+      <p>
+        These Terms are governed by {O.governingLaw}, and the courts of {O.country} have
+        jurisdiction over disputes about them. If you are a consumer living elsewhere, you also keep
+        the protection of the mandatory laws of your country and may bring a claim there. Please
+        contact us first: most problems can be solved by email.
+      </p>
+      <p>
+        If a part of these Terms cannot be enforced, the rest still applies. If we do not enforce a
+        right straight away, we do not give it up. You may not transfer your rights under these
+        Terms; we may transfer ours to a business that takes over {O.appName}.
       </p>
 
       <h2>Contact</h2>
       <p>
-        {O.name}, {O.address}, {O.country}. Email: <Mail to={O.supportEmail} />.
+        {operatorIdentity()}. Email: <Mail to={O.supportEmail} />.
       </p>
     </Doc>,
   );
@@ -194,9 +261,9 @@ export function privacyView(): View {
     `How ${O.appName} collects, uses and shares your data.`,
     <Doc title="Privacy Policy">
       <p>
-        This policy explains what data {O.name} ("we") collects when you use {O.appName}, why, who
-        we share it with, how long we keep it, and your choices. {O.name} is responsible for your
-        data. Contact us at <Mail to={O.privacyEmail} />.
+        This policy explains what data {O.name} ("we") collects when you use the {O.appName} app and
+        its websites, why, who we share it with, how long we keep it, and your choices. {O.name} is
+        the controller responsible for your data. Contact us at <Mail to={O.privacyEmail} />.
       </p>
 
       <h2>Data we collect</h2>
@@ -249,6 +316,19 @@ export function privacyView(): View {
         <li>To fix crashes and improve the app.</li>
         <li>To comply with the law and respond to lawful requests.</li>
       </ul>
+      <p>
+        Where the law asks for a legal basis, we rely on: <b>our contract with you</b> (running your
+        account and the features you use, purchases and payouts); <b>legal obligations</b>{' '}
+        (financial records, age rules, reporting child sexual abuse); <b>legitimate interests</b>{' '}
+        (keeping {O.appName} safe, preventing fraud and abuse, fixing and improving the app), which
+        we balance against your rights; and <b>your consent</b> (camera, microphone, photos and
+        notifications, which you can withdraw in your phone's settings).
+      </p>
+      <p>
+        Automated moderation can block content, end a live or, in serious cases, suspend an account.
+        You can contest any such decision by emailing <Mail to={O.supportEmail} />, and a person
+        will review it.
+      </p>
 
       <h2>What others can see</h2>
       <p>
@@ -292,6 +372,10 @@ export function privacyView(): View {
           uploads.
         </li>
         <li>
+          <b>Banks, mobile wallet operators and PayPal</b> receive the payout details needed to send
+          a withdrawal you ask for.
+        </li>
+        <li>
           <b>Agency owners</b> see the earnings and live time of hosts in their agency.
         </li>
         <li>
@@ -299,7 +383,11 @@ export function privacyView(): View {
           National Center for Missing &amp; Exploited Children (NCMEC) or the relevant authority.
         </li>
       </ul>
-      <p>We do not sell your personal data.</p>
+      <p>
+        We do not sell your personal data or share it for advertising. If {O.appName} is ever sold
+        or merged, your data would pass to the new operator under this policy, and we would tell you
+        first.
+      </p>
 
       <h2>How long we keep it</h2>
       <ul>
@@ -329,8 +417,11 @@ export function privacyView(): View {
       <h2>Your rights</h2>
       <p>
         Depending on where you live, you may have the right to access, correct, delete or export
-        your data, and to object to or restrict how we use it. Email <Mail to={O.privacyEmail} />.
-        You can also complain to your data protection authority.
+        your data, to object to or restrict how we use it, and to withdraw consent. You can edit
+        your profile and delete your account in the app; for anything else, email{' '}
+        <Mail to={O.privacyEmail} /> from the email on your account or with your numeric ID. We may
+        ask you to confirm the account is yours, and we answer within 30 days. You can also complain
+        to your data protection authority.
       </p>
 
       <h2>Children</h2>
@@ -342,13 +433,27 @@ export function privacyView(): View {
 
       <h2>Security and transfers</h2>
       <p>
-        Data travels encrypted (HTTPS/TLS) and access is limited to people who need it. Our
-        providers may process data in other countries, with safeguards the law requires.
+        Data travels encrypted (HTTPS/TLS) and access is limited to people who need it. No system is
+        perfectly secure; if a breach puts your data at risk, we will tell you and the authorities
+        as the law requires. We are based in {O.country}, and we and our providers may process data
+        in other countries, with the safeguards the law requires.
+      </p>
+
+      <h2>Our website</h2>
+      <p>
+        Our web pages (share links, these policies and the account deletion form) set no cookies and
+        use no analytics or trackers. Our servers log technical data such as IP addresses to keep
+        them secure and limit abuse.
       </p>
 
       <h2>Changes</h2>
       <p>
         We will post changes here and, when they are material, ask you to accept them in the app.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        {operatorIdentity()}. Privacy questions and requests: <Mail to={O.privacyEmail} />.
       </p>
     </Doc>,
   );
@@ -402,6 +507,10 @@ export function guidelinesView(): View {
         suspend, or permanently ban an account and its devices. Child safety violations lead to a
         permanent ban and a report to the authorities.
       </p>
+      <p>
+        If you think we got a decision wrong, email <Mail to={O.supportEmail} /> with your numeric
+        ID, and a person will review it.
+      </p>
     </Doc>,
   );
 }
@@ -450,38 +559,54 @@ export function childSafetyView(): View {
           By email: <Mail to={O.childSafetyEmail} />.
         </li>
         <li>
-          If a child is in immediate danger, contact your local police or emergency services first.
-          You can also report to the NCMEC CyberTipline at{' '}
+          If a child is in immediate danger, contact your local police or emergency services first
+          (in {O.country}, call <b>999</b>). You can also report to the NCMEC CyberTipline at{' '}
           <a href="https://report.cybertip.org" rel="noopener">
             report.cybertip.org
           </a>
           .
         </li>
       </ul>
+      <p>
+        Reports are confidential: the person you report is not told who reported them. Do not
+        download, screenshot or forward abusive material to us or anyone else, because that can
+        itself be a crime. Tell us where it is, and we will act on it.
+      </p>
 
       <h2>What we do</h2>
       <ul>
         <li>
-          Automated tools scan live video and audio, images and text, and child safety reports go to
-          the top of our moderators' queue.
+          Automated tools scan live video and audio, images and text, and child safety reports are
+          marked urgent and go to the top of our moderators' queue, ahead of every other report.
         </li>
         <li>
           We remove the content, end the live, and permanently ban the account and its devices.
         </li>
         <li>
-          We preserve the evidence, and report confirmed CSAM to the National Center for Missing
-          &amp; Exploited Children (NCMEC) and to the relevant authorities in {O.country}, as the
-          law requires.
+          We preserve the evidence, and report apparent CSAM to the National Center for Missing
+          &amp; Exploited Children (NCMEC) and to law enforcement in {O.country} or the relevant
+          regional authority, as the law requires.
         </li>
-        <li>We cooperate with law enforcement requests.</li>
+        <li>We cooperate with law enforcement and respond to their lawful requests.</li>
+        <li>
+          We review these standards and our tools regularly and update them as risks and the law
+          change.
+        </li>
       </ul>
 
       <h2>Child safety contact</h2>
       <p>
-        {O.childSafetyContactName} is our designated child safety contact and can speak to our
-        enforcement and review practices: <Mail to={O.childSafetyEmail} />.
+        {O.childSafetyContactName
+          ? `${O.childSafetyContactName}, our designated child safety contact,`
+          : 'Our designated child safety contact'}{' '}
+        can speak to our CSAM prevention, enforcement and review practices, and is the point of
+        contact for Google Play, law enforcement and anyone with a concern:{' '}
+        <Mail to={O.childSafetyEmail} />.
       </p>
-      <p>We comply with applicable child safety laws, including the laws of {O.country}.</p>
+      <p>
+        We comply with applicable child safety laws, including the laws of {O.country} such as the
+        Pornography Control Act 2012 and the Children Act 2013.
+      </p>
     </Doc>,
   );
 }

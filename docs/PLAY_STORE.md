@@ -29,11 +29,12 @@ refuses games and withdrawals to anyone without a stated adult date of birth.
 
 ## 1. Before the first upload
 
-- [ ] **Fill in the operator details** in `link-web/src/legal/operator.ts`: country, address,
-  support, privacy and child-safety emails, the child-safety contact's name, governing law and
-  financial-record retention. link-web logs a warning at startup while any `{{…}}` is left.
+- [x] **Operator details** in `link-web/src/legal/operator.ts` are filled in (Bangladesh, laws of
+  Bangladesh, 6-year financial records, every contact email `developerasad46@gmail.com`).
+  `address` and `childSafetyContactName` are optional and left out of the pages while empty.
   Redeploy link-web, then open every page under `https://bigbosslive.ctll.online/legal`.
-- [ ] Set `app.supportEmail` in the admin config to the same support address.
+- [ ] If `app.supportEmail` was ever saved in the admin config, set it to the same address
+  (the server and app defaults already use it).
 - [ ] **Play App Signing.** After creating the app in Play Console, copy the *app signing* and
   *upload* key fingerprints from Setup → App signing:
   - SHA-1 (both) → Firebase project settings → Android app. Google Sign-In fails without it.
@@ -83,7 +84,8 @@ The app is in scope (Social category). In Policy → App content → Child safet
   profiles, lives, live chat, private messages, posts and comments, plus Settings → Safety →
   Report a child safety concern.
 - **CSAM handling and child-safety laws:** certify yes, and follow the procedure in section 5.
-- **Point of contact:** the person named in `operator.ts`, with their email.
+- **Point of contact:** a named person who can act on reports, with
+  `developerasad46@gmail.com` (the page's child-safety email).
 
 ### Data safety
 

@@ -28,7 +28,7 @@ abstract final class Env {
   static const deleteAccountUrl = 'https://$linkHost/delete-account';
   static const supportEmail = String.fromEnvironment(
     'SUPPORT_EMAIL',
-    defaultValue: 'support@bigbosslive.app',
+    defaultValue: 'developerasad46@gmail.com',
   );
 
   /// Numeric App Store id, used by the force-update screen on iOS.

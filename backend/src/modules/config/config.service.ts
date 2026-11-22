@@ -52,7 +52,7 @@ export const CONFIG_SCHEMAS = {
     latestVersion: z.string().default('1.0.0'),
     maintenance: z.boolean().default(false),
     maintenanceMessage: z.string().max(500).default(''),
-    supportEmail: z.string().default('support@bigbosslive.app'),
+    supportEmail: z.string().default('developerasad46@gmail.com'),
     // Legal pages are served by link-web on the share-link host (`/legal/*`).
     termsUrl: z.string().default('https://bigbosslive.ctll.online/legal/terms'),
     privacyUrl: z.string().default('https://bigbosslive.ctll.online/legal/privacy'),

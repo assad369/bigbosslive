@@ -6,6 +6,7 @@ import { loadConfig } from './config.js';
 import { apiPreviewFetcher, type PreviewFetcher, type PreviewResult } from './preview.js';
 import { apiDeletionSubmitter, type DeletionSubmitter } from './deletion.js';
 import { LEGAL_PAGES } from './legal/pages.js';
+import { OPERATOR, unfilledOperatorFields } from './legal/operator.js';
 
 const FP = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0')).join(':');
 const HOST = 'bigbosslive.ctll.online';
@@ -264,6 +265,16 @@ describe('legal pages', () => {
       const policy = r.headers.get('content-security-policy')!;
       if (path === '/delete-account') assert.match(policy, /form-action 'self'/);
       else assert.match(policy, /form-action 'none'/);
+    }
+  });
+
+  it('is filled in: no placeholder, and a contact email on every policy', async () => {
+    assert.deepEqual(unfilledOperatorFields(), []);
+    for (const { path } of LEGAL_PAGES) {
+      const html = await (await get(app, path)).text();
+      lacks(html, '{{');
+      lacks(html, ', ,');
+      has(html, `mailto:${OPERATOR.supportEmail}`);
     }
   });
 
