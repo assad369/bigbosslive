@@ -13,6 +13,7 @@ import {
   MAX_COSMETICS_PER_BATCH,
   MAX_GRANT_DAYS,
   COIN_BAG_STATUSES,
+  DELETION_REQUEST_STATUSES,
   MAX_LEVEL,
   MAX_VIP_TIER,
   REPORT_STATUSES,
@@ -74,6 +75,7 @@ import {
 import { dayRangeQuery, transactionsQuery } from '../modules/games/games-stats.service.js';
 import { rechargePackageInput } from '../modules/wallet/iap.service.js';
 import { toLiveRoom } from '../modules/live/live.presenter.js';
+import { resolveDeletionInput } from '../modules/users/deletion-requests.service.js';
 
 const idParams = z.object({ id: objectIdString });
 const gameParam = z.object({ gameId: z.string().regex(GAME_ID_PATTERN) });
@@ -943,13 +945,25 @@ export function adminRoutes(ctx: Ctx): Router {
         targetType: z.enum(REPORT_TARGETS).optional(),
       }),
     );
-    const result = await s.moderation.listReports(q, q.page, q.pageSize);
+    const [result, urgentOpen] = await Promise.all([
+      s.moderation.listReports(q, q.page, q.pageSize),
+      s.moderation.urgentOpenCount(),
+    ]);
     const briefs = await s.users.briefs(
-      result.items.flatMap((x) => [x.reporterId, ...(x.targetType === 'user' ? [x.targetId] : [])]),
+      result.items.flatMap((x) => [
+        x.reporterId,
+        ...(x.targetType === 'user' ? [x.targetId] : []),
+        ...(x.snapshot?.authorId ? [x.snapshot.authorId] : []),
+      ]),
     );
     res.json({
       ...result,
+      // Open child-safety reports, whatever the filter: the page shows a banner.
+      urgentOpen,
       items: result.items.map((x) => ({
+        ...x,
+        priority: x.priority ?? 'normal',
+        author: x.snapshot?.authorId ? (briefs.get(x.snapshot.authorId) ?? null) : null,
         ...x,
         reporter: briefs.get(x.reporterId) ?? null,
         targetUser: x.targetType === 'user' ? (briefs.get(x.targetId) ?? null) : null,
@@ -972,6 +986,35 @@ export function adminRoutes(ctx: Ctx): Router {
     });
     await audit(req, 'report.resolve', 'report', String(report._id), input);
     res.json({ report });
+  });
+
+  // ── Web account-deletion requests (Play's deletion URL) ─────────────────────────
+  r.get('/deletion-requests', can('accounts.delete'), async (req, res) => {
+    const q = parseQuery(
+      req,
+      pageQuery.extend({ status: z.enum(DELETION_REQUEST_STATUSES).optional() }),
+    );
+    const result = await s.deletionRequests.list(q, q.page, q.pageSize);
+    const briefs = await s.users.briefs(
+      result.items.flatMap((x) => (x.resolvedUid ? [x.resolvedUid] : [])),
+    );
+    res.json({
+      ...result,
+      items: result.items.map((x) => ({
+        ...x,
+        resolvedUser: x.resolvedUid ? (briefs.get(x.resolvedUid) ?? null) : null,
+      })),
+    });
+  });
+
+  r.post('/deletion-requests/:id/resolve', can('accounts.delete'), async (req, res) => {
+    const input = parseBody(req, resolveDeletionInput);
+    const done = await s.deletionRequests.resolve(oid(req), currentUser(req).uid, input);
+    await audit(req, `account.deletion_${input.action}`, 'deletion_request', String(done._id), {
+      uid: done.resolvedUid,
+      note: input.note,
+    });
+    res.json({ request: done });
   });
 
   r.get('/feed', can('feed.moderate'), async (req, res) => {

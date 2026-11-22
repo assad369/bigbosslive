@@ -47,3 +47,5 @@ app/ios/Runner/GoogleService-Info.plist
 
 # Local database dumps
 *.rdb
+**/*.jks.*
+**/*.keystore.*

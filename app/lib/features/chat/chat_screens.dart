@@ -16,6 +16,7 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/media_viewer.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../legal/block_user.dart';
 import '../profile/profile_screens.dart' show ReportSheet;
 
 class InboxScreen extends ConsumerStatefulWidget {
@@ -442,6 +443,33 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             ],
           ),
         ),
+        actions: [
+          if (peer != null)
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              onSelected: (v) async {
+                if (v == 'report') {
+                  await ReportSheet.show(
+                    context,
+                    targetType: 'user',
+                    targetId: peer.id,
+                  );
+                } else if (v == 'block') {
+                  final blocked = await confirmBlock(
+                    context,
+                    ref,
+                    uid: peer.id,
+                    name: peer.displayName,
+                  );
+                  if (blocked && context.mounted) context.pop();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'report', child: Text('Report user')),
+                PopupMenuItem(value: 'block', child: Text('Block')),
+              ],
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -621,11 +649,7 @@ class _Bubble extends StatelessWidget {
       case 'save':
         await _save(context);
       case 'report':
-        await ReportSheet.show(
-          context,
-          targetType: 'message',
-          targetId: message.id,
-        );
+        await ReportSheet.show(context, targetType: 'dm', targetId: message.id);
     }
   }
 

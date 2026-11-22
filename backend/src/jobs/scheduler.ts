@@ -23,6 +23,7 @@ export function jobHandlers(ctx: Ctx): JobHandlers {
       await ctx.services.games.runEndSessions(scope);
     },
     'games.purchase': ({ rechargeId }) => ctx.services.games.reportPurchase(rechargeId),
+    'users.erase': ({ uid }) => ctx.services.users.eraseExternal(uid),
   };
 }
 

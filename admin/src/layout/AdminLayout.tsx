@@ -38,6 +38,7 @@ import {
   TeamOutlined,
   ThunderboltOutlined,
   TrophyOutlined,
+  UserDeleteOutlined,
   UserOutlined,
   VideoCameraOutlined,
   WalletOutlined,
@@ -82,6 +83,12 @@ const NAV: NavGroup[] = [
         permission: 'feed.moderate',
       },
       { key: '/reports', label: 'Reports', icon: <AlertOutlined />, permission: 'reports.read' },
+      {
+        key: '/deletion-requests',
+        label: 'Deletion requests',
+        icon: <UserDeleteOutlined />,
+        permission: 'accounts.delete',
+      },
       {
         key: '/devices',
         label: 'Device bans',

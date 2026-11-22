@@ -71,7 +71,8 @@ android {
 
     buildTypes {
         release {
-            // Falls back to debug signing only for local `flutter run --release`.
+            // Falls back to debug signing only for local `flutter run --release`. A Play bundle
+            // never does: see the check below.
             signingConfig = if (keystoreProperties.isNotEmpty()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
@@ -88,6 +89,15 @@ kotlin {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+}
+
+// A release app bundle goes to Google Play: refuse to build one signed with the debug key.
+gradle.taskGraph.whenReady {
+    if (keystoreProperties.isEmpty && allTasks.any { it.name == "bundleRelease" }) {
+        throw GradleException(
+            "android/key.properties is missing: a Play bundle must be signed with the upload key.",
+        )
+    }
 }
 
 flutter {

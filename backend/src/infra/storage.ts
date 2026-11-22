@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
+  DeleteObjectsCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
   PutBucketCorsCommand,
   PutObjectCommand,
   S3Client,
@@ -35,6 +37,11 @@ export interface StorageGateway {
   isOwnUpload(url: string, folder: string, ownerId: string): Promise<boolean>;
   /** True when `url` is a dashboard-uploaded platform asset (under `admin/`). */
   isPlatformAsset(url: string): Promise<boolean>;
+  /**
+   * Deletes everything `ownerId` uploaded into `folders` (`<folder>/<owner>/…`), except the
+   * public URLs in `keep` (evidence staff must preserve). Returns how many objects went.
+   */
+  deleteOwnerUploads(ownerId: string, folders: string[], keep: Set<string>): Promise<number>;
   /** Throws when the bucket is unreachable with the current credentials. */
   verify(): Promise<void>;
   /** Replaces the bucket's CORS config with `bucketCorsRules(origins)`. */
@@ -169,6 +176,37 @@ export function createS3Storage(settings: () => Promise<S3Settings | null>): Sto
     async isPlatformAsset(url) {
       const cfg = await settings();
       return isPlatformAssetUrl(cfg?.publicBaseUrl ?? '', url);
+    },
+    async deleteOwnerUploads(ownerId, folders, keep) {
+      const { cfg, client } = await resolve();
+      const base = cfg.publicBaseUrl.replace(/\/$/, '');
+      let deleted = 0;
+      for (const folder of folders) {
+        let token: string | undefined;
+        do {
+          const page = await client.send(
+            new ListObjectsV2Command({
+              Bucket: cfg.bucket,
+              Prefix: `${folder}/${ownerId}/`,
+              ContinuationToken: token,
+            }),
+          );
+          const keys = (page.Contents ?? [])
+            .map((o) => o.Key)
+            .filter((k): k is string => Boolean(k) && !keep.has(`${base}/${k}`));
+          if (keys.length) {
+            await client.send(
+              new DeleteObjectsCommand({
+                Bucket: cfg.bucket,
+                Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+              }),
+            );
+            deleted += keys.length;
+          }
+          token = page.IsTruncated ? page.NextContinuationToken : undefined;
+        } while (token);
+      }
+      return deleted;
     },
     async verify() {
       const { cfg, client } = await resolve();

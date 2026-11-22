@@ -3,9 +3,10 @@ import { DEEP_LINK_ROUTES, type DeepLinkKind } from '@bigboss/shared';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { Ctx } from '../context.js';
-import { parseParams } from '../lib/http.js';
+import { parseBody, parseParams } from '../lib/http.js';
 import { createRateLimiter } from '../middleware/http.js';
 import { PREVIEW_MAX_AGE } from '../modules/share/share.service.js';
+import { deletionRequestInput } from '../modules/users/deletion-requests.service.js';
 
 const KINDS = DEEP_LINK_ROUTES.map((r) => r.kind) as [DeepLinkKind, ...DeepLinkKind[]];
 
@@ -15,9 +16,10 @@ const previewParams = z.object({
 });
 
 /**
- * Unauthenticated share-link previews for link-web. Mounted ahead of the global `/v1` limit:
- * every visitor of a share page arrives from link-web's one address, so this route keeps its
- * own limit, counted per visitor when link-web proves itself with `LINK_SERVICE_KEY`.
+ * Unauthenticated routes link-web calls: share-link previews and the web account-deletion
+ * form. Mounted ahead of the global `/v1` limit: every visitor arrives from link-web's one
+ * address, so these keep their own limits, counted per visitor when link-web proves itself
+ * with `LINK_SERVICE_KEY`.
  */
 export function shareRoutes(ctx: Ctx): Router {
   const r = Router();
@@ -30,15 +32,35 @@ export function shareRoutes(ctx: Ctx): Router {
     return buf.length === key.length && timingSafeEqual(buf, key);
   };
 
+  const visitor = (req: Request) =>
+    (fromLinkService(req) && req.header('x-client-ip')) || req.ip || 'anon';
+
   r.use(
     '/share',
     createRateLimiter(ctx.redis, {
       windowMs: 60_000,
       limit: 60,
       prefix: 'share',
-      keyGenerator: (req) =>
-        (fromLinkService(req) && req.header('x-client-ip')) || req.ip || 'anon',
+      keyGenerator: visitor,
     }),
+  );
+
+  // Play's account-deletion URL posts here (link-web `/delete-account`). The answer never
+  // says whether an account matched, so it can't be used to look accounts up.
+  r.post(
+    '/account-deletion-requests',
+    createRateLimiter(ctx.redis, {
+      windowMs: 60 * 60_000,
+      limit: 5,
+      prefix: 'deletion-request',
+      keyGenerator: visitor,
+    }),
+    async (req, res) => {
+      const input = parseBody(req, deletionRequestInput);
+      const ip = visitor(req);
+      await ctx.services.deletionRequests.create(input, ip === 'anon' ? null : ip);
+      res.status(202).json({ received: true });
+    },
   );
 
   r.get('/share/preview/:kind/:id', async (req, res) => {

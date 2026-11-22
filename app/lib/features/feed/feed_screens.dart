@@ -14,6 +14,7 @@ import '../../core/theme/bb_colors.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../legal/block_user.dart';
 import '../profile/profile_screens.dart';
 
 /// Bumped when the user posts, so the feed tabs pick up the new moment.
@@ -253,6 +254,19 @@ class _PostCardState extends ConsumerState<PostCard> {
                         targetId: post.id,
                       );
                     }
+                    if (v == 'block' &&
+                        post.author != null &&
+                        context.mounted) {
+                      final blocked = await confirmBlock(
+                        context,
+                        ref,
+                        uid: post.author!.id,
+                        name: post.author!.displayName,
+                      );
+                      if (blocked) {
+                        ref.read(feedRevisionProvider.notifier).bump();
+                      }
+                    }
                     if (v == 'delete') await _delete();
                     if (v == 'share' && context.mounted) {
                       final name = post.author?.displayName;
@@ -275,11 +289,17 @@ class _PostCardState extends ConsumerState<PostCard> {
                         value: 'delete',
                         child: Text('Delete'),
                       )
-                    else
+                    else ...[
                       const PopupMenuItem(
                         value: 'report',
                         child: Text('Report'),
                       ),
+                      if (post.author != null)
+                        const PopupMenuItem(
+                          value: 'block',
+                          child: Text('Block author'),
+                        ),
+                    ],
                   ],
                 ),
               ],
@@ -405,6 +425,42 @@ class _PostScreenState extends ConsumerState<PostScreen> {
     }
   }
 
+  /// Long-press on someone else's comment: report it, or block its author.
+  Future<void> _commentMenu(FeedComment c) async {
+    final author = c.author;
+    if (author == null || author.id == ref.read(meProvider).id) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: const Text('Report comment'),
+              onTap: () => Navigator.of(ctx).pop('report'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.block_outlined),
+              title: Text('Block ${author.displayName}'),
+              onTap: () => Navigator.of(ctx).pop('block'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'report') {
+      await ReportSheet.show(context, targetType: 'comment', targetId: c.id);
+    } else {
+      await confirmBlock(
+        context,
+        ref,
+        uid: author.id,
+        name: author.displayName,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Moment')),
@@ -441,6 +497,7 @@ class _PostScreenState extends ConsumerState<PostScreen> {
               style: TextStyle(color: BBColors.inkSubtle),
             ),
             itemBuilder: (context, c) => ListTile(
+              onLongPress: () => _commentMenu(c),
               leading: BBAvatar.user(c.author, size: 34),
               title: Text(
                 c.author?.displayName ?? 'User',

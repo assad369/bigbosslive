@@ -47,6 +47,7 @@ export interface Collections {
   announcements: Collection<S.AnnouncementDoc>;
   pushTokens: Collection<S.PushTokenDoc>;
   reports: Collection<S.ReportDoc>;
+  accountDeletionRequests: Collection<S.AccountDeletionRequestDoc>;
   devices: Collection<S.DeviceDoc>;
   deviceBans: Collection<S.DeviceBanDoc>;
   pkBattles: Collection<S.PkBattleDoc>;
@@ -105,6 +106,7 @@ const NAMES: Record<keyof Collections, string> = {
   announcements: 'announcements',
   pushTokens: 'push_tokens',
   reports: 'reports',
+  accountDeletionRequests: 'account_deletion_requests',
   devices: 'devices',
   deviceBans: 'device_bans',
   pkBattles: 'pk_battles',

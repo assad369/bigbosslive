@@ -53,8 +53,14 @@ export const CONFIG_SCHEMAS = {
     maintenance: z.boolean().default(false),
     maintenanceMessage: z.string().max(500).default(''),
     supportEmail: z.string().default('support@bigbosslive.app'),
-    termsUrl: z.string().default('https://bigbosslive.app/terms'),
-    privacyUrl: z.string().default('https://bigbosslive.app/privacy'),
+    // Legal pages are served by link-web on the share-link host (`/legal/*`).
+    termsUrl: z.string().default('https://bigbosslive.ctll.online/legal/terms'),
+    privacyUrl: z.string().default('https://bigbosslive.ctll.online/legal/privacy'),
+    communityGuidelinesUrl: z
+      .string()
+      .default('https://bigbosslive.ctll.online/legal/community-guidelines'),
+    childSafetyUrl: z.string().default('https://bigbosslive.ctll.online/legal/child-safety'),
+    deleteAccountUrl: z.string().default('https://bigbosslive.ctll.online/delete-account'),
     /** Display only: a wallet shows one star per this many diamonds (1 lakh by default). */
     diamondsPerStar: z.number().int().positive().default(100_000),
   }),

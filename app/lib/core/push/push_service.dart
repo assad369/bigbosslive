@@ -84,7 +84,8 @@ class PushService {
     if (_localReady) return;
     await _local.initialize(
       settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        // A white silhouette: Android tints status-bar icons, so a colour icon is a blank square.
+        android: AndroidInitializationSettings('@drawable/ic_stat_bigboss'),
         iOS: DarwinInitializationSettings(),
       ),
       onDidReceiveNotificationResponse: (r) {

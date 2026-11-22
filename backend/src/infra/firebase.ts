@@ -24,6 +24,7 @@ export interface AuthProvider {
    */
   setPassword(uid: string, password: string): Promise<void>;
   revokeSessions(uid: string): Promise<void>;
+  /** Deletes the sign-in identity. Succeeds when it is already gone. */
   deleteUser(uid: string): Promise<void>;
 }
 
@@ -124,7 +125,14 @@ export function createFirebaseAuth(env: Env): AuthProvider {
       await auth.revokeRefreshTokens(uid);
     },
     revokeSessions: (uid) => auth.revokeRefreshTokens(uid),
-    deleteUser: (uid) => auth.deleteUser(uid),
+    async deleteUser(uid) {
+      try {
+        await auth.deleteUser(uid);
+      } catch (err) {
+        // Already gone (a retried job, or deleted in the console): the goal is reached.
+        if ((err as { code?: unknown }).code !== 'auth/user-not-found') throw err;
+      }
+    },
   };
 }
 

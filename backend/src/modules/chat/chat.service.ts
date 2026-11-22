@@ -15,9 +15,13 @@ export const sendMessageInput = z
     clientId: z.string().min(8).max(64).nullable().default(null),
   })
   .refine(
-    (m) => (m.type === 'text' ? Boolean(m.text) : Boolean(m.mediaUrl)),
-    'Text messages need text; image messages need mediaUrl',
+    (m) => (m.type === 'text' ? Boolean(m.text) && m.mediaUrl === null : Boolean(m.mediaUrl)),
+    // A text message carrying a mediaUrl would skip the image check but still render.
+    'Text messages need text and no mediaUrl; image messages need mediaUrl',
   );
+
+/** Inbox photos are uploaded to this folder (`POST /uploads/presign` kind `chat`). */
+export const CHAT_MEDIA_FOLDER = 'chat';
 
 const pairKey = (a: string, b: string) => [a, b].sort().join(':');
 
@@ -73,6 +77,11 @@ export class ChatService {
     const ref = { type: 'message', messageId: String(messageId) } as const;
     if (input.text)
       await this.ctx.services.sightguard.assertText('private_chat', input.text, senderId, ref);
+    if (
+      input.mediaUrl &&
+      !(await this.ctx.storage.isOwnUpload(input.mediaUrl, CHAT_MEDIA_FOLDER, senderId))
+    )
+      throw badRequest('Photos must be uploaded from this account');
     if (input.type === 'image' && input.mediaUrl)
       await this.ctx.services.sightguard.assertImageUrl(
         'chat_media',

@@ -13,6 +13,7 @@ import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/widgets.dart';
+import '../legal/delete_account.dart';
 
 class BrandMark extends StatelessWidget {
   const BrandMark({super.key, this.size = 88});
@@ -208,6 +209,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cfg = ref.watch(appConfigProvider).value;
     final session = ref.watch(sessionProvider);
     final text = Theme.of(context).textTheme;
     return Scaffold(
@@ -285,15 +287,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 child: const Text('Send code'),
               ),
               const SizedBox(height: 32),
-              const Text.rich(
+              Text.rich(
                 TextSpan(
-                  style: TextStyle(color: BBColors.inkSubtle, fontSize: 12),
+                  style: const TextStyle(
+                    color: BBColors.inkSubtle,
+                    fontSize: 12,
+                  ),
                   children: [
-                    TextSpan(text: 'By continuing you agree to our '),
-                    WidgetSpan(child: _Link('Terms', Env.termsUrl)),
-                    TextSpan(text: ' and '),
-                    WidgetSpan(child: _Link('Privacy Policy', Env.privacyUrl)),
-                    TextSpan(text: '. You must be 18 or older.'),
+                    const TextSpan(
+                      text: 'BigBoss Live is for adults 18+. Read our ',
+                    ),
+                    WidgetSpan(
+                      child: _Link('Terms', cfg?.termsUrl ?? Env.termsUrl),
+                    ),
+                    const TextSpan(text: ' and '),
+                    WidgetSpan(
+                      child: _Link(
+                        'Privacy Policy',
+                        cfg?.privacyUrl ?? Env.privacyUrl,
+                      ),
+                    ),
+                    const TextSpan(text: '. You accept them after signing in.'),
                   ],
                 ),
                 textAlign: TextAlign.center,
@@ -555,9 +569,21 @@ class BannedScreen extends ConsumerWidget {
           else
             'Contact support if you believe this is a mistake.',
         ].join('\n'),
-        action: TextButton(
-          onPressed: () => ref.read(sessionProvider.notifier).signOut(),
-          child: const Text('Sign out'),
+        action: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              onPressed: () => ref.read(sessionProvider.notifier).signOut(),
+              child: const Text('Sign out'),
+            ),
+            // Anyone may delete their account, a suspended one included (Play's rule).
+            if (err is ApiException && err.code == 'account_banned')
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: BBColors.danger),
+                onPressed: () => confirmDeleteAccount(context, ref),
+                child: const Text('Delete account'),
+              ),
+          ],
         ),
       ),
     );

@@ -4,6 +4,8 @@ import { DEEP_LINK_ROUTES } from '@bigboss/shared';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { apiPreviewFetcher, type PreviewFetcher, type PreviewResult } from './preview.js';
+import { apiDeletionSubmitter, type DeletionSubmitter } from './deletion.js';
+import { LEGAL_PAGES } from './legal/pages.js';
 
 const FP = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0')).join(':');
 const HOST = 'bigbosslive.ctll.online';
@@ -244,5 +246,121 @@ describe('preview fetcher', () => {
     assert.equal((await fetchPreview('live', ROOM, null)).state, 'unavailable');
     assert.equal((await fetchPreview('live', ROOM, null)).state, 'unavailable');
     assert.equal(n, 2);
+  });
+});
+
+describe('legal pages', () => {
+  const app = createApp(config(), fakeFetcher({}).fetcher);
+
+  it('serves every legal page, naming the app and the operator, without a form', async () => {
+    for (const { path, title } of LEGAL_PAGES) {
+      const r = await get(app, path);
+      assert.equal(r.status, 200, path);
+      const html = await r.text();
+      has(html, title.replace("'", '&#39;'));
+      has(html, 'BigBoss Live');
+      has(html, 'Bigboss Live');
+      assert.match(r.headers.get('cache-control')!, /max-age=3600/);
+      const policy = r.headers.get('content-security-policy')!;
+      if (path === '/delete-account') assert.match(policy, /form-action 'self'/);
+      else assert.match(policy, /form-action 'none'/);
+    }
+  });
+
+  it('states the child-safety commitments Play checks for', async () => {
+    const html = await (await get(app, '/legal/child-safety')).text();
+    for (const part of [
+      'CSAE',
+      'CSAM',
+      'NCMEC',
+      'Report',
+      'zero tolerance',
+      'child safety contact',
+    ])
+      has(html, part);
+  });
+
+  it('is honest that diamonds can be withdrawn and balances are public', async () => {
+    const terms = await (await get(app, '/legal/terms')).text();
+    has(terms, 'can be withdrawn as money');
+    has(terms, '18 or older');
+    lacks(terms, 'no cash value');
+    const privacy = await (await get(app, '/legal/privacy')).text();
+    has(privacy, 'Your diamond balance is public');
+  });
+
+  it('redirects the short aliases and keeps the deletion page out of search', async () => {
+    const r = await get(app, '/privacy');
+    assert.equal(r.status, 301);
+    assert.equal(r.headers.get('location'), '/legal/privacy');
+    has(await (await get(app, '/robots.txt')).text(), 'Disallow: /delete-account');
+    has(await (await get(app, '/delete-account')).text(), 'noindex');
+    has(await (await get(app, '/')).text(), 'href="/legal/privacy"');
+  });
+});
+
+describe('account deletion form', () => {
+  const post = (app: ReturnType<typeof createApp>, form: Record<string, string>, ip?: string) =>
+    app.request(`https://${HOST}/delete-account`, {
+      method: 'POST',
+      body: new URLSearchParams(form),
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        ...(ip ? { 'x-forwarded-for': ip } : {}),
+      },
+    });
+
+  it('forwards a request with the visitor IP and confirms it, uncached', async () => {
+    const seen: { contact: string; reason: string; ip: string | null }[] = [];
+    const submit: DeletionSubmitter = async (input, ip) => {
+      seen.push({ ...input, ip });
+      return 'sent';
+    };
+    const app = createApp(config(), fakeFetcher({}).fetcher, submit);
+    const r = await post(app, { contact: ' 01700000000 ', reason: 'bye' }, '203.0.113.7');
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('cache-control'), 'no-store');
+    has(await r.text(), 'We received your request');
+    assert.deepEqual(seen, [{ contact: '01700000000', reason: 'bye', ip: '203.0.113.7' }]);
+  });
+
+  it('asks again for a missing contact without calling the API', async () => {
+    let calls = 0;
+    const app = createApp(config(), fakeFetcher({}).fetcher, async () => {
+      calls++;
+      return 'sent';
+    });
+    const html = await (await post(app, { contact: 'a', reason: '<b>x</b>' })).text();
+    has(html, 'Enter the phone number, email or numeric ID');
+    lacks(html, '<b>x</b>');
+    assert.equal(calls, 0);
+  });
+
+  it('explains a rate limit or an outage', async () => {
+    const limited = createApp(config(), fakeFetcher({}).fetcher, async () => 'rate_limited');
+    has(await (await post(limited, { contact: 'me@example.com' })).text(), 'Too many requests');
+    const down = createApp(config(), fakeFetcher({}).fetcher);
+    has(await (await post(down, { contact: 'me@example.com' })).text(), 'could not send');
+  });
+
+  it('posts JSON to the API with the service key', async () => {
+    const seen: { url: string; init: RequestInit }[] = [];
+    const fake = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return new Response('{"received":true}', { status: 202 });
+    }) as unknown as typeof fetch;
+    const submit = apiDeletionSubmitter(
+      config({ API_INTERNAL_URL: 'http://api:3000', LINK_SERVICE_KEY: 'k'.repeat(32) }),
+      fake,
+    );
+    assert.equal(await submit({ contact: 'me@example.com', reason: '' }, '203.0.113.9'), 'sent');
+    assert.equal(seen[0]!.url, 'http://api:3000/v1/account-deletion-requests');
+    const headers = seen[0]!.init.headers as Record<string, string>;
+    assert.equal(headers['x-link-service-key'], 'k'.repeat(32));
+    assert.equal(headers['x-client-ip'], '203.0.113.9');
+    assert.deepEqual(JSON.parse(seen[0]!.init.body as string), {
+      contact: 'me@example.com',
+      reason: '',
+    });
   });
 });

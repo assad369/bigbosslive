@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../core/config/env.dart';
 import '../../core/deep_links/deep_link.dart';
 import '../../core/deep_links/share_link.dart';
 import '../../core/media/avatar_picker.dart';
@@ -15,6 +17,7 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/wallet_balance.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../legal/delete_account.dart';
 import '../store/tier_packages_screen.dart';
 
 final userProvider = FutureProvider.autoDispose.family<PublicUser, String>(
@@ -651,14 +654,19 @@ class ReportSheet extends ConsumerStatefulWidget {
     super.key,
     required this.targetType,
     required this.targetId,
+    this.initialReason = 'spam',
   });
   final String targetType;
   final String targetId;
+
+  /// Preselected reason (`child_safety` from Settings → Safety).
+  final String initialReason;
 
   static Future<void> show(
     BuildContext context, {
     required String targetType,
     required String targetId,
+    String initialReason = 'spam',
   }) => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -666,27 +674,46 @@ class ReportSheet extends ConsumerStatefulWidget {
     // keyboard inset, so the field would end up under the keyboard.
     builder: (sheet) => Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheet).bottom),
-      child: ReportSheet(targetType: targetType, targetId: targetId),
+      child: ReportSheet(
+        targetType: targetType,
+        targetId: targetId,
+        initialReason: initialReason,
+      ),
     ),
+  );
+
+  /// A safety concern about nothing in particular (Settings → Safety). Its id is new each
+  /// time, so one open concern never blocks the next, and details are required.
+  static Future<void> showConcern(BuildContext context) => show(
+    context,
+    targetType: 'concern',
+    targetId: const Uuid().v4(),
+    initialReason: 'child_safety',
   );
 
   @override
   ConsumerState<ReportSheet> createState() => _ReportSheetState();
 }
 
+/// Report reasons, in the order shown. Mirrors `REPORT_REASONS` in `packages/shared`
+/// (`test/legal_contract_test.dart`); child safety comes first.
+const reportReasons = {
+  'child_safety': 'Child sexual exploitation or endangerment',
+  'spam': 'Spam or scam',
+  'harassment': 'Harassment or bullying',
+  'nudity': 'Nudity or sexual content',
+  'violence': 'Violence',
+  'hate': 'Hate speech',
+  'underage': 'Underage user',
+  'other': 'Something else',
+};
+
 class _ReportSheetState extends ConsumerState<ReportSheet> {
-  static const reasons = {
-    'spam': 'Spam or scam',
-    'harassment': 'Harassment or bullying',
-    'nudity': 'Nudity or sexual content',
-    'violence': 'Violence',
-    'hate': 'Hate speech',
-    'underage': 'Underage user',
-    'other': 'Something else',
-  };
-  String _reason = 'spam';
+  late String _reason = widget.initialReason;
   final _details = TextEditingController();
   bool _busy = false;
+
+  bool get _concern => widget.targetType == 'concern';
 
   @override
   void dispose() {
@@ -696,6 +723,10 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
 
   Future<void> _submit() async {
     if (_busy) return;
+    if (_concern && _details.text.trim().length < 10) {
+      showMessage(context, 'Describe what happened (at least 10 characters).');
+      return;
+    }
     setState(() => _busy = true);
     try {
       await ref
@@ -715,7 +746,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
         ..showSnackBar(
           const SnackBar(
             content: Text(
-              'Thanks — our team will review this within 24 hours.',
+              'Thanks. Our safety team reviews every report, child safety first.',
             ),
           ),
         );
@@ -735,14 +766,17 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Report', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            _concern ? 'Report a safety concern' : 'Report',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 8),
           RadioGroup<String>(
             groupValue: _reason,
             onChanged: (v) => setState(() => _reason = v ?? 'spam'),
             child: Column(
               children: [
-                for (final e in reasons.entries)
+                for (final e in reportReasons.entries)
                   RadioListTile<String>(
                     value: e.key,
                     title: Text(e.value),
@@ -752,12 +786,23 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
               ],
             ),
           ),
+          if (_reason == 'child_safety')
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'If a child is in immediate danger, contact your local police or '
+                'emergency services now.',
+                style: TextStyle(color: BBColors.danger, fontSize: 13),
+              ),
+            ),
           TextField(
             controller: _details,
             maxLength: 1000,
             maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Anything else we should know? (optional)',
+            decoration: InputDecoration(
+              hintText: _concern
+                  ? 'What happened, and who was involved (name or ID)?'
+                  : 'Anything else we should know? (optional)',
             ),
           ),
           const SizedBox(height: 8),
@@ -874,6 +919,29 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   );
 }
 
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    child: Text(
+      text.toUpperCase(),
+      style: const TextStyle(
+        color: BBColors.inkSubtle,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.6,
+      ),
+    ),
+  );
+}
+
+/// Legal pages open in an in-app browser tab, so the app is still there behind them.
+Future<void> _open(String url) =>
+    launchUrl(Uri.parse(url), mode: LaunchMode.inAppBrowserView);
+
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -896,27 +964,41 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => context.push('/settings/blocked'),
           ),
           const Divider(),
+          const _SectionLabel('Safety'),
+          ListTile(
+            leading: const Icon(Icons.shield_outlined),
+            title: const Text('Report a child safety concern'),
+            subtitle: const Text('Exploitation or endangerment of a minor'),
+            onTap: () => ReportSheet.showConcern(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.child_care_outlined),
+            title: const Text('Child safety standards'),
+            onTap: () => _open(cfg?.childSafetyUrl ?? Env.childSafetyUrl),
+          ),
+          ListTile(
+            leading: const Icon(Icons.groups_outlined),
+            title: const Text('Community guidelines'),
+            onTap: () => _open(
+              cfg?.communityGuidelinesUrl ?? Env.communityGuidelinesUrl,
+            ),
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.description_outlined),
             title: const Text('Terms of service'),
-            onTap: () => launchUrl(
-              Uri.parse(cfg?.termsUrl ?? 'https://bigbosslive.app/terms'),
-            ),
+            onTap: () => _open(cfg?.termsUrl ?? Env.termsUrl),
           ),
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
             title: const Text('Privacy policy'),
-            onTap: () => launchUrl(
-              Uri.parse(cfg?.privacyUrl ?? 'https://bigbosslive.app/privacy'),
-            ),
+            onTap: () => _open(cfg?.privacyUrl ?? Env.privacyUrl),
           ),
           ListTile(
             leading: const Icon(Icons.support_agent_outlined),
             title: const Text('Contact support'),
             onTap: () => launchUrl(
-              Uri.parse(
-                'mailto:${cfg?.supportEmail ?? 'support@bigbosslive.app'}',
-              ),
+              Uri.parse('mailto:${cfg?.supportEmail ?? Env.supportEmail}'),
             ),
           ),
           const Divider(),
@@ -937,39 +1019,9 @@ class SettingsScreen extends ConsumerWidget {
               style: TextStyle(color: BBColors.danger),
             ),
             subtitle: const Text(
-              'Permanently removes your profile and sign-in',
+              'Permanently deletes your account and your content',
             ),
-            onTap: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (c) => AlertDialog(
-                  title: const Text('Delete your account?'),
-                  content: const Text(
-                    'Your profile, followers and messages will be removed. Unused diamonds cannot be recovered. This cannot be undone.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => c.pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: BBColors.danger,
-                      ),
-                      onPressed: () => c.pop(true),
-                      child: const Text('Delete'),
-                    ),
-                  ],
-                ),
-              );
-              if (ok != true) return;
-              try {
-                await ref.read(accountRepo).deleteAccount();
-                await ref.read(sessionProvider.notifier).signOut();
-              } catch (e) {
-                if (context.mounted) showError(context, e);
-              }
-            },
+            onTap: () => confirmDeleteAccount(context, ref),
           ),
           if (version != null)
             Padding(

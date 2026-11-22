@@ -163,19 +163,31 @@ class _TierPackagesScreenState extends ConsumerState<TierPackagesScreen>
           context: context,
           builder: (c) => AlertDialog(
             title: Text(owned ? 'Extend ${p.name}?' : 'Buy ${p.name}?'),
-            content: Row(
+            content: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                DiamondAmount(
-                  p.priceDiamonds,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DiamondAmount(
+                      p.priceDiamonds,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      '  ·  +${p.durationDays} days',
+                      style: const TextStyle(color: BBColors.inkMuted),
+                    ),
+                  ],
                 ),
-                Text(
-                  '  ·  +${p.durationDays} days',
-                  style: const TextStyle(color: BBColors.inkMuted),
+                const SizedBox(height: 10),
+                const Text(
+                  'Paid once in diamonds. It doesn’t renew automatically, and diamonds '
+                  'spent on it aren’t refunded.',
+                  style: TextStyle(color: BBColors.inkSubtle, fontSize: 12),
                 ),
               ],
             ),

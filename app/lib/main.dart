@@ -20,9 +20,10 @@ Future<void> main() async {
 
   // Firebase reads google-services.json / GoogleService-Info.plist (see app/README.md).
   await Firebase.initializeApp();
+  // Local development only: a release build never talks to an auth emulator.
   final emulator = Env.authEmulator.split(':');
   final emulatorPort = emulator.length == 2 ? int.tryParse(emulator[1]) : null;
-  if (emulatorPort != null) {
+  if (kDebugMode && emulatorPort != null) {
     await FirebaseAuth.instance.useAuthEmulator(emulator[0], emulatorPort);
   }
   await GoogleSignIn.instance.initialize(

@@ -325,7 +325,13 @@ export const Page: FC<PageProps> = ({ c, platform, autoOpen, path, view }) => {
             autoOpen={autoOpen}
           />
         </div>
-        <p class="foot">{APP}: go live, host parties and chat with friends.</p>
+        <p class="foot">
+          {APP}: go live, host parties and chat with friends.
+          <br />
+          <a href="/legal/terms">Terms</a> · <a href="/legal/privacy">Privacy</a> ·{' '}
+          <a href="/legal/child-safety">Child safety</a> ·{' '}
+          <a href="/delete-account">Delete account</a>
+        </p>
       </body>
     </html>
   );

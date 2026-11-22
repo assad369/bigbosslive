@@ -53,7 +53,39 @@ String? _redirect(
   isIOS: isIOS,
 );
 
+final _unconsented = MeUser.fromJson({
+  'id': 'u2',
+  'shortId': '202',
+  'displayName': 'New',
+  'wallet': {'diamonds': 0},
+  'levelProgress': {'level': 0},
+  'needsConsent': true,
+});
+
 void main() {
+  group('consent and age', () {
+    test('a user who owes consent goes to /consent, from anywhere', () {
+      final session = AsyncData<MeUser?>(_unconsented);
+      expect(_redirect('/home', session: session), '/consent');
+      expect(_redirect('/live/r1', session: session), '/consent');
+      expect(_redirect('/splash', session: session), '/consent');
+      expect(_redirect('/consent', session: session), isNull);
+    });
+
+    test('once consent is given, /consent leads home', () {
+      expect(_redirect('/consent', session: AsyncData(_me)), '/home');
+    });
+
+    test('an underage account can only see /underage', () {
+      const session = AsyncError<MeUser?>(
+        ApiException(403, 'underage', 'You must be 18 or older'),
+        StackTrace.empty,
+      );
+      expect(_redirect('/home', session: session), '/underage');
+      expect(_redirect('/underage', session: session), '/underage');
+    });
+  });
+
   group('redirectFor', () {
     test('boots on the splash screen until there is something to decide', () {
       expect(_redirect('/live/r1', session: const AsyncLoading()), '/splash');

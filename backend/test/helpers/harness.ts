@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import supertest from 'supertest';
 import { inject } from 'vitest';
-import type { AdminRole } from '@bigboss/shared';
+import { CURRENT_TERMS_VERSION, type AdminRole } from '@bigboss/shared';
 import { createApp } from '../../src/app.js';
 import { buildContext } from '../../src/bootstrap.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -193,7 +193,10 @@ export class FakePush implements PushGateway {
 export const fakeStorage: StorageGateway & {
   last?: PresignUploadOptions;
   corsOrigins?: string[];
+  /** Every `deleteOwnerUploads` call, in order. */
+  erased: { ownerId: string; folders: string[]; keep: string[] }[];
 } = {
+  erased: [],
   async presignUpload(opts) {
     fakeStorage.last = opts;
     const key = `${opts.folder}/${opts.ownerId}/${randomUUID()}.${opts.ext}`;
@@ -208,6 +211,10 @@ export const fakeStorage: StorageGateway & {
   isOwnUpload: async (url, folder, ownerId) =>
     isOwnUploadUrl('https://cdn.test', url, folder, ownerId),
   isPlatformAsset: async (url) => isPlatformAssetUrl('https://cdn.test', url),
+  async deleteOwnerUploads(ownerId, folders, keep) {
+    fakeStorage.erased.push({ ownerId, folders, keep: [...keep] });
+    return 0;
+  },
   verify: async () => undefined,
   async applyCors(origins) {
     fakeStorage.corsOrigins = origins;
@@ -418,6 +425,7 @@ type DeepPartial<T> = {
 };
 
 let shortIdSeq = 20_000_000;
+export const ADULT_BIRTHDAY = new Date('1990-01-01T00:00:00Z');
 
 export async function createHarness(): Promise<Harness> {
   const uri = inject('mongoUri');
@@ -474,7 +482,11 @@ export async function createHarness(): Promise<Harness> {
       avatarUrl: null,
       bio: '',
       gender: null,
-      birthday: null,
+      // Adults who accepted the current terms, unless a test says otherwise.
+      birthday: 'birthday' in o ? ((o.birthday as Date | null) ?? null) : ADULT_BIRTHDAY,
+      termsAcceptedVersion:
+        'termsAcceptedVersion' in o ? (o.termsAcceptedVersion ?? null) : CURRENT_TERMS_VERSION,
+      termsAcceptedAt: now,
       country: o.country ?? 'BD',
       email: null,
       phone: null,

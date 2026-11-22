@@ -348,6 +348,31 @@ export class FeedService {
     return c.authorId;
   }
 
+  /**
+   * Account deletion: the user's posts and comments are removed with their text and media
+   * cleared, and their likes are taken back. Counters on other people's posts follow.
+   */
+  async eraseAuthor(uid: string): Promise<void> {
+    const now = this.ctx.clock.now();
+    await this.ctx.col.feedPosts.updateMany(
+      { authorId: uid },
+      { $set: { status: 'removed', text: '', media: [], updatedAt: now } },
+    );
+    const comments = await this.ctx.col.feedComments
+      .find({ authorId: uid, status: 'active' }, { projection: { _id: 1 } })
+      .toArray();
+    for (const c of comments) await this.systemRemoveComment(c._id);
+    await this.ctx.col.feedComments.updateMany({ authorId: uid }, { $set: { text: '' } });
+    const likes = await this.ctx.col.feedLikes
+      .find({ userId: uid }, { projection: { postId: 1 } })
+      .toArray();
+    for (const like of likes) {
+      const res = await this.ctx.col.feedLikes.deleteOne({ postId: like.postId, userId: uid });
+      if (res.deletedCount)
+        await this.ctx.col.feedPosts.updateOne({ _id: like.postId }, { $inc: { likeCount: -1 } });
+    }
+  }
+
   // ── Admin ──────────────────────────────────────────────────────────────────
 
   async adminList(

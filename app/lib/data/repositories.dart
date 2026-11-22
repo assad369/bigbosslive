@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../core/config/legal.dart';
 import '../core/network/api_client.dart';
 import '../core/utils/json.dart';
 import '../features/coin_bag/coin_bag_models.dart';
@@ -32,6 +33,22 @@ class AccountRepository {
   );
 
   Future<void> deleteAccount() => _api.delete('/me');
+
+  /// The consent screen: date of birth (given once) and the current Terms version.
+  Future<MeUser> consent({DateTime? birthday}) async {
+    final j = await _api.post(
+      '/me/consent',
+      body: {
+        'termsVersion': kTermsVersion,
+        if (birthday != null)
+          'birthday':
+              '${birthday.year.toString().padLeft(4, '0')}-'
+              '${birthday.month.toString().padLeft(2, '0')}-'
+              '${birthday.day.toString().padLeft(2, '0')}',
+      },
+    );
+    return MeUser.fromJson(j.obj('user'));
+  }
 
   Future<void> registerPushToken(String token, String platform) => _api.post(
     '/me/push-tokens',

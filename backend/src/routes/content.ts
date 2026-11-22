@@ -6,6 +6,7 @@ import { currentUser, parseBody, parseQuery } from '../lib/http.js';
 import { badRequest } from '../lib/errors.js';
 import { VOICE_FOLDER } from '../modules/live/live.service.js';
 import { AGENCY_LOGO_FOLDER } from '../modules/agencies/agencies.service.js';
+import { CHAT_MEDIA_FOLDER } from '../modules/chat/chat.service.js';
 
 const MB = 1024 * 1024;
 const IMAGES = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -15,7 +16,8 @@ const UPLOAD_KINDS = {
   avatar: { folder: 'avatars', types: AVATAR_IMAGES, maxBytes: 5 * MB },
   cover: { folder: 'covers', types: IMAGES, maxBytes: 5 * MB },
   post: { folder: 'posts', types: [...IMAGES, 'video/mp4'], maxBytes: 50 * MB },
-  chat: { folder: 'chat', types: IMAGES, maxBytes: 10 * MB },
+  /** Inbox photos. The folder is checked again when the message is sent. */
+  chat: { folder: CHAT_MEDIA_FOLDER, types: IMAGES, maxBytes: 10 * MB },
   report: { folder: 'reports', types: IMAGES, maxBytes: 10 * MB },
   /** Agency owners' logos. The folder is checked again when the agency profile is saved. */
   'agency-logo': { folder: AGENCY_LOGO_FOLDER, types: IMAGES, maxBytes: 2 * MB },

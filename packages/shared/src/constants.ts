@@ -157,8 +157,52 @@ export type GameTxStatus = (typeof GAME_TX_STATUSES)[number];
 export const GAME_LOCK_REASONS = ['disabled', 'level', 'blocked', 'live_off'] as const;
 export type GameLockReason = (typeof GAME_LOCK_REASONS)[number];
 
-export const REPORT_TARGETS = ['user', 'room', 'post', 'comment', 'message'] as const;
+/**
+ * `live_message` is room chat and `dm` an inbox message. `message` is what older apps send for
+ * either; the server resolves it to one of the two by lookup. `concern` is a report about
+ * nothing in particular (Settings → Safety), its id a client-made uuid and its details required.
+ */
+export const REPORT_TARGETS = [
+  'user',
+  'room',
+  'post',
+  'comment',
+  'message',
+  'live_message',
+  'dm',
+  'concern',
+] as const;
 export type ReportTarget = (typeof REPORT_TARGETS)[number];
+
+/** Report reasons. `child_safety` (CSAE) is always urgent and sorts first for staff. */
+export const REPORT_REASONS = [
+  'child_safety',
+  'spam',
+  'harassment',
+  'nudity',
+  'violence',
+  'hate',
+  'scam',
+  'underage',
+  'other',
+] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+export const REPORT_PRIORITIES = ['urgent', 'normal'] as const;
+export type ReportPriority = (typeof REPORT_PRIORITIES)[number];
+
+/**
+ * Version of the Terms, Community Guidelines and Privacy Policy a user accepts in the app.
+ * Bump it when those pages change materially: every user is asked to accept again.
+ */
+export const CURRENT_TERMS_VERSION = '2026-11-22';
+
+/** Nobody younger may hold an account. */
+export const MIN_USER_AGE = 18;
+
+/** Account-deletion requests made on the public web page (Play's deletion URL). */
+export const DELETION_REQUEST_STATUSES = ['pending', 'done', 'rejected'] as const;
+export type DeletionRequestStatus = (typeof DELETION_REQUEST_STATUSES)[number];
 
 export const REPORT_STATUSES = ['open', 'resolved', 'dismissed'] as const;
 export type ReportStatus = (typeof REPORT_STATUSES)[number];

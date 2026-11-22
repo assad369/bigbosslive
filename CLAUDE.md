@@ -474,6 +474,36 @@ the full contract.
 - `LINK_HOST` is one dart-define for Dart and the Android manifest. On iOS it is the Runner
   `LINK_HOST` build setting.
 
+## Store compliance: age, consent, deletion, reports (`docs/PLAY_STORE.md`)
+
+- **Age and consent:** `/me.needsConsent` (no `birthday`, or `termsAcceptedVersion` behind
+  `CURRENT_TERMS_VERSION`) sends the app to `/consent` before anything else
+  (`redirectFor`). `POST /me/consent` takes the date of birth once (`birthday_locked` after)
+  and the terms version (409 `terms_outdated`). Under `MIN_USER_AGE` sets `users.underageAt`:
+  `requireAuth` then answers 403 `underage` everywhere but `DELETE /me`, and a later adult date
+  doesn't lift it. Games launch and withdrawal requests call `assertAdultUser`
+  (`modules/users/age.ts`). Bump `CURRENT_TERMS_VERSION` and the app's `kTermsVersion`
+  together (`app/test/legal_contract_test.dart`).
+- **Account deletion** (`UsersService.deleteAccount`) must keep what the dialog, the privacy
+  policy and `/delete-account` promise: profile fields, follows, blocks, posts, comments, likes
+  and sent DMs go now; the Firebase user and uploads go in the retried `users.erase` job.
+  Ledger, gifts, withdrawals, reports and audit rows stay. A pending withdrawal blocks it (409).
+  Banned and underage users can delete (`requireAuth(ctx, { forDeletion: true })`). Media an
+  urgent report points to is kept as evidence.
+- **Web deletion requests:** `POST /v1/account-deletion-requests` (anonymous, in `shareRoutes`,
+  its own per-visitor limit, same answer whatever matches) from link-web's `/delete-account`
+  form; staff resolve them in admin → Deletion requests (`accounts.delete`).
+- **Reports:** reasons are `REPORT_REASONS`; `child_safety` is `priority: 'urgent'`, sorts
+  first, logs `child_safety_report` and audits `report.child_safety`. Message, post and comment
+  reports store a `snapshot`; the legacy `message` target resolves to `live_message` or `dm`
+  (a DM is only copied for a participant). `concern` needs details and a client uuid.
+- **Inbox media:** a `text` message may not carry `mediaUrl`, and an image must be the sender's
+  own upload in `CHAT_MEDIA_FOLDER`; otherwise it would skip the image check.
+- **Legal pages** live in link-web (`src/legal/`, operator details in `operator.ts`), linked
+  from `/config/app` (`termsUrl`, `privacyUrl`, `communityGuidelinesUrl`, `childSafetyUrl`,
+  `deleteAccountUrl`). They must stay true to the code: if a feature changes what is collected,
+  shown, kept or paid out, change the page in the same commit.
+
 ## Content moderation (SightGuard)
 
 - Setup and the channel table are in `docs/sightguard.md`. It is off unless `SIGHTGUARD_ENABLED`.

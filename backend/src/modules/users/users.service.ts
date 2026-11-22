@@ -1,10 +1,20 @@
 import { z } from 'zod';
-import { ASSIGNABLE_SHORT_ID_PATTERN, FIRST_SHORT_ID, SHORT_ID_PATTERN } from '@bigboss/shared';
+import {
+  ASSIGNABLE_SHORT_ID_PATTERN,
+  CURRENT_TERMS_VERSION,
+  FIRST_SHORT_ID,
+  MIN_USER_AGE,
+  SHORT_ID_PATTERN,
+} from '@bigboss/shared';
 import type { Filter } from 'mongodb';
 import type { Ctx } from '../../context.js';
 import type { UserDoc } from '../../db/schema.js';
 import type { VerifiedToken } from '../../infra/firebase.js';
-import { badRequest, conflict, isDuplicateKeyError, notFound } from '../../lib/errors.js';
+import { AppError, badRequest, conflict, isDuplicateKeyError, notFound } from '../../lib/errors.js';
+import { AGENCY_LOGO_FOLDER } from '../agencies/agencies.service.js';
+import { CHAT_MEDIA_FOLDER } from '../chat/chat.service.js';
+import { VOICE_FOLDER } from '../live/live.service.js';
+import { ageOn, assertAdultBirthday, plausibleBirthday, underage } from './age.js';
 import { BRIEF_PROJECTION, toPublicUser, toUserBrief, type UserBrief } from './users.presenter.js';
 
 export const profileInput = z.object({
@@ -16,6 +26,27 @@ export const profileInput = z.object({
   country: z.string().trim().length(2).toUpperCase().nullable(),
 });
 export type ProfileInput = z.infer<typeof profileInput>;
+
+export const consentInput = z.object({
+  /** Required unless the account already has one. Calendar date; time of day is ignored. */
+  birthday: z.coerce.date().nullable().default(null),
+  termsVersion: z.string().min(1).max(32),
+});
+
+/** Every folder a user's own uploads live in (`<folder>/<uid>/…`), erased on deletion. */
+const USER_UPLOAD_FOLDERS = [
+  'avatars',
+  'covers',
+  'posts',
+  CHAT_MEDIA_FOLDER,
+  'reports',
+  VOICE_FOLDER,
+  AGENCY_LOGO_FOLDER,
+];
+
+/** Stored dates of birth are UTC midnight of the calendar day the user picked. */
+const dayOnly = (d: Date) =>
+  new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
 /**
  * Accounts are numbered from FIRST_SHORT_ID on their own counter. The pre-switch counter
@@ -82,6 +113,7 @@ export class UsersService {
     if (existing) {
       if (existing.status === 'deleted')
         throw conflict('This account was deleted', 'account_deleted');
+      if (existing.underageAt) throw underage();
       const $set: Partial<UserDoc> = { lastSeenAt: now, adminRole: token.adminRole };
       if (token.email && token.email !== existing.email) $set.email = token.email;
       if (token.phone && token.phone !== existing.phone) $set.phone = token.phone;
@@ -89,9 +121,25 @@ export class UsersService {
       return { user: { ...existing, ...$set }, created: false };
     }
 
+    if (input.birthday) assertAdultBirthday(input.birthday, now);
     const displayName = await this.ctx.services.moderation.cleanText(
       input.displayName ?? token.name ?? `Boss${Math.floor(Math.random() * 1e6)}`,
     );
+    // Signup fields get the same checks as later edits (`updateProfile`).
+    const bio = input.bio ? await this.ctx.services.moderation.assertClean(input.bio, 'bio') : '';
+    const sightguard = this.ctx.services.sightguard;
+    if (input.bio)
+      await sightguard.assertText('bio', input.bio, token.uid, {
+        type: 'profile',
+        uid: token.uid,
+        field: 'bio',
+      });
+    if (input.avatarUrl)
+      await sightguard.assertImageUrl('avatar', input.avatarUrl, token.uid, {
+        type: 'avatar',
+        uid: token.uid,
+        url: input.avatarUrl,
+      });
     for (let attempt = 0; attempt < 3; attempt++) {
       const doc: UserDoc = {
         _id: token.uid,
@@ -99,9 +147,9 @@ export class UsersService {
         displayName: displayName.slice(0, 30),
         displayNameLower: displayName.slice(0, 30).toLowerCase(),
         avatarUrl: input.avatarUrl ?? token.picture ?? null,
-        bio: input.bio ?? '',
+        bio,
         gender: input.gender ?? null,
-        birthday: input.birthday ?? null,
+        birthday: input.birthday ? dayOnly(input.birthday) : null,
         country: input.country ?? null,
         email: token.email,
         phone: token.phone,
@@ -184,7 +232,19 @@ export class UsersService {
       $set.avatarUrl = patch.avatarUrl;
     }
     if (patch.gender !== undefined) $set.gender = patch.gender;
-    if (patch.birthday !== undefined) $set.birthday = patch.birthday;
+    if (patch.birthday !== undefined) {
+      // The date of birth is given once, on the consent screen, and can't be changed after.
+      const existing = current ?? (await this.get(uid));
+      if (existing.birthday) {
+        const same =
+          patch.birthday && dayOnly(patch.birthday).getTime() === existing.birthday.getTime();
+        if (!same)
+          throw new AppError(409, 'birthday_locked', 'Your date of birth can’t be changed');
+      } else if (patch.birthday) {
+        assertAdultBirthday(patch.birthday, this.ctx.clock.now());
+        $set.birthday = dayOnly(patch.birthday);
+      }
+    }
     if (patch.country !== undefined) $set.country = patch.country;
     const updated = await this.col.findOneAndUpdate(
       { _id: uid, status: { $ne: 'deleted' } },
@@ -363,12 +423,70 @@ export class UsersService {
   }
 
   /**
-   * Account deletion (store-policy requirement). Profile data is anonymised, balances are kept
-   * for the financial ledger, follow edges and push tokens are removed, and the Firebase user
-   * is deleted so the identity cannot sign back in.
+   * The consent screen: a date of birth (once) and acceptance of the current Terms. A date
+   * under `MIN_USER_AGE` locks the account for good (`underageAt`): a later adult date
+   * doesn't lift it, and their live ends.
+   */
+  async recordConsent(uid: string, input: z.infer<typeof consentInput>): Promise<UserDoc> {
+    const user = await this.get(uid);
+    const now = this.ctx.clock.now();
+    if (user.underageAt) throw underage();
+    if (input.termsVersion !== CURRENT_TERMS_VERSION)
+      throw new AppError(409, 'terms_outdated', 'Please update the app to accept the new terms');
+    const birthday = user.birthday ?? (input.birthday ? dayOnly(input.birthday) : null);
+    if (!birthday) throw new AppError(400, 'birthday_required', 'Enter your date of birth');
+    if (!plausibleBirthday(birthday, now))
+      throw new AppError(400, 'invalid_birthday', 'Enter a valid date of birth');
+    if (ageOn(birthday, now) < MIN_USER_AGE) {
+      await this.col.updateOne(
+        { _id: uid },
+        { $set: { birthday, underageAt: now, updatedAt: now } },
+      );
+      await this.ctx.services.live.endActiveRoomFor(uid, 'moderation', 'system');
+      throw underage();
+    }
+    const updated = await this.col.findOneAndUpdate(
+      { _id: uid, status: { $ne: 'deleted' } },
+      {
+        $set: {
+          birthday,
+          termsAcceptedVersion: CURRENT_TERMS_VERSION,
+          termsAcceptedAt: now,
+          updatedAt: now,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!updated) throw notFound('User');
+    return updated;
+  }
+
+  /**
+   * Account deletion (store-policy requirement). What goes:
+   * - Profile fields (name, photo, bio, email, phone, date of birth, gender, country).
+   * - Follows, blocks, push tokens, agency membership, open game sessions.
+   * - Feed posts, comments and likes; inbox messages they sent (cleared for both sides).
+   * - Devices, unless the account was banned (kept against ban evasion).
+   * - Their uploads and the sign-in identity, in the retried `users.erase` job, except media
+   *   that an urgent (child-safety) report holds as evidence.
+   *
+   * What stays, as the privacy policy says: the ledger, gift transactions and withdrawal
+   * records (financial law), reports and audit rows. Remaining diamonds are forfeited, and a
+   * pending withdrawal must be settled first (409 `withdrawal_pending`).
    */
   async deleteAccount(uid: string): Promise<void> {
     const now = this.ctx.clock.now();
+    const user = await this.col.findOne({ _id: uid, status: { $ne: 'deleted' } });
+    if (!user) throw notFound('User');
+    const pending = await this.ctx.col.withdrawals.countDocuments(
+      { userId: uid, status: 'pending' },
+      { limit: 1 },
+    );
+    if (pending)
+      throw conflict(
+        'You have a withdrawal under review. Wait for it to finish, then delete your account.',
+        'withdrawal_pending',
+      );
     await this.ctx.services.live.endActiveRoomFor(uid, 'host', uid);
     const res = await this.col.updateOne(
       { _id: uid, status: { $ne: 'deleted' } },
@@ -383,6 +501,8 @@ export class UsersService {
           email: null,
           phone: null,
           birthday: null,
+          gender: null,
+          country: null,
           updatedAt: now,
         },
       },
@@ -391,10 +511,46 @@ export class UsersService {
     await Promise.all([
       this.ctx.services.follows.removeAllFor(uid),
       this.ctx.col.pushTokens.deleteMany({ userId: uid }),
+      this.ctx.col.blocks.deleteMany({ $or: [{ blockerId: uid }, { blockedId: uid }] }),
       this.ctx.services.agencies.removeMember(uid).catch(() => undefined),
+      this.ctx.services.games.endSessions({ uid }),
+      this.ctx.services.feed.eraseAuthor(uid),
+      this.eraseSentMessages(uid, now),
+      user.status === 'banned'
+        ? Promise.resolve()
+        : this.ctx.col.devices.deleteMany({ userId: uid }).then(() => undefined),
     ]);
-    await this.ctx.auth
-      .deleteUser(uid)
-      .catch((err: unknown) => this.ctx.log.warn({ err, uid }, 'firebase delete failed'));
+    await this.ctx.jobs
+      .enqueue('users.erase', { uid })
+      .catch((err: unknown) => this.ctx.log.error({ err, uid }, 'users.erase not queued'));
+  }
+
+  /** Clears the text and media of every inbox message the user sent, for both sides. */
+  private async eraseSentMessages(uid: string, now: Date): Promise<void> {
+    await this.ctx.col.messages.updateMany(
+      { senderId: uid },
+      { $set: { text: null, mediaUrl: null, removedAt: now } },
+    );
+    await this.ctx.col.conversations.updateMany(
+      { participants: uid, 'lastMessage.senderId': uid },
+      { $set: { 'lastMessage.text': '' } },
+    );
+  }
+
+  /**
+   * The `users.erase` job: the Firebase identity and the user's uploads. Throws so the queue
+   * retries; both steps are safe to repeat.
+   */
+  async eraseExternal(uid: string): Promise<void> {
+    await this.ctx.auth.deleteUser(uid);
+    const evidence = await this.ctx.col.reports
+      .find(
+        { priority: 'urgent', 'snapshot.authorId': uid, 'snapshot.mediaUrl': { $ne: null } },
+        { projection: { 'snapshot.mediaUrl': 1 } },
+      )
+      .toArray();
+    const keep = new Set(evidence.map((r) => r.snapshot?.mediaUrl).filter((u): u is string => !!u));
+    const erased = await this.ctx.storage.deleteOwnerUploads(uid, USER_UPLOAD_FOLDERS, keep);
+    this.ctx.log.info({ uid, erased, kept: keep.size }, 'account uploads erased');
   }
 }

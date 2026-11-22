@@ -14,6 +14,8 @@ export interface JobPayloads {
   'games.end_sessions': { uid: string } | { gameId: string } | { all: true };
   /** Report a committed recharge to AsadSoft (hold against purchases). */
   'games.purchase': { rechargeId: string };
+  /** After account deletion: remove the sign-in identity and the user's uploads (retried). */
+  'users.erase': { uid: string };
 }
 export type JobName = keyof JobPayloads;
 export type JobHandlers = { [K in JobName]: (data: JobPayloads[K]) => Promise<void> };

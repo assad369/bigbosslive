@@ -16,7 +16,8 @@ final gamesProvider = FutureProvider.autoDispose.family<List<GameInfo>, bool>(
 );
 
 const _responsibleNote =
-    'Games use diamonds, which have no cash value. Play responsibly — 18+ only.';
+    'Games of chance played with diamonds: you can lose what you stake. '
+    '18+ only. Play responsibly.';
 
 /// The Games screen (home and profile). A game opens in a [GameSheet] over it.
 class GamesScreen extends ConsumerWidget {

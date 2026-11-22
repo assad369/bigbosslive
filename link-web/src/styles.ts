@@ -29,6 +29,19 @@ p{margin:0 0 12px;overflow-wrap:anywhere}
 .btn{display:block;text-align:center;padding:14px 16px;border-radius:14px;font-weight:700;text-decoration:none;color:var(--ink);background:linear-gradient(135deg,var(--gold-light),var(--gold) 45%,var(--gold-deep))}
 .btn.secondary{background:transparent;border:1px solid var(--border);color:var(--text);font-weight:600}
 .foot{margin-top:24px;font-size:13px;color:var(--muted);text-align:center;max-width:440px}
+.foot a{color:var(--muted)}
+.card.doc{max-width:760px}
+.doc h2{font-size:18px;margin:24px 0 8px}
+.doc ul{margin:0 0 12px;padding-left:20px}
+.doc li{margin-bottom:6px;overflow-wrap:anywhere}
+.doc a{color:var(--gold-light)}
+.legal-nav{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:28px;padding-top:16px;border-top:1px solid var(--border);font-size:14px}
+.form{display:flex;flex-direction:column;gap:8px;margin:8px 0 16px}
+.form label{font-size:14px;font-weight:600}
+.form input,.form textarea{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px}
+.form button{border:0;cursor:pointer;font:inherit;font-weight:700;margin-top:8px}
+.notice{padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:var(--bg)}
+.notice.error{border-color:var(--live)}
 `;
 
 /** The BigBoss mark: a gold disc with "BB", served at /assets/logo.svg. */

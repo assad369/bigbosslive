@@ -13,7 +13,7 @@ import {
   uidParam,
 } from '../lib/http.js';
 import { unauthorized } from '../lib/errors.js';
-import { profileInput } from '../modules/users/users.service.js';
+import { consentInput, profileInput } from '../modules/users/users.service.js';
 import { toMeUser } from '../modules/users/users.presenter.js';
 import { moderationFor } from '../modules/moderation/authority.js';
 import { pushTokenInput } from '../modules/notifications/notifications.service.js';
@@ -63,7 +63,16 @@ export function accountRoutes(ctx: Ctx): Router {
     res.json({ user: await me(auth.uid, auth.adminRole) });
   });
 
-  r.delete('/me', auth, async (req, res) => {
+  // The consent screen: date of birth (once) and the current Terms version.
+  r.post('/me/consent', auth, async (req, res) => {
+    const input = parseBody(req, consentInput);
+    const auth = currentUser(req);
+    await users.recordConsent(auth.uid, input);
+    res.json({ user: await me(auth.uid, auth.adminRole) });
+  });
+
+  // Banned and underage accounts can still delete themselves (Play's account-deletion rule).
+  r.delete('/me', requireAuth(ctx, { forDeletion: true }), async (req, res) => {
     await users.deleteAccount(currentUser(req).uid);
     res.status(204).end();
   });

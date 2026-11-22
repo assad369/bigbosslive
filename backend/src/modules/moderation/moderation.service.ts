@@ -1,6 +1,11 @@
 import { ObjectId, type Filter } from 'mongodb';
 import { z } from 'zod';
-import { REPORT_TARGETS, type ReportStatus, type ReportTarget } from '@bigboss/shared';
+import {
+  REPORT_REASONS,
+  REPORT_TARGETS,
+  type ReportStatus,
+  type ReportTarget,
+} from '@bigboss/shared';
 import type { Ctx } from '../../context.js';
 import type { ReportDoc } from '../../db/schema.js';
 import { AppError, badRequest, conflict, isDuplicateKeyError, notFound } from '../../lib/errors.js';
@@ -9,7 +14,7 @@ import { filterText } from './textFilter.js';
 export const reportInput = z.object({
   targetType: z.enum(REPORT_TARGETS),
   targetId: z.string().min(1).max(128),
-  reason: z.enum(['spam', 'harassment', 'nudity', 'violence', 'hate', 'scam', 'underage', 'other']),
+  reason: z.enum(REPORT_REASONS),
   details: z.string().trim().max(1000).default(''),
 });
 
@@ -121,14 +126,20 @@ export class ModerationService {
   async report(reporterId: string, input: z.infer<typeof reportInput>): Promise<ReportDoc> {
     if (input.targetType === 'user' && input.targetId === reporterId)
       throw badRequest('You cannot report yourself');
+    if (input.targetType === 'concern' && input.details.length < 10)
+      throw badRequest('Describe what happened (at least 10 characters)');
+    const { targetType, snapshot } = await this.reportTarget(reporterId, input);
+    const priority = input.reason === 'child_safety' ? 'urgent' : 'normal';
     const doc: ReportDoc = {
       _id: new ObjectId(),
       reporterId,
-      targetType: input.targetType,
+      targetType,
       targetId: input.targetId,
       reason: input.reason,
       details: input.details,
       status: 'open',
+      priority,
+      snapshot,
       resolution: null,
       createdAt: this.ctx.clock.now(),
     };
@@ -138,7 +149,101 @@ export class ModerationService {
       if (isDuplicateKeyError(err)) throw conflict('You already reported this', 'already_reported');
       throw err;
     }
+    if (priority === 'urgent') {
+      // Child safety: an error-level line for log alerting, and an audit row staff can find.
+      this.ctx.log.error(
+        { reportId: String(doc._id), targetType, targetId: input.targetId },
+        'child_safety_report',
+      );
+      await this.ctx.services.audit.recordSystem(
+        'report.child_safety',
+        { type: 'report', id: String(doc._id) },
+        { targetType, targetId: input.targetId },
+      );
+    }
     return doc;
+  }
+
+  /**
+   * Resolves the legacy `message` target to `live_message` or `dm`, and copies the reported
+   * content so the evidence outlives it (room chat expires after a week; authors delete).
+   * An inbox message is only copied for one of its two participants.
+   */
+  private async reportTarget(
+    reporterId: string,
+    input: z.infer<typeof reportInput>,
+  ): Promise<{ targetType: ReportTarget; snapshot: ReportDoc['snapshot'] }> {
+    const { targetType, targetId } = input;
+    if (!['message', 'live_message', 'dm', 'post', 'comment'].includes(targetType))
+      return { targetType, snapshot: null };
+    if (!ObjectId.isValid(targetId)) return { targetType, snapshot: null };
+    const _id = new ObjectId(targetId);
+
+    if (targetType === 'message' || targetType === 'live_message') {
+      const live = await this.ctx.col.liveMessages.findOne({ _id });
+      if (live)
+        return {
+          targetType: 'live_message',
+          snapshot: {
+            authorId: live.userId,
+            text: live.text || null,
+            mediaUrl: live.voice?.url ?? null,
+            createdAt: live.createdAt,
+          },
+        };
+      if (targetType === 'live_message') return { targetType, snapshot: null };
+    }
+    if (targetType === 'message' || targetType === 'dm') {
+      const dm = await this.ctx.col.messages.findOne({ _id });
+      if (!dm) return { targetType, snapshot: null };
+      const conv = await this.ctx.col.conversations.findOne(
+        { _id: dm.conversationId },
+        { projection: { participants: 1 } },
+      );
+      const party = conv?.participants.includes(reporterId) ?? false;
+      return {
+        targetType: 'dm',
+        snapshot: party
+          ? {
+              authorId: dm.senderId,
+              text: dm.text,
+              mediaUrl: dm.mediaUrl,
+              createdAt: dm.createdAt,
+            }
+          : null,
+      };
+    }
+    if (targetType === 'post') {
+      const post = await this.ctx.col.feedPosts.findOne({ _id });
+      return {
+        targetType,
+        snapshot: post
+          ? {
+              authorId: post.authorId,
+              text: post.text,
+              mediaUrl: post.media[0]?.url ?? null,
+              createdAt: post.createdAt,
+            }
+          : null,
+      };
+    }
+    const comment = await this.ctx.col.feedComments.findOne({ _id });
+    return {
+      targetType,
+      snapshot: comment
+        ? {
+            authorId: comment.authorId,
+            text: comment.text,
+            mediaUrl: null,
+            createdAt: comment.createdAt,
+          }
+        : null,
+    };
+  }
+
+  /** Open child-safety reports: the admin shows a banner while any wait. */
+  async urgentOpenCount(): Promise<number> {
+    return this.ctx.col.reports.countDocuments({ status: 'open', priority: 'urgent' });
   }
 
   async listReports(
@@ -152,7 +257,7 @@ export class ModerationService {
     const [items, total] = await Promise.all([
       this.ctx.col.reports
         .find(q)
-        .sort({ createdAt: -1 })
+        .sort({ priority: -1, createdAt: -1 })
         .skip((page - 1) * pageSize)
         .limit(pageSize)
         .toArray(),

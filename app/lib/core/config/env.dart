@@ -12,14 +12,23 @@ abstract final class Env {
     'GOOGLE_SERVER_CLIENT_ID',
   );
 
-  /// Privacy / terms fallbacks used before remote config loads.
+  /// Legal page fallbacks used before remote config loads (`/config/app`). link-web serves
+  /// them on the share-link host.
   static const privacyUrl = String.fromEnvironment(
     'PRIVACY_URL',
-    defaultValue: 'https://bigbosslive.app/privacy',
+    defaultValue: 'https://$linkHost/legal/privacy',
   );
   static const termsUrl = String.fromEnvironment(
     'TERMS_URL',
-    defaultValue: 'https://bigbosslive.app/terms',
+    defaultValue: 'https://$linkHost/legal/terms',
+  );
+  static const communityGuidelinesUrl =
+      'https://$linkHost/legal/community-guidelines';
+  static const childSafetyUrl = 'https://$linkHost/legal/child-safety';
+  static const deleteAccountUrl = 'https://$linkHost/delete-account';
+  static const supportEmail = String.fromEnvironment(
+    'SUPPORT_EMAIL',
+    defaultValue: 'support@bigbosslive.app',
   );
 
   /// Numeric App Store id, used by the force-update screen on iOS.

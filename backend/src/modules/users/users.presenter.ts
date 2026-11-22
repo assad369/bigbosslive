@@ -8,6 +8,7 @@ import type {
   UserBrief as UserBriefWire,
 } from '@bigboss/shared';
 import type { UserDoc } from '../../db/schema.js';
+import { needsConsent } from './age.js';
 
 export const PUBLIC_USER_PROJECTION = {
   shortId: 1,
@@ -158,6 +159,8 @@ export function toMeUser(
     vipExpiresAt: activeVipTier(u.vip, now) ? (u.vip.expiresAt?.toISOString() ?? null) : null,
     maintenanceAccess,
     moderation,
+    birthday: u.birthday?.toISOString() ?? null,
+    needsConsent: needsConsent(u),
   };
 }
 

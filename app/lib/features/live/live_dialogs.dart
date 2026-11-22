@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -179,7 +180,11 @@ Future<bool> ensureStagePermissions(
     if (video) Permission.camera,
   ].request();
   final mic = statuses[Permission.microphone];
-  if (mic?.isGranted ?? false) return true;
+  if (mic?.isGranted ?? false) {
+    // Android 12+: Bluetooth headsets for stage audio. Optional, so the answer is ignored.
+    if (Platform.isAndroid) await Permission.bluetoothConnect.request();
+    return true;
+  }
   if (!context.mounted) return false;
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()

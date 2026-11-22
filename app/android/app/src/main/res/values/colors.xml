@@ -2,4 +2,7 @@
 <resources>
     <color name="bb_gold">#B8860B</color>
     <color name="bb_ivory">#FBF7EF</color>
+    <!-- BBColors.espresso: the splash and the adaptive icon's background. -->
+    <color name="bb_espresso">#1D1610</color>
+    <color name="ic_launcher_background">#000000</color>
 </resources>

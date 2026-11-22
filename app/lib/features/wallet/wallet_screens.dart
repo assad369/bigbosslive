@@ -225,7 +225,9 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Diamonds are a virtual currency for gifts and features in BigBoss Live. They have no cash value and cannot be exchanged.',
+              'Diamonds are BigBoss Live’s virtual currency for gifts, items and games. '
+              'Diamonds you hold can be withdrawn at the rate shown in the app, after review, '
+              'under the Terms of Service.',
               style: TextStyle(color: BBColors.inkSubtle, fontSize: 12),
             ),
           ],

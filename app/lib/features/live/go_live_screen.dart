@@ -108,6 +108,8 @@ class _GoLiveScreenState extends ConsumerState<GoLiveScreen> {
       Permission.microphone,
       if (video) Permission.camera,
     ].request();
+    // Android 12+: Bluetooth headsets for live audio. Optional, so a refusal changes nothing.
+    if (Platform.isAndroid) await Permission.bluetoothConnect.request();
     if (!mounted || gen != _previewGen) return;
     final denied = statuses.values.any((s) => !s.isGranted);
     setState(() => _permissionDenied = denied);

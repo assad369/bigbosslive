@@ -5,6 +5,7 @@ import type { Ctx } from '../../context.js';
 import type { GameCatalogDoc, GameSessionDoc, UserDoc } from '../../db/schema.js';
 import { gamesUnavailable, sessionTokenOf } from '../../infra/asadsoft.js';
 import { AppError, badRequest, notFound } from '../../lib/errors.js';
+import { assertAdultUser } from '../users/age.js';
 import { afterCursor, encodeCursor } from '../../lib/http.js';
 import { gameLock, lockMessage, type GamesSettings } from './access.js';
 
@@ -106,6 +107,8 @@ export class GamesService {
     opts: { inLive: boolean; language: string },
   ): Promise<GameLaunch> {
     if (!this.configured) throw gamesUnavailable('Games are not available right now');
+    // Games of chance with withdrawable diamonds: adults with a stated date of birth only.
+    assertAdultUser(user, this.ctx.clock.now());
     const [settings, game] = await Promise.all([
       this.settings(),
       this.ctx.col.gameCatalog.findOne({ _id: gameId }),

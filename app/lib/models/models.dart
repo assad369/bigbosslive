@@ -1,3 +1,4 @@
+import '../core/config/env.dart';
 import '../core/utils/json.dart';
 import 'youtube.dart';
 
@@ -271,6 +272,8 @@ class MeUser {
     this.vipExpiresAt,
     this.maintenanceAccess = false,
     this.moderation,
+    this.birthday,
+    this.needsConsent = false,
   });
   final PublicUser profile;
   final Wallet wallet;
@@ -286,6 +289,12 @@ class MeUser {
 
   /// What this user may moderate from the app; null for everyone else.
   final MeModeration? moderation;
+
+  /// Date of birth (UTC midnight), never shown to others; null until given.
+  final DateTime? birthday;
+
+  /// The consent screen (date of birth + the current Terms) comes before anything else.
+  final bool needsConsent;
 
   /// Opens the Moderation panel (holds the platform moderator role).
   bool get isPlatformModerator => moderation?.isPlatformModerator ?? false;
@@ -307,6 +316,8 @@ class MeUser {
     vipExpiresAt: vipExpiresAt,
     maintenanceAccess: maintenanceAccess,
     moderation: moderation,
+    birthday: birthday,
+    needsConsent: needsConsent,
   );
 
   /// The server said this account is no longer on the maintenance list.
@@ -320,6 +331,8 @@ class MeUser {
     phone: phone,
     vipExpiresAt: vipExpiresAt,
     moderation: moderation,
+    birthday: birthday,
+    needsConsent: needsConsent,
   );
 
   MeUser withDiamonds(int diamonds) =>
@@ -339,6 +352,8 @@ class MeUser {
       final m? => MeModeration.fromJson(m),
       null => null,
     },
+    birthday: j.date('birthday'),
+    needsConsent: j.flag('needsConsent'),
   );
 }
 
@@ -1480,6 +1495,9 @@ class AppConfig {
     required this.termsUrl,
     required this.privacyUrl,
     required this.supportEmail,
+    this.communityGuidelinesUrl = Env.communityGuidelinesUrl,
+    this.childSafetyUrl = Env.childSafetyUrl,
+    this.deleteAccountUrl = Env.deleteAccountUrl,
     this.diamondsPerStar = defaultDiamondsPerStar,
     this.maxGiftReceivers = defaultMaxGiftReceivers,
   });
@@ -1499,6 +1517,13 @@ class AppConfig {
   final String termsUrl;
   final String privacyUrl;
   final String supportEmail;
+  final String communityGuidelinesUrl;
+
+  /// The published Child Safety Standards (CSAE), linked from Settings → Safety.
+  final String childSafetyUrl;
+
+  /// The web account-deletion page (Play's deletion URL).
+  final String deleteAccountUrl;
 
   /// A wallet shows one star per this many diamonds (`app.diamondsPerStar`).
   final int diamondsPerStar;
@@ -1523,9 +1548,18 @@ class AppConfig {
               .whereType<num>()
               .map((n) => n.toInt())
               .toList(),
-      termsUrl: app.str('termsUrl'),
-      privacyUrl: app.str('privacyUrl'),
-      supportEmail: app.str('supportEmail'),
+      termsUrl: _orDefault(app.str('termsUrl'), Env.termsUrl),
+      privacyUrl: _orDefault(app.str('privacyUrl'), Env.privacyUrl),
+      supportEmail: _orDefault(app.str('supportEmail'), Env.supportEmail),
+      communityGuidelinesUrl: _orDefault(
+        app.str('communityGuidelinesUrl'),
+        Env.communityGuidelinesUrl,
+      ),
+      childSafetyUrl: _orDefault(app.str('childSafetyUrl'), Env.childSafetyUrl),
+      deleteAccountUrl: _orDefault(
+        app.str('deleteAccountUrl'),
+        Env.deleteAccountUrl,
+      ),
       diamondsPerStar: switch (app.integer('diamondsPerStar')) {
         final n when n > 0 => n,
         _ => defaultDiamondsPerStar,
@@ -1537,6 +1571,9 @@ class AppConfig {
     );
   }
 }
+
+String _orDefault(String value, String fallback) =>
+    value.trim().isEmpty ? fallback : value;
 
 // ── Host agencies ───────────────────────────────────────────────────────────
 

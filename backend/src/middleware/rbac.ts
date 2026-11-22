@@ -12,6 +12,8 @@ export const PERMISSIONS = {
   'users.read': ['support', 'moderator', 'finance', 'admin'],
   'users.moderate': ['moderator', 'admin'],
   'users.edit': ['admin'],
+  /** Web account-deletion requests: match the visitor to an account and delete it. */
+  'accounts.delete': ['support', 'admin'],
   'wallet.adjust': ['finance', 'admin'],
   'wallet.read': ['finance', 'admin', 'support'],
   'live.read': ['support', 'moderator', 'admin'],

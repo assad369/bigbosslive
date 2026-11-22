@@ -12,12 +12,27 @@ import {
 } from './pages.js';
 import { detectPlatform } from './platform.js';
 import type { PreviewFetcher } from './preview.js';
+import type { DeletionSubmitter } from './deletion.js';
+import {
+  childSafetyView,
+  deleteAccountView,
+  guidelinesView,
+  legalIndexView,
+  privacyView,
+  refundsView,
+  termsView,
+} from './legal/pages.js';
 import { LOGO_SVG, OPEN_JS, SITE_CSS } from './styles.js';
 import { appleAppSiteAssociation, assetLinks } from './well-known.js';
 
+const csp = (formAction: string) =>
+  `default-src 'none'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action ${formAction}; frame-ancestors 'none'`;
+
+/** The only page with a form: the web account-deletion request. */
+const DELETE_ACCOUNT_PATH = '/delete-account';
+
 const SECURITY_HEADERS: Record<string, string> = {
-  'Content-Security-Policy':
-    "default-src 'none'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'Content-Security-Policy': csp("'none'"),
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
@@ -33,13 +48,21 @@ function clientIp(c: Context, header: string): string | null {
   return ip && ip.length <= 64 ? ip : null;
 }
 
-export function createApp(config: Config, fetchPreview: PreviewFetcher) {
+const deletionFailed = async (): Promise<'error'> => 'error';
+
+export function createApp(
+  config: Config,
+  fetchPreview: PreviewFetcher,
+  submitDeletion: DeletionSubmitter = deletionFailed,
+) {
   // strict: false → `/live/<id>/` is the same page as `/live/<id>` (no redirect hop).
   const app = new Hono({ strict: false });
 
   app.use('*', async (c, next) => {
     await next();
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) c.header(k, v);
+    if (c.req.path.replace(/\/$/, '') === DELETE_ACCOUNT_PATH)
+      c.header('Content-Security-Policy', csp("'self'"));
   });
 
   const render = (c: Context, path: string, view: View) => {
@@ -79,9 +102,54 @@ export function createApp(config: Config, fetchPreview: PreviewFetcher) {
   app.get('/assets/open.js', (c) => asset(c, OPEN_JS, 'text/javascript; charset=utf-8', 3600));
   app.get('/assets/logo.svg', (c) => asset(c, LOGO_SVG, 'image/svg+xml'));
   app.get('/favicon.ico', (c) => asset(c, LOGO_SVG, 'image/svg+xml'));
-  app.get('/robots.txt', (c) => c.text('User-agent: *\nAllow: /\n'));
+  app.get('/robots.txt', (c) =>
+    c.text(`User-agent: *\nAllow: /\nDisallow: ${DELETE_ACCOUNT_PATH}\n`),
+  );
 
   app.get('/', (c) => render(c, '/', landingView()));
+
+  // Legal pages: Play links the privacy policy, child safety standards and deletion URL.
+  app.get('/legal', (c) => render(c, '/legal', legalIndexView()));
+  app.get('/legal/terms', (c) => render(c, '/legal/terms', termsView()));
+  app.get('/legal/privacy', (c) => render(c, '/legal/privacy', privacyView()));
+  app.get('/legal/community-guidelines', (c) =>
+    render(c, '/legal/community-guidelines', guidelinesView()),
+  );
+  app.get('/legal/child-safety', (c) => render(c, '/legal/child-safety', childSafetyView()));
+  app.get('/legal/refunds', (c) => render(c, '/legal/refunds', refundsView()));
+  // Short aliases people type.
+  app.get('/privacy', (c) => c.redirect('/legal/privacy', 301));
+  app.get('/terms', (c) => c.redirect('/legal/terms', 301));
+  app.get('/child-safety', (c) => c.redirect('/legal/child-safety', 301));
+
+  app.get(DELETE_ACCOUNT_PATH, (c) => render(c, DELETE_ACCOUNT_PATH, deleteAccountView()));
+  app.post(DELETE_ACCOUNT_PATH, async (c) => {
+    const body = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
+    const field = (k: string) => (typeof body[k] === 'string' ? (body[k] as string).trim() : '');
+    const contact = field('contact');
+    const reason = field('reason').slice(0, 500);
+    if (contact.length < 3 || contact.length > 120) {
+      const view = deleteAccountView({
+        kind: 'form',
+        contact,
+        reason,
+        problem: 'Enter the phone number, email or numeric ID of the account.',
+      });
+      return render(c, DELETE_ACCOUNT_PATH, view);
+    }
+    const result = await submitDeletion({ contact, reason }, clientIp(c, config.CLIENT_IP_HEADER));
+    const view =
+      result === 'sent'
+        ? deleteAccountView({ kind: 'sent' })
+        : deleteAccountView({
+            kind: 'error',
+            message:
+              result === 'rate_limited'
+                ? 'Too many requests from this network. Try again in an hour, or email us.'
+                : 'We could not send your request. Try again, or email us.',
+          });
+    return render(c, DELETE_ACCOUNT_PATH, view);
+  });
 
   app.get('/:prefix/:id', async (c) => {
     const route = byPrefix.get(c.req.param('prefix'));

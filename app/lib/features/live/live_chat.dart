@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,6 +15,7 @@ import '../../core/vip_tier.dart';
 import '../../core/widgets/tier_badge.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../legal/block_user.dart';
 import '../profile/profile_screens.dart';
 import 'live_room_controller.dart';
 import 'live_stage.dart';
@@ -65,7 +67,7 @@ class _VoicePlayback extends ChangeNotifier {
 
 /// The in-room message list: newest at the bottom, fading out at the top. Tapping a name
 /// opens the person; long-pressing a message offers reply, copy, report and delete.
-class LiveChatList extends StatefulWidget {
+class LiveChatList extends ConsumerStatefulWidget {
   const LiveChatList({
     super.key,
     required this.c,
@@ -77,10 +79,10 @@ class LiveChatList extends StatefulWidget {
   final void Function(ChatLine line) onReply;
 
   @override
-  State<LiveChatList> createState() => _LiveChatListState();
+  ConsumerState<LiveChatList> createState() => _LiveChatListState();
 }
 
-class _LiveChatListState extends State<LiveChatList> {
+class _LiveChatListState extends ConsumerState<LiveChatList> {
   final _voice = _VoicePlayback();
 
   @override
@@ -125,6 +127,12 @@ class _LiveChatListState extends State<LiveChatList> {
                 title: const Text('Report user'),
                 onTap: () => ctx.pop('report_user'),
               ),
+              if (line.user != null)
+                ListTile(
+                  leading: const Icon(Icons.block_outlined),
+                  title: const Text('Block user'),
+                  onTap: () => ctx.pop('block_user'),
+                ),
             ],
             // The server refuses messages of staff and platform moderators to everyone but
             // their author and staff; its message is shown then.
@@ -157,8 +165,15 @@ class _LiveChatListState extends State<LiveChatList> {
       case 'report':
         await ReportSheet.show(
           context,
-          targetType: 'message',
+          targetType: 'live_message',
           targetId: line.id,
+        );
+      case 'block_user':
+        await confirmBlock(
+          context,
+          ref,
+          uid: line.user!.id,
+          name: line.user!.displayName,
         );
       case 'report_user':
         await ReportSheet.show(

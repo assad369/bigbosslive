@@ -15,6 +15,7 @@ import type {
   PkEndReason,
   PkRoundState,
   PkStatus,
+  ReportPriority,
   ReportStatus,
   ReportTarget,
   RoomStatus,
@@ -181,6 +182,13 @@ export interface MeUser extends PublicUser {
   maintenanceAccess: boolean;
   /** What this user may moderate from inside the app; null for everyone else. */
   moderation: MeModeration | null;
+  /** Date of birth (UTC midnight); null until the user gives it. Never on public profiles. */
+  birthday: IsoDate | null;
+  /**
+   * The app must collect a date of birth and acceptance of `CURRENT_TERMS_VERSION` before
+   * anything else (the consent screen).
+   */
+  needsConsent: boolean;
 }
 
 /**
@@ -606,7 +614,17 @@ export interface Report {
   reason: string;
   details: string;
   status: ReportStatus;
+  priority: ReportPriority;
+  /** What was reported, copied at report time so evidence outlives the content. */
+  snapshot: ReportSnapshot | null;
   createdAt: IsoDate;
+}
+
+export interface ReportSnapshot {
+  authorId: string | null;
+  text: string | null;
+  mediaUrl: string | null;
+  createdAt: IsoDate | null;
 }
 
 export interface Withdrawal {

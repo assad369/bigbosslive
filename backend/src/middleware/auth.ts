@@ -3,6 +3,7 @@ import type { AdminRole } from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 import type { UserDoc } from '../db/schema.js';
 import { AppError, unauthorized } from '../lib/errors.js';
+import { underage } from '../modules/users/age.js';
 import type { VerifiedToken } from '../infra/firebase.js';
 
 export interface AuthUser {
@@ -65,6 +66,11 @@ export function requireAuth(
   opts: {
     /** The admin dashboard keeps working while the app is closed for maintenance. */
     duringMaintenance?: boolean;
+    /**
+     * Banned and underage accounts may still use this route. Only account deletion opts in:
+     * Play requires that anyone can delete their account.
+     */
+    forDeletion?: boolean;
   } = {},
 ): RequestHandler {
   return async (req: Request, _res: Response, next: NextFunction) => {
@@ -78,7 +84,8 @@ export function requireAuth(
       );
     }
     const now = ctx.clock.now();
-    if (user.status === 'banned') {
+    if (user.underageAt && !opts.forDeletion) throw underage();
+    if (user.status === 'banned' && !opts.forDeletion) {
       if (user.ban?.until && user.ban.until <= now) {
         await ctx.services.users.liftExpiredBan(user._id);
         user.status = 'active';
@@ -92,7 +99,7 @@ export function requireAuth(
     }
 
     const deviceId = normalizeDeviceId(req.header('x-device-id'));
-    if (deviceId && (await ctx.services.moderation.isDeviceBanned(deviceId))) {
+    if (!opts.forDeletion && deviceId && (await ctx.services.moderation.isDeviceBanned(deviceId))) {
       throw new AppError(403, 'device_banned', 'This device is banned');
     }
 

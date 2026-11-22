@@ -26,6 +26,7 @@ import { SightGuardEventsService } from './modules/sightguard/sightguard-events.
 import { SightGuardService } from './modules/sightguard/sightguard.service.js';
 import { StoreService } from './modules/store/store.service.js';
 import { UsersService } from './modules/users/users.service.js';
+import { DeletionRequestsService } from './modules/users/deletion-requests.service.js';
 import { TierPackagesService } from './modules/vip/tier-packages.service.js';
 import { IapService } from './modules/wallet/iap.service.js';
 import { WalletService } from './modules/wallet/wallet.service.js';
@@ -39,6 +40,7 @@ export interface Services {
   chat: ChatService;
   coinBags: CoinBagsService;
   config: ConfigService;
+  deletionRequests: DeletionRequestsService;
   feed: FeedService;
   follows: FollowsService;
   games: GamesService;
@@ -79,6 +81,7 @@ export function createServices(ctx: Ctx): Services {
     chat: new ChatService(ctx),
     coinBags: new CoinBagsService(ctx),
     config: new ConfigService(ctx),
+    deletionRequests: new DeletionRequestsService(ctx),
     feed: new FeedService(ctx),
     follows: new FollowsService(ctx),
     games: new GamesService(ctx),

@@ -10,6 +10,7 @@ import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/wallet_balance.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
+import '../legal/block_user.dart';
 import '../moderation/ban_sheet.dart';
 import '../profile/profile_screens.dart';
 import 'live_room_controller.dart';
@@ -363,15 +364,30 @@ class LiveUserSheet extends ConsumerWidget {
               ],
             ),
             if (!me)
-              Align(
-                child: TextButton(
-                  onPressed: () => ReportSheet.show(
-                    context,
-                    targetType: 'user',
-                    targetId: user.id,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: () => ReportSheet.show(
+                      context,
+                      targetType: 'user',
+                      targetId: user.id,
+                    ),
+                    child: const Text('Report'),
                   ),
-                  child: const Text('Report'),
-                ),
+                  TextButton(
+                    onPressed: () async {
+                      final blocked = await confirmBlock(
+                        context,
+                        ref,
+                        uid: user.id,
+                        name: user.displayName,
+                      );
+                      if (blocked && context.mounted) context.pop();
+                    },
+                    child: const Text('Block'),
+                  ),
+                ],
               ),
             if (actions.isNotEmpty) ...[const Divider(), ...actions],
           ],

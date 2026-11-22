@@ -238,6 +238,8 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
   ],
   reports: [
     { key: { status: 1, createdAt: -1 } },
+    // The staff queue: urgent (child safety) first ('urgent' > 'normal' > absent), then newest.
+    { key: { status: 1, priority: -1, createdAt: -1 } },
     { key: { targetType: 1, targetId: 1 } },
     {
       key: { reporterId: 1, targetType: 1, targetId: 1 },
@@ -245,6 +247,7 @@ export const INDEXES: { [K in keyof Collections]?: IndexDescription[] } = {
       partialFilterExpression: { status: 'open' },
     },
   ],
+  accountDeletionRequests: [{ key: { status: 1, createdAt: -1, _id: -1 } }],
   devices: [{ key: { userId: 1, deviceId: 1 }, unique: true }, { key: { deviceId: 1 } }],
   pkBattles: [
     {

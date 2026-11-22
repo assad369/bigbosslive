@@ -16,6 +16,8 @@ import type {
   PkEndReason,
   PkRoundState,
   PkStatus,
+  DeletionRequestStatus,
+  ReportPriority,
   ReportStatus,
   ReportTarget,
   RoomStatus,
@@ -117,6 +119,14 @@ export interface UserDoc {
   };
   agencyId: ObjectId | null;
   liveRoomId: ObjectId | null;
+  /** The `CURRENT_TERMS_VERSION` the user accepted in the app, and when. Absent until then. */
+  termsAcceptedVersion?: string | null;
+  termsAcceptedAt?: Date | null;
+  /**
+   * Set when the user gave a date of birth under `MIN_USER_AGE`. The account is then refused
+   * everywhere (403 `underage`) except deleting it, and a later adult date doesn't lift it.
+   */
+  underageAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   lastSeenAt: Date;
@@ -674,7 +684,35 @@ export interface ReportDoc {
   reason: string;
   details: string;
   status: ReportStatus;
+  /** `urgent` for child safety. Absent on rows older than this field (read as normal). */
+  priority?: ReportPriority;
+  /** The reported content as it was when reported (messages, posts, comments). */
+  snapshot?: {
+    authorId: string | null;
+    text: string | null;
+    mediaUrl: string | null;
+    createdAt: Date | null;
+  } | null;
   resolution: { by: string; action: string; note: string | null; at: Date } | null;
+  createdAt: Date;
+}
+
+/**
+ * A deletion request from the public web page (Play's account-deletion URL). Anonymous, so
+ * staff match `contact` to an account before deleting it.
+ */
+export interface AccountDeletionRequestDoc {
+  _id: ObjectId;
+  /** Email, phone number or short id, as the visitor typed it. */
+  contact: string;
+  reason: string;
+  status: DeletionRequestStatus;
+  /** The account staff deleted, once done. */
+  resolvedUid: string | null;
+  note: string | null;
+  reviewedBy: string | null;
+  reviewedAt: Date | null;
+  ip: string | null;
   createdAt: Date;
 }
 

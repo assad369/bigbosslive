@@ -18,6 +18,9 @@ const UserDetailPage = lazy(() =>
 const LivePage = lazy(() => import('./pages/live/LivePage').then((m) => ({ default: m.LivePage })));
 const moderation = () => import('./pages/moderation/ModerationPages');
 const ReportsPage = lazy(() => moderation().then((m) => ({ default: m.ReportsPage })));
+const DeletionRequestsPage = lazy(() =>
+  moderation().then((m) => ({ default: m.DeletionRequestsPage })),
+);
 const FeedModerationPage = lazy(() =>
   moderation().then((m) => ({ default: m.FeedModerationPage })),
 );
@@ -82,6 +85,11 @@ const routes: { path: string; permission: string; element: ReactNode }[] = [
   { path: '/pk', permission: 'live.read', element: <PkBattlesPage /> },
   { path: '/feed', permission: 'feed.moderate', element: <FeedModerationPage /> },
   { path: '/reports', permission: 'reports.read', element: <ReportsPage /> },
+  {
+    path: '/deletion-requests',
+    permission: 'accounts.delete',
+    element: <DeletionRequestsPage />,
+  },
   { path: '/devices', permission: 'devices.ban', element: <DeviceBansPage /> },
   {
     path: '/platform-moderators',

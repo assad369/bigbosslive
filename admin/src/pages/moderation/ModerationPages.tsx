@@ -14,7 +14,7 @@ import {
   Typography,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PkBattle } from '@bigboss/shared';
 import { get, send } from '../../lib/api';
 import { ago, dateTime, diamonds, num } from '../../lib/format';
@@ -36,11 +36,20 @@ interface ReportRow {
   _id: string;
   reporter: Brief | null;
   targetUser: Brief | null;
+  /** Who wrote the reported message, post or comment. */
+  author: Brief | null;
   targetType: string;
   targetId: string;
   reason: string;
   details: string;
   status: string;
+  priority: 'urgent' | 'normal';
+  snapshot: {
+    authorId: string | null;
+    text: string | null;
+    mediaUrl: string | null;
+    createdAt: string | null;
+  } | null;
   resolution: { by: string; action: string; note: string | null; at: string } | null;
   createdAt: string;
 }
@@ -50,6 +59,14 @@ export function ReportsPage() {
   const [status, setStatus] = useState<string | undefined>('open');
   const [targetType, setTargetType] = useState<string | undefined>();
   const [resolving, setResolving] = useState<ReportRow | null>(null);
+  // Open child-safety reports, whatever the filters: they come first and must not wait.
+  const urgent = useQuery({
+    queryKey: ['reports', 'urgent'],
+    queryFn: () =>
+      get<{ urgentOpen: number }>('/admin/reports', { status: 'open', page: 1, pageSize: 1 }),
+    refetchInterval: 60_000,
+  });
+  const urgentOpen = urgent.data?.urgentOpen ?? 0;
 
   return (
     <>
@@ -57,6 +74,15 @@ export function ReportsPage() {
         title="Reports"
         subtitle="User reports across profiles, rooms, posts and messages"
       />
+      {urgentOpen > 0 && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`${urgentOpen} open child-safety report${urgentOpen === 1 ? '' : 's'}`}
+          description="Review these first. Remove the content, ban the account, keep the evidence, and report confirmed child sexual abuse material to NCMEC or the relevant authority (docs/PLAY_STORE.md, child safety)."
+        />
+      )}
       <ServerTable<ReportRow>
         queryKey="reports"
         url="/admin/reports"
@@ -78,7 +104,16 @@ export function ReportsPage() {
               value={targetType}
               onChange={setTargetType}
               style={{ width: 130 }}
-              options={['user', 'room', 'post', 'comment', 'message'].map((s) => ({
+              options={[
+                'user',
+                'room',
+                'post',
+                'comment',
+                'live_message',
+                'dm',
+                'concern',
+                'message',
+              ].map((s) => ({
                 value: s,
                 label: s,
               }))}
@@ -88,7 +123,25 @@ export function ReportsPage() {
         expandable={{
           expandedRowRender: (r) => (
             <Typography.Paragraph style={{ margin: 0 }}>
-              {r.details || <i>No details</i>}
+              {r.snapshot && (
+                <>
+                  <b>Reported content</b>
+                  {r.snapshot.createdAt && <> ({dateTime(r.snapshot.createdAt)})</>}:{' '}
+                  {r.snapshot.text ?? <i>no text</i>}
+                  {r.snapshot.mediaUrl &&
+                    (/\.(m4a|aac|mp3|ogg|wav)(\?|$)/i.test(r.snapshot.mediaUrl) ? (
+                      <audio controls src={r.snapshot.mediaUrl} style={{ display: 'block' }} />
+                    ) : (
+                      <Image
+                        width={160}
+                        src={r.snapshot.mediaUrl}
+                        style={{ display: 'block', marginTop: 8 }}
+                      />
+                    ))}
+                  <br />
+                </>
+              )}
+              <b>Reporter's note:</b> {r.details || <i>No details</i>}
               {r.resolution && (
                 <>
                   <br />
@@ -108,6 +161,11 @@ export function ReportsPage() {
             render: (_, r) =>
               r.targetUser ? (
                 <UserCell user={r.targetUser} />
+              ) : r.author ? (
+                <Space direction="vertical" size={0}>
+                  <Tag>{r.targetType}</Tag>
+                  <UserCell user={r.author} />
+                </Space>
               ) : (
                 <Space>
                   <Tag>{r.targetType}</Tag>
@@ -119,8 +177,13 @@ export function ReportsPage() {
           },
           {
             title: 'Reason',
-            dataIndex: 'reason',
-            render: (r: string) => <Tag color="volcano">{r}</Tag>,
+            key: 'reason',
+            render: (_, r) =>
+              r.priority === 'urgent' ? (
+                <Tag color="red">URGENT · {r.reason.replace(/_/g, ' ')}</Tag>
+              ) : (
+                <Tag color="volcano">{r.reason}</Tag>
+              ),
           },
           { title: 'Status', dataIndex: 'status', render: (s: string) => <StatusTag status={s} /> },
           {
@@ -171,6 +234,140 @@ export function ReportsPage() {
             <Typography.Text type="secondary">
               Ban users or end rooms from their detail pages; this records the decision.
             </Typography.Text>
+          </>
+        )}
+      </FormModal>
+    </>
+  );
+}
+
+// ── Account deletion requests (the public web page, Play's deletion URL) ────────────
+
+interface DeletionRequestRow {
+  _id: string;
+  contact: string;
+  reason: string;
+  status: 'pending' | 'done' | 'rejected';
+  resolvedUser: Brief | null;
+  note: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+export function DeletionRequestsPage() {
+  const [status, setStatus] = useState<string | undefined>('pending');
+  const [resolving, setResolving] = useState<DeletionRequestRow | null>(null);
+  return (
+    <>
+      <PageHeader
+        title="Deletion requests"
+        subtitle="Account deletions asked for on the website. Match the contact to an account, then delete it."
+      />
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Verify before deleting"
+        description="Only delete when the email, phone or ID clearly belongs to the requester (for example, they wrote from that email, or confirm a detail only the owner knows). Deletion is permanent. Settle a pending withdrawal first."
+      />
+      <ServerTable<DeletionRequestRow>
+        queryKey="deletion-requests"
+        url="/admin/deletion-requests"
+        filters={{ status }}
+        rowKey="_id"
+        toolbar={
+          <FilterBar>
+            <Select
+              allowClear
+              placeholder="Status"
+              value={status}
+              onChange={setStatus}
+              style={{ width: 130 }}
+              options={['pending', 'done', 'rejected'].map((s) => ({ value: s, label: s }))}
+            />
+          </FilterBar>
+        }
+        columns={[
+          { title: 'Requested', dataIndex: 'createdAt', render: ago },
+          {
+            title: 'Contact',
+            dataIndex: 'contact',
+            render: (c: string) => <Typography.Text copyable>{c}</Typography.Text>,
+          },
+          {
+            title: 'Reason',
+            dataIndex: 'reason',
+            render: (r: string) => r || <i>None given</i>,
+          },
+          { title: 'Status', dataIndex: 'status', render: (s: string) => <StatusTag status={s} /> },
+          {
+            title: 'Account',
+            key: 'user',
+            render: (_, r) => (r.resolvedUser ? <UserCell user={r.resolvedUser} /> : r.note),
+          },
+          {
+            title: '',
+            key: 'a',
+            render: (_, r) =>
+              r.status === 'pending' && (
+                <Button size="small" onClick={() => setResolving(r)}>
+                  Resolve
+                </Button>
+              ),
+          },
+        ]}
+      />
+      <FormModal<{ action: 'delete' | 'reject'; user?: string; note?: string }>
+        open={Boolean(resolving)}
+        title={`Deletion request from ${resolving?.contact ?? ''}`}
+        onClose={() => setResolving(null)}
+        initialValues={{ action: 'delete' }}
+        invalidate={[['deletion-requests']]}
+        okText="Confirm"
+        submit={(v) =>
+          send('post', `/admin/deletion-requests/${resolving!._id}/resolve`, {
+            action: v.action,
+            ...(v.action === 'delete' ? { user: v.user } : {}),
+            note: v.note?.trim() || (v.action === 'delete' ? null : undefined),
+          })
+        }
+      >
+        {(form) => (
+          <>
+            <Form.Item name="action" label="Outcome" rules={[{ required: true }]}>
+              <Select
+                options={[
+                  { value: 'delete', label: 'Delete the account' },
+                  { value: 'reject', label: 'Reject (could not verify, or no account)' },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item noStyle shouldUpdate>
+              {() =>
+                form.getFieldValue('action') === 'delete' ? (
+                  <Form.Item
+                    name="user"
+                    label="Account (short ID, uid, email or phone)"
+                    rules={[{ required: true }]}
+                  >
+                    <Input />
+                  </Form.Item>
+                ) : null
+              }
+            </Form.Item>
+            <Form.Item
+              name="note"
+              label="Note"
+              rules={[
+                ({ getFieldValue }) => ({
+                  required: getFieldValue('action') === 'reject',
+                  min: 3,
+                  message: 'Say why (at least 3 characters)',
+                }),
+              ]}
+            >
+              <Input.TextArea rows={3} maxLength={500} />
+            </Form.Item>
           </>
         )}
       </FormModal>
