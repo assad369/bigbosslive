@@ -27,36 +27,55 @@ describe('age', () => {
 });
 
 describe('consent screen', () => {
-  it('asks for a date of birth and the current terms until both are given', async () => {
+  it('asks only for the current terms; the date of birth is not part of it', async () => {
     await h.user('new1', { birthday: null, termsAcceptedVersion: null });
     const before = await h.api.get('/v1/me').set(h.as('new1'));
     expect(before.body.user).toMatchObject({ needsConsent: true, birthday: null });
 
-    const missing = await h.api
-      .post('/v1/me/consent')
-      .set(h.as('new1'))
-      .send({ termsVersion: CURRENT_TERMS_VERSION });
-    expect(missing.body.error.code).toBe('birthday_required');
     const stale = await h.api
       .post('/v1/me/consent')
       .set(h.as('new1'))
-      .send({ termsVersion: '2000-01-01', birthday: yearsAgo(30) });
+      .send({ termsVersion: '2000-01-01' });
     expect(stale.status).toBe(409);
 
     const ok = await h.api
       .post('/v1/me/consent')
       .set(h.as('new1'))
-      .send({ termsVersion: CURRENT_TERMS_VERSION, birthday: yearsAgo(30) });
+      .send({ termsVersion: CURRENT_TERMS_VERSION });
     expect(ok.status).toBe(200);
-    expect(ok.body.user.needsConsent).toBe(false);
-    expect(ok.body.user.birthday).toBe(`${yearsAgo(30)}T00:00:00.000Z`);
+    expect(ok.body.user).toMatchObject({ needsConsent: false, birthday: null });
+  });
 
-    // The date of birth is given once.
+  it('takes the date of birth once from Edit profile', async () => {
+    await h.user('dob1', { birthday: null });
+    const set = await h.api
+      .patch('/v1/me')
+      .set(h.as('dob1'))
+      .send({ birthday: yearsAgo(30) });
+    expect(set.status).toBe(200);
+    expect(set.body.user.birthday).toBe(`${yearsAgo(30)}T00:00:00.000Z`);
+
     const change = await h.api
       .patch('/v1/me')
-      .set(h.as('new1'))
+      .set(h.as('dob1'))
       .send({ birthday: yearsAgo(40) });
     expect(change.body.error.code).toBe('birthday_locked');
+
+    await h.user('dob2', { birthday: null });
+    const future = await h.api.patch('/v1/me').set(h.as('dob2')).send({ birthday: '2999-01-01' });
+    expect(future.body.error.code).toBe('invalid_birthday');
+  });
+
+  it('locks an account that gives an under-18 date in Edit profile', async () => {
+    await h.user('kid2', { birthday: null });
+    const res = await h.api
+      .patch('/v1/me')
+      .set(h.as('kid2'))
+      .send({ birthday: yearsAgo(18, 1) });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('underage');
+    expect((await h.api.get('/v1/me').set(h.as('kid2'))).body.error.code).toBe('underage');
+    expect((await h.ctx.col.users.findOne({ _id: 'kid2' }))!.underageAt).toBeInstanceOf(Date);
   });
 
   it('locks an account that gives an under-18 date, for good, but lets it delete itself', async () => {

@@ -65,7 +65,7 @@ refuses games and withdrawals to anyone without a stated adult date of birth.
 |---|---|
 | Privacy policy | `https://bigbosslive.ctll.online/legal/privacy` |
 | Ads | No ads |
-| App access | Give a reviewer login: a Firebase **test phone number** with a fixed code (Firebase console → Authentication → Sign-in method → Phone). The reviewer must pass the consent screen with an adult date of birth. |
+| App access | Give a reviewer login: a Firebase **test phone number** with a fixed code (Firebase console → Authentication → Sign-in method → Phone). The reviewer accepts the Terms on the consent screen; to test games or withdrawals, add an adult date of birth in Edit profile. |
 | Target audience | **18 and over only.** Not designed for children. |
 | Content rating (IARC) | User interaction: yes. Users can communicate with each other, share location: no, share personal info: yes (profiles, phone numbers in messages). Digital purchases: yes. Simulated gambling: yes (games of chance). Real-money gambling: answer truthfully (staked diamonds can be withdrawn). |
 | News app | No |
@@ -98,7 +98,7 @@ No data is used for advertising and none is sold.
 | Email address | Yes (Google/Apple sign-in) | No | Account | Optional (depends on sign-in) |
 | User IDs | Yes | Games provider, LiveKit | App functionality, fraud prevention | Required |
 | Phone number | Yes (phone sign-in) | No | Account | Optional (depends on sign-in) |
-| Date of birth | Yes | No | Age verification (compliance) | Required |
+| Date of birth | Yes | No | Age verification (compliance) | Optional |
 | Other info: gender, country, bio | Yes | No | App functionality | Optional |
 | Financial info: purchase history | Yes | No | App functionality, compliance | Required for purchases |
 | Financial info: other (payout account) | Yes | No | Payouts | Optional (withdrawals only) |

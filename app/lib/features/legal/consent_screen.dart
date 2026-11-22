@@ -1,7 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/config/env.dart';
@@ -12,49 +11,25 @@ import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/widgets.dart';
 import 'delete_account.dart';
 
-/// Before anything else: a date of birth (given once, an under-18 date locks the account) and
-/// acceptance of the current Terms, Community Guidelines and Privacy Policy. The router sends
-/// every signed-in user with `needsConsent` here, existing accounts included.
+/// Before anything else: acceptance of the current Terms, Community Guidelines and Privacy
+/// Policy. The router sends every signed-in user with `needsConsent` here, existing accounts
+/// included. The date of birth is given from Edit profile instead.
 class ConsentScreen extends ConsumerStatefulWidget {
-  const ConsentScreen({super.key, this.today});
-
-  /// Fixed in tests; otherwise the device date.
-  final DateTime? today;
+  const ConsentScreen({super.key});
 
   @override
   ConsumerState<ConsentScreen> createState() => _ConsentScreenState();
 }
 
 class _ConsentScreenState extends ConsumerState<ConsentScreen> {
-  DateTime? _birthday;
   bool _agreed = false;
   bool _busy = false;
 
-  DateTime get _today => widget.today ?? DateTime.now();
-
-  Future<void> _pickBirthday() async {
-    final today = _today;
-    // Opens on today in year view: no adult date is suggested.
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _birthday ?? today,
-      firstDate: DateTime(today.year - 120),
-      lastDate: today,
-      initialDatePickerMode: DatePickerMode.year,
-      helpText: 'Your date of birth',
-    );
-    if (picked != null) setState(() => _birthday = picked);
-  }
-
   Future<void> _submit() async {
-    final me = ref.read(sessionProvider).value;
-    final needsBirthday = me?.birthday == null;
-    if (_busy || !_agreed || (needsBirthday && _birthday == null)) return;
+    if (_busy || !_agreed) return;
     setState(() => _busy = true);
     try {
-      final updated = await ref
-          .read(accountRepo)
-          .consent(birthday: needsBirthday ? _birthday : null);
+      final updated = await ref.read(accountRepo).consent();
       ref.read(sessionProvider.notifier).replace(updated);
     } on ApiException catch (e) {
       if (e.code == 'underage') {
@@ -71,10 +46,8 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(sessionProvider).value;
     final cfg = ref.watch(appConfigProvider).value;
-    final needsBirthday = me?.birthday == null;
-    final ready = _agreed && (!needsBirthday || _birthday != null);
+    final ready = _agreed;
     const link = TextStyle(
       color: BBColors.bronze,
       fontWeight: FontWeight.w700,
@@ -107,31 +80,9 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'We need your date of birth to confirm your age. It is never shown on your '
-              'profile, and it can’t be changed later.',
+              'Please read and accept our rules before you continue.',
               style: TextStyle(color: BBColors.inkMuted),
             ),
-            const SizedBox(height: 20),
-            if (needsBirthday)
-              OutlinedButton.icon(
-                key: const Key('consent-birthday'),
-                onPressed: _busy ? null : _pickBirthday,
-                icon: const Icon(Icons.cake_outlined),
-                label: Text(
-                  _birthday == null
-                      ? 'Select your date of birth'
-                      : DateFormat('d MMMM y').format(_birthday!),
-                ),
-              )
-            else
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.cake_outlined),
-                title: Text(
-                  DateFormat('d MMMM y').format(me!.birthday!.toUtc()),
-                ),
-                subtitle: const Text('Date of birth'),
-              ),
             const SizedBox(height: 20),
             CheckboxListTile(
               key: const Key('consent-agree'),

@@ -19,6 +19,7 @@ import '../../core/widgets/widgets.dart';
 import '../../models/models.dart';
 import '../legal/delete_account.dart';
 import '../store/tier_packages_screen.dart';
+import 'birthday_tile.dart';
 
 final userProvider = FutureProvider.autoDispose.family<PublicUser, String>(
   (ref, uid) => ref.watch(accountRepo).user(uid),
@@ -1159,6 +1160,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           ],
           onChanged: (v) => setState(() => _gender = v),
         ),
+        const SizedBox(height: 12),
+        const BirthdayTile(),
         const SizedBox(height: 24),
         GoldButton(label: 'Save', loading: _saving, onPressed: _save),
       ],

@@ -34,21 +34,23 @@ class AccountRepository {
 
   Future<void> deleteAccount() => _api.delete('/me');
 
-  /// The consent screen: date of birth (given once) and the current Terms version.
-  Future<MeUser> consent({DateTime? birthday}) async {
+  /// The consent screen: the current Terms version.
+  Future<MeUser> consent() async {
     final j = await _api.post(
       '/me/consent',
-      body: {
-        'termsVersion': kTermsVersion,
-        if (birthday != null)
-          'birthday':
-              '${birthday.year.toString().padLeft(4, '0')}-'
-              '${birthday.month.toString().padLeft(2, '0')}-'
-              '${birthday.day.toString().padLeft(2, '0')}',
-      },
+      body: {'termsVersion': kTermsVersion},
     );
     return MeUser.fromJson(j.obj('user'));
   }
+
+  /// The date of birth, given once from Edit profile. An under-18 date answers `underage`
+  /// and locks the account.
+  Future<MeUser> setBirthday(DateTime birthday) => updateProfile({
+    'birthday':
+        '${birthday.year.toString().padLeft(4, '0')}-'
+        '${birthday.month.toString().padLeft(2, '0')}-'
+        '${birthday.day.toString().padLeft(2, '0')}',
+  });
 
   Future<void> registerPushToken(String token, String platform) => _api.post(
     '/me/push-tokens',

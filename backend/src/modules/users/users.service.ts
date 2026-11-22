@@ -28,7 +28,7 @@ export const profileInput = z.object({
 export type ProfileInput = z.infer<typeof profileInput>;
 
 export const consentInput = z.object({
-  /** Required unless the account already has one. Calendar date; time of day is ignored. */
+  /** Optional (older apps): a first date of birth, checked like `PATCH /me`. Calendar date. */
   birthday: z.coerce.date().nullable().default(null),
   termsVersion: z.string().min(1).max(32),
 });
@@ -233,7 +233,8 @@ export class UsersService {
     }
     if (patch.gender !== undefined) $set.gender = patch.gender;
     if (patch.birthday !== undefined) {
-      // The date of birth is given once, on the consent screen, and can't be changed after.
+      // The date of birth is given once, from Edit profile, and can't be changed after.
+      // An under-18 date locks the account, as the consent screen used to.
       const existing = current ?? (await this.get(uid));
       if (existing.birthday) {
         const same =
@@ -241,8 +242,7 @@ export class UsersService {
         if (!same)
           throw new AppError(409, 'birthday_locked', 'Your date of birth can’t be changed');
       } else if (patch.birthday) {
-        assertAdultBirthday(patch.birthday, this.ctx.clock.now());
-        $set.birthday = dayOnly(patch.birthday);
+        $set.birthday = await this.checkNewBirthday(uid, dayOnly(patch.birthday));
       }
     }
     if (patch.country !== undefined) $set.country = patch.country;
@@ -423,18 +423,12 @@ export class UsersService {
   }
 
   /**
-   * The consent screen: a date of birth (once) and acceptance of the current Terms. A date
-   * under `MIN_USER_AGE` locks the account for good (`underageAt`): a later adult date
-   * doesn't lift it, and their live ends.
+   * A first date of birth (calendar day). Implausible → 400. Under `MIN_USER_AGE` locks the
+   * account for good (`underageAt`): a later adult date doesn't lift it, and their live ends.
+   * Returns the date to store when it is an adult one.
    */
-  async recordConsent(uid: string, input: z.infer<typeof consentInput>): Promise<UserDoc> {
-    const user = await this.get(uid);
+  private async checkNewBirthday(uid: string, birthday: Date): Promise<Date> {
     const now = this.ctx.clock.now();
-    if (user.underageAt) throw underage();
-    if (input.termsVersion !== CURRENT_TERMS_VERSION)
-      throw new AppError(409, 'terms_outdated', 'Please update the app to accept the new terms');
-    const birthday = user.birthday ?? (input.birthday ? dayOnly(input.birthday) : null);
-    if (!birthday) throw new AppError(400, 'birthday_required', 'Enter your date of birth');
     if (!plausibleBirthday(birthday, now))
       throw new AppError(400, 'invalid_birthday', 'Enter a valid date of birth');
     if (ageOn(birthday, now) < MIN_USER_AGE) {
@@ -445,11 +439,28 @@ export class UsersService {
       await this.ctx.services.live.endActiveRoomFor(uid, 'moderation', 'system');
       throw underage();
     }
+    return birthday;
+  }
+
+  /**
+   * The consent screen: acceptance of the current Terms. The date of birth is given from
+   * Edit profile instead; one passed here (by an older app) is checked like that one.
+   */
+  async recordConsent(uid: string, input: z.infer<typeof consentInput>): Promise<UserDoc> {
+    const user = await this.get(uid);
+    const now = this.ctx.clock.now();
+    if (user.underageAt) throw underage();
+    if (input.termsVersion !== CURRENT_TERMS_VERSION)
+      throw new AppError(409, 'terms_outdated', 'Please update the app to accept the new terms');
+    const birthday =
+      !user.birthday && input.birthday
+        ? await this.checkNewBirthday(uid, dayOnly(input.birthday))
+        : null;
     const updated = await this.col.findOneAndUpdate(
       { _id: uid, status: { $ne: 'deleted' } },
       {
         $set: {
-          birthday,
+          ...(birthday ? { birthday } : {}),
           termsAcceptedVersion: CURRENT_TERMS_VERSION,
           termsAcceptedAt: now,
           updatedAt: now,

@@ -146,7 +146,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/otp',
         redirect: (_, s) => s.extra is OtpArgs ? null : '/login',
-        builder: (_, s) => OtpScreen(args: s.extra! as OtpArgs),
+        // A session change rebuilds this page before the top-level redirect moves away, and
+        // that rebuild can arrive without `extra`.
+        builder: (_, s) => s.extra is OtpArgs
+            ? OtpScreen(args: s.extra! as OtpArgs)
+            : const LoginScreen(),
       ),
       GoRoute(path: '/offline', builder: (_, _) => const OfflineScreen()),
       GoRoute(path: '/banned', builder: (_, _) => const BannedScreen()),

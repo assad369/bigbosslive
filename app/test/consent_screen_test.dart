@@ -1,4 +1,3 @@
-import 'package:bigboss_live/core/network/api_exception.dart';
 import 'package:bigboss_live/core/providers.dart';
 import 'package:bigboss_live/data/repositories.dart';
 import 'package:bigboss_live/features/legal/consent_screen.dart';
@@ -21,16 +20,13 @@ class _Session extends SessionController {
   Future<MeUser?> build() async => _me();
 }
 
-/// Records the consent call and answers like the server: under 18 is refused.
+/// Records the consent call.
 class _Account implements AccountRepository {
-  DateTime? sent;
+  int calls = 0;
 
   @override
-  Future<MeUser> consent({DateTime? birthday}) async {
-    sent = birthday;
-    if (birthday != null && birthday.isAfter(DateTime(2008, 6, 1))) {
-      throw const ApiException(403, 'underage', 'You must be 18 or older');
-    }
+  Future<MeUser> consent() async {
+    calls++;
     return _me(needsConsent: false);
   }
 
@@ -56,30 +52,11 @@ Future<ProviderContainer> _pump(WidgetTester tester, _Account account) async {
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp(home: ConsentScreen(today: DateTime(2026, 6, 1))),
+      child: const MaterialApp(home: ConsentScreen()),
     ),
   );
   await tester.pumpAndSettle();
   return container;
-}
-
-Future<void> _pickYear(WidgetTester tester, String year) async {
-  await tester.tap(find.byKey(const Key('consent-birthday')));
-  await tester.pumpAndSettle();
-  await tester.scrollUntilVisible(
-    find.text(year),
-    -200,
-    scrollable: find.descendant(
-      of: find.byType(YearPicker),
-      matching: find.byType(Scrollable),
-    ),
-  );
-  await tester.ensureVisible(find.text(year));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(year));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('OK'));
-  await tester.pumpAndSettle();
 }
 
 /// The box itself: the row's text holds the Terms / Guidelines / Privacy links.
@@ -93,36 +70,21 @@ bool _continueEnabled(WidgetTester tester) => tester
     .enabled;
 
 void main() {
-  testWidgets('Continue needs a date of birth and the box ticked', (
+  testWidgets('Continue needs only the box ticked, no date of birth', (
     tester,
   ) async {
     final account = _Account();
     final container = await _pump(tester, account);
+    expect(find.byIcon(Icons.cake_outlined), findsNothing);
     expect(_continueEnabled(tester), isFalse);
 
     await tester.tap(_agreeBox);
     await tester.pump();
-    expect(_continueEnabled(tester), isFalse, reason: 'no date of birth yet');
-
-    await _pickYear(tester, '1990');
     expect(_continueEnabled(tester), isTrue);
 
     await tester.tap(find.byKey(const Key('consent-continue')));
     await tester.pumpAndSettle();
-    expect(account.sent?.year, 1990);
+    expect(account.calls, 1);
     expect(container.read(sessionProvider).value?.needsConsent, isFalse);
-  });
-
-  testWidgets('an under-18 date ends in the underage refusal', (tester) async {
-    final account = _Account();
-    final container = await _pump(tester, account);
-    await tester.tap(_agreeBox);
-    await _pickYear(tester, '2015');
-    await tester.tap(find.byKey(const Key('consent-continue')));
-    await tester.pumpAndSettle();
-    expect(account.sent?.year, 2015);
-    final err = container.read(sessionProvider).error;
-    expect(err, isA<ApiException>());
-    expect((err! as ApiException).code, 'underage');
   });
 }

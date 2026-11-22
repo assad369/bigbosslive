@@ -27,9 +27,12 @@ export function assertAdultBirthday(birthday: Date, now: Date): void {
   if (ageOn(birthday, now) < MIN_USER_AGE) throw underage();
 }
 
-/** The app shows the consent screen (date of birth + terms) until this is false. */
-export const needsConsent = (u: Pick<UserDoc, 'birthday' | 'termsAcceptedVersion'>): boolean =>
-  !u.birthday || u.termsAcceptedVersion !== CURRENT_TERMS_VERSION;
+/**
+ * The app shows the consent screen (the current Terms) until this is false. The date of birth
+ * is not part of it: it is given from Edit profile, and `assertAdultUser` gates what needs it.
+ */
+export const needsConsent = (u: Pick<UserDoc, 'termsAcceptedVersion'>): boolean =>
+  u.termsAcceptedVersion !== CURRENT_TERMS_VERSION;
 
 /**
  * Money features with real-world value (games, withdrawals) need a stated adult date of birth.
@@ -38,6 +41,6 @@ export const needsConsent = (u: Pick<UserDoc, 'birthday' | 'termsAcceptedVersion
 export function assertAdultUser(u: Pick<UserDoc, 'birthday' | 'underageAt'>, now: Date): void {
   if (u.underageAt) throw underage();
   if (!u.birthday)
-    throw new AppError(403, 'age_required', 'Confirm your date of birth in the app first');
+    throw new AppError(403, 'age_required', 'Add your date of birth in Edit profile first');
   if (ageOn(u.birthday, now) < MIN_USER_AGE) throw underage();
 }

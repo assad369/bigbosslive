@@ -182,12 +182,12 @@ export interface MeUser extends PublicUser {
   maintenanceAccess: boolean;
   /** What this user may moderate from inside the app; null for everyone else. */
   moderation: MeModeration | null;
-  /** Date of birth (UTC midnight); null until the user gives it. Never on public profiles. */
-  birthday: IsoDate | null;
   /**
-   * The app must collect a date of birth and acceptance of `CURRENT_TERMS_VERSION` before
-   * anything else (the consent screen).
+   * Date of birth (UTC midnight); null until the user gives it, once, from Edit profile
+   * (`PATCH /me`). Games and withdrawals need it. Never on public profiles.
    */
+  birthday: IsoDate | null;
+  /** The app must collect acceptance of `CURRENT_TERMS_VERSION` before anything else. */
   needsConsent: boolean;
 }
 
