@@ -5,11 +5,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/config/env.dart';
 import '../../core/config/legal.dart';
-import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/widgets.dart';
-import 'delete_account.dart';
 
 /// Before anything else: acceptance of the current Terms, Community Guidelines and Privacy
 /// Policy. The router sends every signed-in user with `needsConsent` here, existing accounts
@@ -31,12 +29,6 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     try {
       final updated = await ref.read(accountRepo).consent();
       ref.read(sessionProvider.notifier).replace(updated);
-    } on ApiException catch (e) {
-      if (e.code == 'underage') {
-        ref.read(sessionProvider.notifier).refuse(e);
-      } else if (mounted) {
-        showError(context, e);
-      }
     } catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -147,34 +139,4 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
       ),
     );
   }
-}
-
-/// The account gave an under-18 date of birth: it can't be used, only deleted.
-class UnderageScreen extends ConsumerWidget {
-  const UnderageScreen({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-    body: EmptyState(
-      icon: Icons.no_accounts_outlined,
-      title: 'BigBoss Live is for adults',
-      message:
-          'You must be $kMinUserAge or older to use BigBoss Live, so this account is locked. '
-          'You can delete it, or sign out.',
-      action: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: BBColors.danger),
-            onPressed: () => confirmDeleteAccount(context, ref),
-            child: const Text('Delete account'),
-          ),
-          TextButton(
-            onPressed: () => ref.read(sessionProvider.notifier).signOut(),
-            child: const Text('Sign out'),
-          ),
-        ],
-      ),
-    ),
-  );
 }

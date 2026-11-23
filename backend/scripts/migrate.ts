@@ -288,6 +288,17 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    // The date of birth no longer gates anything: unlock accounts locked for an under-18 date.
+    id: '2026-11-24-no-age-gates',
+    async up(db) {
+      const r = await db.col.users.updateMany(
+        { underageAt: { $exists: true } },
+        { $unset: { underageAt: '' } },
+      );
+      console.log(`  unlocked ${r.modifiedCount} account(s)`);
+    },
+  },
 ];
 
 const dryRun = process.argv.includes('--dry-run');

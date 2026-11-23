@@ -197,7 +197,7 @@ export type ReportPriority = (typeof REPORT_PRIORITIES)[number];
  */
 export const CURRENT_TERMS_VERSION = '2026-11-22';
 
-/** Nobody younger may hold an account. */
+/** The minimum age the Terms state. Nothing enforces it from a date of birth. */
 export const MIN_USER_AGE = 18;
 
 /** Account-deletion requests made on the public web page (Play's deletion URL). */

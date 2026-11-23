@@ -477,20 +477,19 @@ the full contract.
 ## Store compliance: age, consent, deletion, reports (`docs/PLAY_STORE.md`)
 
 - **Age and consent:** `/me.needsConsent` (`termsAcceptedVersion` behind
-  `CURRENT_TERMS_VERSION`) sends the app to `/consent` (Terms only) before anything else
-  (`redirectFor`); `POST /me/consent` takes the terms version (409 `terms_outdated`). The date
-  of birth is not part of sign-in: it is given once from Edit profile (`BirthdayTile`,
-  `PATCH /me`, `birthday_locked` after). Under `MIN_USER_AGE` sets `users.underageAt`:
-  `requireAuth` then answers 403 `underage` everywhere but `DELETE /me`, and a later adult date
-  doesn't lift it. Games launch and withdrawal requests call `assertAdultUser`
-  (`modules/users/age.ts`), which answers 403 `age_required` without a date of birth. Bump
+  `CURRENT_TERMS_VERSION`) sends the app to `/consent` (Terms only, where the user confirms
+  `MIN_USER_AGE`+) before anything else (`redirectFor`); `POST /me/consent` takes the terms
+  version (409 `terms_outdated`). The date of birth is an optional profile field given once
+  from Edit profile (`BirthdayTile`, `PATCH /me`, `birthday_locked` after; only an implausible
+  date is refused, 400 `invalid_birthday`). **It gates nothing**: no feature, games and
+  withdrawals included, checks a date of birth or an age. Bump
   `CURRENT_TERMS_VERSION` and the app's `kTermsVersion` together
   (`app/test/legal_contract_test.dart`).
 - **Account deletion** (`UsersService.deleteAccount`) must keep what the dialog, the privacy
   policy and `/delete-account` promise: profile fields, follows, blocks, posts, comments, likes
   and sent DMs go now; the Firebase user and uploads go in the retried `users.erase` job.
   Ledger, gifts, withdrawals, reports and audit rows stay. A pending withdrawal blocks it (409).
-  Banned and underage users can delete (`requireAuth(ctx, { forDeletion: true })`). Media an
+  Banned users can delete (`requireAuth(ctx, { forDeletion: true })`). Media an
   urgent report points to is kept as evidence.
 - **Web deletion requests:** `POST /v1/account-deletion-requests` (anonymous, in `shareRoutes`,
   its own per-visitor limit, same answer whatever matches) from link-web's `/delete-account`

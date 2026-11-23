@@ -10,7 +10,6 @@ import {
   isDuplicateKeyError,
   notFound,
 } from '../../lib/errors.js';
-import { assertAdultUser } from '../users/age.js';
 
 export const withdrawalInput = z.object({
   diamonds: z.number().int().positive(),
@@ -41,8 +40,6 @@ export class WithdrawalsService {
       this.ctx.services.config.get('economy'),
     ]);
     if (!features.withdrawalsEnabled) throw forbidden('Withdrawals are temporarily disabled');
-    // Paying out real money: adults with a stated date of birth only.
-    assertAdultUser(await this.ctx.services.users.get(uid), this.ctx.clock.now());
     if (input.diamonds < economy.minWithdrawDiamonds)
       throw badRequest(`Minimum withdrawal is ${economy.minWithdrawDiamonds} diamonds`);
 

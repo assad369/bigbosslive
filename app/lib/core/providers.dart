@@ -94,9 +94,6 @@ class SessionController extends AsyncNotifier<MeUser?> {
 
   void replace(MeUser me) => state = AsyncData(me);
 
-  /// The server refused this account (`underage`): the router shows why.
-  void refuse(Object error) => state = AsyncError(error, StackTrace.current);
-
   /// A balance the server pushed (`wallet:updated`), applied without a round trip.
   void applyBalance(int diamonds) {
     final me = state.value;

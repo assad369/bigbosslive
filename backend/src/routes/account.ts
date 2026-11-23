@@ -63,7 +63,7 @@ export function accountRoutes(ctx: Ctx): Router {
     res.json({ user: await me(auth.uid, auth.adminRole) });
   });
 
-  // The consent screen: date of birth (once) and the current Terms version.
+  // The consent screen: the current Terms version.
   r.post('/me/consent', auth, async (req, res) => {
     const input = parseBody(req, consentInput);
     const auth = currentUser(req);
@@ -71,7 +71,7 @@ export function accountRoutes(ctx: Ctx): Router {
     res.json({ user: await me(auth.uid, auth.adminRole) });
   });
 
-  // Banned and underage accounts can still delete themselves (Play's account-deletion rule).
+  // Banned accounts can still delete themselves (Play's account-deletion rule).
   r.delete('/me', requireAuth(ctx, { forDeletion: true }), async (req, res) => {
     await users.deleteAccount(currentUser(req).uid);
     res.status(204).end();

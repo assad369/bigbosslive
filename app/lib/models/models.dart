@@ -293,7 +293,7 @@ class MeUser {
   /// Date of birth (UTC midnight), never shown to others; null until given.
   final DateTime? birthday;
 
-  /// The consent screen (date of birth + the current Terms) comes before anything else.
+  /// The consent screen (the current Terms) comes before anything else.
   final bool needsConsent;
 
   /// Opens the Moderation panel (holds the platform moderator role).

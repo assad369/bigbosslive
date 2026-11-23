@@ -66,66 +66,42 @@ describe('consent screen', () => {
     expect(future.body.error.code).toBe('invalid_birthday');
   });
 
-  it('locks an account that gives an under-18 date in Edit profile', async () => {
+  it('keeps an under-18 date from Edit profile without locking the account', async () => {
     await h.user('kid2', { birthday: null });
     const res = await h.api
       .patch('/v1/me')
       .set(h.as('kid2'))
       .send({ birthday: yearsAgo(18, 1) });
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('underage');
-    expect((await h.api.get('/v1/me').set(h.as('kid2'))).body.error.code).toBe('underage');
-    expect((await h.ctx.col.users.findOne({ _id: 'kid2' }))!.underageAt).toBeInstanceOf(Date);
+    expect(res.status).toBe(200);
+    expect(res.body.user.birthday).toBe(`${yearsAgo(18, 1)}T00:00:00.000Z`);
+    await h.api.get('/v1/me').set(h.as('kid2')).expect(200);
   });
 
-  it('locks an account that gives an under-18 date, for good, but lets it delete itself', async () => {
+  it('keeps an under-18 date at consent and at signup', async () => {
     await h.user('kid', { birthday: null, termsAcceptedVersion: null });
-    const res = await h.api
-      .post('/v1/me/consent')
-      .set(h.as('kid'))
-      .send({ termsVersion: CURRENT_TERMS_VERSION, birthday: yearsAgo(18, 1) });
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('underage');
-
-    // Every other route refuses, and a second, adult date doesn't lift it.
-    expect((await h.api.get('/v1/me').set(h.as('kid'))).body.error.code).toBe('underage');
-    const retry = await h.api
-      .post('/v1/me/consent')
-      .set(h.as('kid'))
-      .send({ termsVersion: CURRENT_TERMS_VERSION, birthday: yearsAgo(30) });
-    expect(retry.body.error.code).toBe('underage');
-    expect((await h.api.post('/v1/auth/session').set(h.as('kid'))).body.error.code).toBe(
-      'underage',
-    );
-
-    await h.api.delete('/v1/me').set(h.as('kid')).expect(204);
-    expect((await h.ctx.col.users.findOne({ _id: 'kid' }))!.status).toBe('deleted');
-  });
-
-  it('accepts exactly 18 and refuses an under-18 date at signup', async () => {
-    await h.user('adult18', { birthday: null, termsAcceptedVersion: null });
     await h.api
       .post('/v1/me/consent')
-      .set(h.as('adult18'))
-      .send({ termsVersion: CURRENT_TERMS_VERSION, birthday: yearsAgo(18) })
+      .set(h.as('kid'))
+      .send({ termsVersion: CURRENT_TERMS_VERSION, birthday: yearsAgo(18, 1) })
       .expect(200);
+    await h.api.get('/v1/me').set(h.as('kid')).expect(200);
+
     const signup = await h.api
       .post('/v1/auth/session')
       .set(h.as('minor'))
       .send({ birthday: yearsAgo(15) });
-    expect(signup.body.error.code).toBe('underage');
-    expect(await h.ctx.col.users.findOne({ _id: 'minor' })).toBeNull();
+    expect(signup.status).toBeLessThan(300);
+    expect(await h.ctx.col.users.findOne({ _id: 'minor' })).not.toBeNull();
   });
 
-  it('keeps games and withdrawals for adults with a stated date of birth', async () => {
+  it('lets a user without a date of birth withdraw', async () => {
     await h.user('nodob', { birthday: null, wallet: { diamonds: 100_000 } });
     const res = await h.api
       .post('/v1/withdrawals')
       .set(h.as('nodob'))
       .set('Idempotency-Key', key())
       .send({ diamonds: 60_000, method: 'paypal', account: { email: 'a@b.co' } });
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('age_required');
+    expect(res.status).toBeLessThan(300);
   });
 });
 

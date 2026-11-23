@@ -3,7 +3,6 @@ import {
   ASSIGNABLE_SHORT_ID_PATTERN,
   CURRENT_TERMS_VERSION,
   FIRST_SHORT_ID,
-  MIN_USER_AGE,
   SHORT_ID_PATTERN,
 } from '@bigboss/shared';
 import type { Filter } from 'mongodb';
@@ -14,7 +13,7 @@ import { AppError, badRequest, conflict, isDuplicateKeyError, notFound } from '.
 import { AGENCY_LOGO_FOLDER } from '../agencies/agencies.service.js';
 import { CHAT_MEDIA_FOLDER } from '../chat/chat.service.js';
 import { VOICE_FOLDER } from '../live/live.service.js';
-import { ageOn, assertAdultBirthday, plausibleBirthday, underage } from './age.js';
+import { invalidBirthday, plausibleBirthday } from './age.js';
 import { BRIEF_PROJECTION, toPublicUser, toUserBrief, type UserBrief } from './users.presenter.js';
 
 export const profileInput = z.object({
@@ -113,7 +112,6 @@ export class UsersService {
     if (existing) {
       if (existing.status === 'deleted')
         throw conflict('This account was deleted', 'account_deleted');
-      if (existing.underageAt) throw underage();
       const $set: Partial<UserDoc> = { lastSeenAt: now, adminRole: token.adminRole };
       if (token.email && token.email !== existing.email) $set.email = token.email;
       if (token.phone && token.phone !== existing.phone) $set.phone = token.phone;
@@ -121,7 +119,7 @@ export class UsersService {
       return { user: { ...existing, ...$set }, created: false };
     }
 
-    if (input.birthday) assertAdultBirthday(input.birthday, now);
+    if (input.birthday && !plausibleBirthday(input.birthday, now)) throw invalidBirthday();
     const displayName = await this.ctx.services.moderation.cleanText(
       input.displayName ?? token.name ?? `Boss${Math.floor(Math.random() * 1e6)}`,
     );
@@ -242,7 +240,7 @@ export class UsersService {
         if (!same)
           throw new AppError(409, 'birthday_locked', 'Your date of birth can’t be changed');
       } else if (patch.birthday) {
-        $set.birthday = await this.checkNewBirthday(uid, dayOnly(patch.birthday));
+        $set.birthday = this.checkNewBirthday(dayOnly(patch.birthday));
       }
     }
     if (patch.country !== undefined) $set.country = patch.country;
@@ -423,22 +421,11 @@ export class UsersService {
   }
 
   /**
-   * A first date of birth (calendar day). Implausible → 400. Under `MIN_USER_AGE` locks the
-   * account for good (`underageAt`): a later adult date doesn't lift it, and their live ends.
-   * Returns the date to store when it is an adult one.
+   * A first date of birth (calendar day). Implausible → 400. Any plausible date is kept: the
+   * date of birth is a plain profile field and gates nothing.
    */
-  private async checkNewBirthday(uid: string, birthday: Date): Promise<Date> {
-    const now = this.ctx.clock.now();
-    if (!plausibleBirthday(birthday, now))
-      throw new AppError(400, 'invalid_birthday', 'Enter a valid date of birth');
-    if (ageOn(birthday, now) < MIN_USER_AGE) {
-      await this.col.updateOne(
-        { _id: uid },
-        { $set: { birthday, underageAt: now, updatedAt: now } },
-      );
-      await this.ctx.services.live.endActiveRoomFor(uid, 'moderation', 'system');
-      throw underage();
-    }
+  private checkNewBirthday(birthday: Date): Date {
+    if (!plausibleBirthday(birthday, this.ctx.clock.now())) throw invalidBirthday();
     return birthday;
   }
 
@@ -449,13 +436,10 @@ export class UsersService {
   async recordConsent(uid: string, input: z.infer<typeof consentInput>): Promise<UserDoc> {
     const user = await this.get(uid);
     const now = this.ctx.clock.now();
-    if (user.underageAt) throw underage();
     if (input.termsVersion !== CURRENT_TERMS_VERSION)
       throw new AppError(409, 'terms_outdated', 'Please update the app to accept the new terms');
     const birthday =
-      !user.birthday && input.birthday
-        ? await this.checkNewBirthday(uid, dayOnly(input.birthday))
-        : null;
+      !user.birthday && input.birthday ? this.checkNewBirthday(dayOnly(input.birthday)) : null;
     const updated = await this.col.findOneAndUpdate(
       { _id: uid, status: { $ne: 'deleted' } },
       {

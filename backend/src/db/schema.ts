@@ -122,11 +122,6 @@ export interface UserDoc {
   /** The `CURRENT_TERMS_VERSION` the user accepted in the app, and when. Absent until then. */
   termsAcceptedVersion?: string | null;
   termsAcceptedAt?: Date | null;
-  /**
-   * Set when the user gave a date of birth under `MIN_USER_AGE`. The account is then refused
-   * everywhere (403 `underage`) except deleting it, and a later adult date doesn't lift it.
-   */
-  underageAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   lastSeenAt: Date;

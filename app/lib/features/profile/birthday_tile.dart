@@ -2,15 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/config/legal.dart';
-import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../core/theme/bb_colors.dart';
 import '../../core/widgets/widgets.dart';
 
-/// The date of birth in Edit profile: given once, never shown to others. Games and withdrawals
-/// need it (the server answers `age_required` without one). An under-18 date locks the account,
-/// and the router then shows `/underage`.
+/// The date of birth in Edit profile: optional, given once, never shown to others. It gates
+/// nothing.
 class BirthdayTile extends ConsumerStatefulWidget {
   const BirthdayTile({super.key, this.today});
 
@@ -44,8 +41,7 @@ class _BirthdayTileState extends ConsumerState<BirthdayTile> {
         title: const Text('Save date of birth?'),
         content: Text(
           '${DateFormat('d MMMM y').format(picked)}\n\n'
-          'It can’t be changed later. BigBoss Live is for adults '
-          '($kMinUserAge+): an account that gives a younger age is locked.',
+          'It can’t be changed later.',
         ),
         actions: [
           TextButton(
@@ -65,12 +61,6 @@ class _BirthdayTileState extends ConsumerState<BirthdayTile> {
     try {
       final updated = await ref.read(accountRepo).setBirthday(picked);
       ref.read(sessionProvider.notifier).replace(updated);
-    } on ApiException catch (e) {
-      if (e.code == 'underage') {
-        ref.read(sessionProvider.notifier).refuse(e);
-      } else if (mounted) {
-        showError(context, e);
-      }
     } catch (e) {
       if (mounted) showError(context, e);
     } finally {

@@ -85,10 +85,9 @@ export function termsView(): View {
       <h2>1. Who may use {O.appName}</h2>
       <p>
         You must be <b>18 or older</b>, and old enough to enter a binding contract where you live.
-        We ask for your date of birth in your profile, require it before games or withdrawals, and
-        lock any account that gives a date under 18. We remove accounts we believe belong to someone
-        under 18. You may not use {O.appName} if we have banned you before, or if the law where you
-        live forbids it.
+        You confirm this when you accept these Terms. We remove accounts we believe belong to
+        someone under 18. You may not use {O.appName} if we have banned you before, or if the law
+        where you live forbids it.
       </p>
       <p>
         You may hold one account, for yourself only. Keep your sign-in secure: you are responsible
@@ -274,8 +273,8 @@ export function privacyView(): View {
           Apple sign-in; a user ID and a public numeric ID.
         </li>
         <li>
-          <b>Profile:</b> display name, photo, bio, gender, country and date of birth. Your date of
-          birth is used to confirm you are 18 or older and is never shown to others.
+          <b>Profile:</b> display name, photo, bio, gender, country and, if you add it, date of
+          birth. Your date of birth is optional and is never shown to others.
         </li>
         <li>
           <b>Content you create:</b> live video and audio, live chat and voice messages, private
@@ -545,9 +544,8 @@ export function childSafetyView(): View {
       <h2>Minors are not allowed</h2>
       <p>
         {O.appName} is only for people 18 and older. Everyone confirms they are 18 or older when
-        they accept the Terms, a date of birth is required before games or withdrawals, and an
-        account that gives an age under 18 is locked. Users can report someone who appears to be
-        under 18, and we remove those accounts.
+        they accept the Terms. Users can report someone who appears to be under 18, and we remove
+        those accounts.
       </p>
 
       <h2>How to report</h2>

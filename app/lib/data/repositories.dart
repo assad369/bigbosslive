@@ -43,8 +43,7 @@ class AccountRepository {
     return MeUser.fromJson(j.obj('user'));
   }
 
-  /// The date of birth, given once from Edit profile. An under-18 date answers `underage`
-  /// and locks the account.
+  /// The date of birth, given once from Edit profile. Optional; it gates nothing.
   Future<MeUser> setBirthday(DateTime birthday) => updateProfile({
     'birthday':
         '${birthday.year.toString().padLeft(4, '0')}-'

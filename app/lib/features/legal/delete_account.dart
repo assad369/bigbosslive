@@ -16,8 +16,8 @@ const deleteAccountExplanation =
     'records as financial law requires, and safety reports. A withdrawal under review must '
     'finish first.\n\nThis cannot be undone.';
 
-/// Confirms, deletes the account and signs out. Works for banned and underage accounts too,
-/// which the server lets delete themselves.
+/// Confirms, deletes the account and signs out. Works for banned accounts too, which the
+/// server lets delete themselves.
 Future<void> confirmDeleteAccount(BuildContext context, WidgetRef ref) async {
   final privacyUrl =
       ref.read(appConfigProvider).value?.privacyUrl ?? Env.privacyUrl;

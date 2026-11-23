@@ -24,8 +24,8 @@ app.
    agent screens).
 
 The lowest-risk Play build turns off games (`features.gamesEnabled`), stops withdrawals of
-purchased diamonds, and removes the agent paths from the Android app. The server already
-refuses games and withdrawals to anyone without a stated adult date of birth.
+purchased diamonds, and removes the agent paths from the Android app. The date of birth is an
+optional profile field and gates nothing: age rests on the 18+ confirmation in the Terms.
 
 ## 1. Before the first upload
 
@@ -65,7 +65,7 @@ refuses games and withdrawals to anyone without a stated adult date of birth.
 |---|---|
 | Privacy policy | `https://bigbosslive.ctll.online/legal/privacy` |
 | Ads | No ads |
-| App access | Give a reviewer login: a Firebase **test phone number** with a fixed code (Firebase console → Authentication → Sign-in method → Phone). The reviewer accepts the Terms on the consent screen; to test games or withdrawals, add an adult date of birth in Edit profile. |
+| App access | Give a reviewer login: a Firebase **test phone number** with a fixed code (Firebase console → Authentication → Sign-in method → Phone). The reviewer accepts the Terms on the consent screen. |
 | Target audience | **18 and over only.** Not designed for children. |
 | Content rating (IARC) | User interaction: yes. Users can communicate with each other, share location: no, share personal info: yes (profiles, phone numbers in messages). Digital purchases: yes. Simulated gambling: yes (games of chance). Real-money gambling: answer truthfully (staked diamonds can be withdrawn). |
 | News app | No |
@@ -98,7 +98,7 @@ No data is used for advertising and none is sold.
 | Email address | Yes (Google/Apple sign-in) | No | Account | Optional (depends on sign-in) |
 | User IDs | Yes | Games provider, LiveKit | App functionality, fraud prevention | Required |
 | Phone number | Yes (phone sign-in) | No | Account | Optional (depends on sign-in) |
-| Date of birth | Yes | No | Age verification (compliance) | Optional |
+| Date of birth | Yes | No | App functionality | Optional |
 | Other info: gender, country, bio | Yes | No | App functionality | Optional |
 | Financial info: purchase history | Yes | No | App functionality, compliance | Required for purchases |
 | Financial info: other (payout account) | Yes | No | Payouts | Optional (withdrawals only) |
@@ -146,9 +146,8 @@ device ID never moves to another phone.
   roles). Verify the requester owns the account (they write from its email, or confirm a
   detail), then Resolve → Delete with the short ID, uid, email or phone. Answer within 30 days,
   as the deletion page promises.
-- **Ages:** an account that gives a date of birth under 18 is locked (`underageAt`) and can
-  only delete itself. Reports with reason `underage` go to the normal queue: ban accounts that
-  belong to minors.
+- **Ages:** the date of birth gates nothing; users confirm they are 18+ with the Terms. Reports
+  with reason `underage` go to the normal queue: ban accounts that belong to minors.
 
 ## 6. New personal developer accounts
 

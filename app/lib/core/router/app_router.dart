@@ -55,7 +55,6 @@ const _bootRoutes = {
   '/maintenance',
   '/update',
   '/consent',
-  '/underage',
 };
 
 /// Pure redirect rules, kept separate from go_router so they can be tested directly.
@@ -95,8 +94,6 @@ String? redirectFor({
       (err.code == 'account_banned' || err.code == 'device_banned')) {
     return '/banned';
   }
-  // An account that gave an under-18 date of birth: locked, it can only be deleted.
-  if (err is ApiException && err.code == 'underage') return '/underage';
   if (err != null && !session.hasValue) {
     // Only an auth failure means signing in again. Anything else (offline, server down) keeps
     // the Firebase session and offers a retry.
@@ -110,7 +107,7 @@ String? redirectFor({
   if (!signedIn) {
     return location == '/login' || location == '/otp' ? null : '/login';
   }
-  // Date of birth and the current Terms come before anything else, for every account.
+  // The current Terms come before anything else, for every account.
   if (session.value!.needsConsent) {
     return location == '/consent' ? null : '/consent';
   }
@@ -155,7 +152,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/offline', builder: (_, _) => const OfflineScreen()),
       GoRoute(path: '/banned', builder: (_, _) => const BannedScreen()),
       GoRoute(path: '/consent', builder: (_, _) => const ConsentScreen()),
-      GoRoute(path: '/underage', builder: (_, _) => const UnderageScreen()),
       GoRoute(
         path: '/maintenance',
         builder: (_, _) => const MaintenanceScreen(),

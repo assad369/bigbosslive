@@ -75,15 +75,6 @@ void main() {
     test('once consent is given, /consent leads home', () {
       expect(_redirect('/consent', session: AsyncData(_me)), '/home');
     });
-
-    test('an underage account can only see /underage', () {
-      const session = AsyncError<MeUser?>(
-        ApiException(403, 'underage', 'You must be 18 or older'),
-        StackTrace.empty,
-      );
-      expect(_redirect('/home', session: session), '/underage');
-      expect(_redirect('/underage', session: session), '/underage');
-    });
   });
 
   group('redirectFor', () {

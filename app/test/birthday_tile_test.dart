@@ -1,4 +1,3 @@
-import 'package:bigboss_live/core/network/api_exception.dart';
 import 'package:bigboss_live/core/providers.dart';
 import 'package:bigboss_live/data/repositories.dart';
 import 'package:bigboss_live/features/profile/birthday_tile.dart';
@@ -21,16 +20,13 @@ class _Session extends SessionController {
   Future<MeUser?> build() async => _me();
 }
 
-/// Records the date sent and answers like the server: under 18 is refused.
+/// Records the date sent and answers like the server: any plausible date is kept.
 class _Account implements AccountRepository {
   DateTime? sent;
 
   @override
   Future<MeUser> setBirthday(DateTime birthday) async {
     sent = birthday;
-    if (birthday.isAfter(DateTime(2008, 6, 1))) {
-      throw const ApiException(403, 'underage', 'You must be 18 or older');
-    }
     return _me(
       birthday:
           '${birthday.year}-${birthday.month.toString().padLeft(2, '0')}-'
@@ -100,13 +96,11 @@ void main() {
     expect(find.byIcon(Icons.lock_outline), findsOneWidget);
   });
 
-  testWidgets('an under-18 date ends in the underage refusal', (tester) async {
+  testWidgets('an under-18 date is saved like any other', (tester) async {
     final account = _Account();
     final container = await _pump(tester, account);
     await _pickYearAndSave(tester, '2015');
     expect(account.sent?.year, 2015);
-    final err = container.read(sessionProvider).error;
-    expect(err, isA<ApiException>());
-    expect((err! as ApiException).code, 'underage');
+    expect(container.read(sessionProvider).value?.birthday?.year, 2015);
   });
 }

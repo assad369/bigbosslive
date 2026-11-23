@@ -3,7 +3,6 @@ import type { AdminRole } from '@bigboss/shared';
 import type { Ctx } from '../context.js';
 import type { UserDoc } from '../db/schema.js';
 import { AppError, unauthorized } from '../lib/errors.js';
-import { underage } from '../modules/users/age.js';
 import type { VerifiedToken } from '../infra/firebase.js';
 
 export interface AuthUser {
@@ -67,7 +66,7 @@ export function requireAuth(
     /** The admin dashboard keeps working while the app is closed for maintenance. */
     duringMaintenance?: boolean;
     /**
-     * Banned and underage accounts may still use this route. Only account deletion opts in:
+     * Banned accounts may still use this route. Only account deletion opts in:
      * Play requires that anyone can delete their account.
      */
     forDeletion?: boolean;
@@ -84,7 +83,6 @@ export function requireAuth(
       );
     }
     const now = ctx.clock.now();
-    if (user.underageAt && !opts.forDeletion) throw underage();
     if (user.status === 'banned' && !opts.forDeletion) {
       if (user.ban?.until && user.ban.until <= now) {
         await ctx.services.users.liftExpiredBan(user._id);
